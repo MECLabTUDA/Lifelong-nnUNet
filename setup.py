@@ -4,26 +4,14 @@ from setuptools import setup, find_namespace_packages
 setup(name='nnunet',
       packages=find_namespace_packages(include=["nnunet_cl", "nnunet_cl.*"]),
       #version='1.6.6',
-      description='nnU-Net extensions. Framework for out-of-the box biomedical image segmentation using Continual Learning methods.',
-      """url='https://github.com/MIC-DKFZ/nnUNet',
-      author='Division of Medical Image Computing, German Cancer Research Center',
-      author_email='f.isensee@dkfz-heidelberg.de',
+      description='Add short description',
+      url='Add url',    # url to repository
+      author='Add author',
+      author_email='Add email address',
       license='Apache License Version 2.0, January 2004',
       install_requires=[
-            "torch>=1.6.0a",
-            "tqdm",
-            "dicom2nifti",
-            "scikit-image>=0.14",
-            "medpy",
-            "scipy",
-            "batchgenerators>=0.21",
-            "numpy",
-            "sklearn",
-            "SimpleITK",
-            "pandas",
-            "requests",
-            "nibabel", 'tifffile'
-      ],"""
+            # Add only the packages that are not in the nnUNet repositories setup.py file!
+      ],
       entry_points={
           'console_scripts': [
               'nnUNet_cl_convert_decathlon_task = nnunet.experiment_planning.nnUNet_convert_decathlon_task:main',
@@ -47,5 +35,6 @@ setup(name='nnunet',
           ],
       },
       keywords=['deep learning', 'image segmentation', 'medical image analysis',
-                'medical image segmentation', 'nnU-Net', 'nnunet']
+                'medical image segmentation', 'nnU-Net', 'nnunet', 'CL', 'Continual Learning',
+                'Elastiv Weight Consolidation', 'Learning Without Forgetting']
       )
