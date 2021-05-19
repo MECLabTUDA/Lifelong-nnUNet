@@ -1,3 +1,2 @@
--e .
-nnunet
---upgrade git+https://github.com/FabianIsensee/hiddenlayer.git@more_plotted_details#egg=hiddenlayer
+git+https://github.com/MIC-DKFZ/nnUNet
+git+https://github.com/FabianIsensee/hiddenlayer.git@more_plotted_details#egg=hiddenlayer

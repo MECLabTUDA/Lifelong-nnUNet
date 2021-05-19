@@ -1,8 +1,12 @@
+#########################################################################################################
+#--------------------------Corresponding setup.py file for nnUNet extensions.---------------------------#
+#########################################################################################################
+
 # Includes parts from original nnunet (https://github.com/MIC-DKFZ/nnUNet)
 from setuptools import setup, find_namespace_packages
 
-setup(name='nnunet',
-      packages=find_namespace_packages(include=["nnunet_cl", "nnunet_cl.*"]),
+setup(name='nnunet_ext',
+      packages=find_namespace_packages(include=["nnunet_ext", "nnunet_ext.*"]),
       #version='1.6.6',
       description='Add short description',
       url='Add url',    # url to repository
@@ -14,27 +18,14 @@ setup(name='nnunet',
       ],
       entry_points={
           'console_scripts': [
-              'nnUNet_cl_convert_decathlon_task = nnunet.experiment_planning.nnUNet_convert_decathlon_task:main',
-              'nnUNet_cl_plan_and_preprocess = nnunet.experiment_planning.nnUNet_plan_and_preprocess:main',
-              'nnUNet_cl_train = nnunet.run.run_training:main',
-              'nnUNet_cl_train_DP = nnunet.run.run_training_DP:main',
-              'nnUNet_cl_train_DDP = nnunet.run.run_training_DDP:main',
-              'nnUNet_cl_predict = nnunet.inference.predict_simple:main',
-              'nnUNet_cl_ensemble = nnunet.inference.ensemble_predictions:main',
-              'nnUNet_cl_find_best_configuration = nnunet.evaluation.model_selection.figure_out_what_to_submit:main',
-              'nnUNet_cl_print_available_pretrained_models = nnunet.inference.pretrained_models.download_pretrained_model:print_available_pretrained_models',
-              'nnUNet_cl_print_pretrained_model_info = nnunet.inference.pretrained_models.download_pretrained_model:print_pretrained_model_requirements',
-              'nnUNet_cl_download_pretrained_model = nnunet.inference.pretrained_models.download_pretrained_model:download_by_name',
-              'nnUNet_cl_download_pretrained_model_by_url = nnunet.inference.pretrained_models.download_pretrained_model:download_by_url',
-              'nnUNet_cl_determine_postprocessing = nnunet.postprocessing.consolidate_postprocessing_simple:main',
-              'nnUNet_cl_export_model_to_zip = nnunet.inference.pretrained_models.collect_pretrained_models:export_entry_point',
-              'nnUNet_cl_install_pretrained_model_from_zip = nnunet.inference.pretrained_models.download_pretrained_model:install_from_zip_entry_point',
-              'nnUNet_cl_change_trainer_class = nnunet.inference.change_trainer:main',
-              'nnUNet_cl_evaluate_folder = nnunet.evaluation.evaluator:nnunet_evaluate_folder',
-              'nnUNet_cl_plot_task_pngs = nnunet.utilities.overlay_plots:entry_point_generate_overlay',
+              'nnUNet_dataset_label_mapping = nnunet_ext.experiment_planning.dataset_label_mapping:main',# Use when the labels of the masks need to be changed based on a mapping file
+              'nnUNet_train_sequential = nnunet_ext.run.run_training_sequential:main',         # Use for sequential training
+              'nnUNet_train_rehearsal = nnunet_ext.run.run_training_rehearsal:main',           # Use for rehearsal training
+              'nnUNet_train_ewc = nnunet_ext.run.run_training_ewc:main',                       # Use for EWC training
+              'nnUNet_train_lwf = nnunet_ext.run.run_training_lwf:main',                       # Use for LWF training
           ],
       },
       keywords=['deep learning', 'image segmentation', 'medical image analysis',
                 'medical image segmentation', 'nnU-Net', 'nnunet', 'CL', 'Continual Learning',
-                'Elastiv Weight Consolidation', 'Learning Without Forgetting']
+                'Elastiv Weight Consolidation', 'Learning Without Forgetting', 'nnU-Net extensions']
       )
