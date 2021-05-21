@@ -26,6 +26,7 @@ setup(name='nnunet_ext',
       license='Apache License Version 2.0, January 2004',
       install_requires=[
             # Add only the packages that are not in the nnUNet repositories setup.py file!
+            tqdm
       ],
       entry_points={
           'console_scripts': [
@@ -38,5 +39,5 @@ setup(name='nnunet_ext',
       },
       keywords=['deep learning', 'image segmentation', 'medical image analysis',
                 'medical image segmentation', 'nnU-Net', 'nnunet', 'CL', 'Continual Learning',
-                'Elastiv Weight Consolidation', 'Learning Without Forgetting', 'nnU-Net extensions']
+                'Elastic Weight Consolidation', 'Learning Without Forgetting', 'nnU-Net extensions']
       )

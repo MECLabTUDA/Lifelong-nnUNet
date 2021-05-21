@@ -79,9 +79,8 @@ def test_dataset_label_mapping():
     # -- Create the transformed mask --> expect an error this time -- #
     try:
         new_mask = _perform_transformation_on_mask_using_mapping(mask, mapping)
-        assert "Expected an error due to empty mapping."
-    except:
+        assert False, "Expected an error due to empty mapping."
+    except Exception as ex:
+        if type(ex).__name__ != "AssertionError":
+            assert False, "Expected an AssertionError, not another Error type."
         pass
-
-if __name__ == "__main__":
-    test_dataset_label_mapping()

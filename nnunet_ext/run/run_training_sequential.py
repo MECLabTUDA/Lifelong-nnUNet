@@ -150,6 +150,8 @@ def main():
         init_identifier = default_plans_identifier  # Set to init_identifier
     disable_saving = args.disable_saving
     save_interval = args.save_interval
+    if isinstance(save_interval, list):    # When the save_interval get returned as a list, extract the number to avoid later appearing errors
+        save_interval = save_interval[0]
     cuda = args.device
 
     # -- Assert if device value is ot of predefined range and create string to set cuda devices -- #
@@ -368,12 +370,12 @@ def main():
                 trainer.save_intermediate_checkpoints = True  # whether or not to save checkpoint_latest. We need that in case
                 trainer.save_latest_only = True  # if false it will not store/overwrite _latest but separate files each
 
+            # -- Initialize the trainer since it is newly created every time because of the new dataset, task, fold, optimizer, etc. -- #
+            trainer.initialize(not validation_only, num_epochs=num_epochs, prev_trainer=prev_trainer)
+
             # -- Update trained_on 'manually' if first task is done but finished_training_on is empty --> first task was used for initialization -- #
             if idx == 1 and len(trainer.already_trained_on[str(t_fold)]['finished_training_on']) == 0:
                 trainer.update_save_trained_on_json(t, finished=True)
-
-            # -- Initialize the trainer since it is newly created every time because of the new dataset, task, fold, optimizer, etc. -- #
-            trainer.initialize(not validation_only, num_epochs=num_epochs, prev_trainer=prev_trainer)
 
             # -- Find a matchting lr given the provided num_epochs -- #
             if find_lr:
@@ -443,7 +445,6 @@ def main():
         # -- Reset init_seq, prev_trainer and already_trained_on -- #
         init_seq = args.init_seq
         prev_trainer = args.initialize_with_network_trainer
-        already_trained_on = None
 
 if __name__ == "__main__":
     main()

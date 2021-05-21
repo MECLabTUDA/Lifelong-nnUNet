@@ -23,10 +23,12 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
 
         # -- Initialize or set self.already_trained_on dictionary to keep track of the trained tasks so far for restoring -- #
         if already_trained_on is not None:
-            self.already_trained_on = already_trained_on
+            self.already_trained_on = already_trained_on    # Use provided already_trained on
+            self.already_trained_on[str(self.fold)] = {'finished_training_on': list(), 'start_training_on': None,
+                                                        'used_identifier': self.identifier}  # Add current fold as new entry
         else:
             self.already_trained_on = {str(self.fold): {'finished_training_on': list(), 'start_training_on': None,
-                                                        'used_identifier': identifier}}
+                                                        'used_identifier': self.identifier}}
         
         # -- Set the path were the trained_on file will be stored: grand parent directory from output_folder, ie. were all tasks are stored -- #
         self.trained_on_path = os.path.dirname(os.path.dirname(os.path.realpath(output_folder)))

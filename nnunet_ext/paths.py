@@ -12,7 +12,7 @@ default_data_identifier = 'nnUNetData_plans_v2.1'
 default_trainer = "nnUNetTrainerSequential"
 default_cascade_trainer = "nnUNetTrainerSequentialCascadeFullRes"
 
-#------------------------------------------- Copied from original implementation -------------------------------------------#
+#------------------------------------------- Copied and adapted from original implementation -------------------------------------------#
 """
 PLEASE READ paths.md FOR INFORMATION TO HOW TO SET THIS UP
 """
@@ -20,6 +20,9 @@ PLEASE READ paths.md FOR INFORMATION TO HOW TO SET THIS UP
 base = os.environ['nnUNet_raw_data_base'] if "nnUNet_raw_data_base" in os.environ.keys() else None
 preprocessing_output_dir = os.environ['nnUNet_preprocessed'] if "nnUNet_preprocessed" in os.environ.keys() else None
 network_training_output_dir_base = os.path.join(os.environ['RESULTS_FOLDER']) if "RESULTS_FOLDER" in os.environ.keys() else None
+
+# -- New variable for evaluation -- #
+evaluation_output_dir_base = os.path.join(os.environ['EVALUATION_FOLDER']) if "EVALUATION_FOLDER" in os.environ.keys() else None
 
 if base is not None:
     nnUNet_raw_data = join(base, "nnUNet_raw_data")
@@ -47,4 +50,14 @@ else:
           "inference. If this is not intended behavior, please read documentation/setting_up_paths.md for information on how to set this "
           "up.")
     network_training_output_dir = None
-#------------------------------------------- Copied from original implementation -------------------------------------------#
+
+# -- Set new path for evaluation -- #
+if evaluation_output_dir_base is not None:
+    evaluation_output_dir = join(evaluation_output_dir_base, my_output_identifier)
+    maybe_mkdir_p(evaluation_output_dir)
+else:
+    print("EVALUATION_FOLDER is not defined and nnU-Net extension cannot be used for evaluation. "
+          "If this is not intended behavior, please read documentation/setting_up_paths.md for information on how to set this "
+          "up.")
+    evaluation_output_dir = None
+#------------------------------------------- Copied and adapted from original implementation -------------------------------------------#
