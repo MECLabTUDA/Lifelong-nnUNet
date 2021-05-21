@@ -25,8 +25,8 @@ setup(name='nnunet_ext',
       author_email='Add email address',
       license='Apache License Version 2.0, January 2004',
       install_requires=[
-	tqdm
             # Add only the packages that are not in the nnUNet repositories setup.py file!
+	    tqdm
       ],
       entry_points={
           'console_scripts': [
