@@ -3,7 +3,7 @@
 
 This is a general description on how to change the masks of a desired dataset based on a provided mapping file using the nnU-Net extension.
 
-1. The extension can only be used after it has been succesfully installed *-- including all dependencies --* following the instructions from [here](../readme.md#installation). Further, all relevant paths have to be set, so the nnU-Net and the nnU-Net extension can extract the right directories for training, preprocessing, storing etc. as described [here](https://github.com/MIC-DKFZ/nnUNet/blob/master/documentation/setting_up_paths.md).
+1. The extension can only be used after it has been succesfully installed *-- including all dependencies --* following the instructions from [here](../README.md#installation). Further, all relevant paths have to be set, so the nnU-Net and the nnU-Net extension can extract the right directories for training, preprocessing, storing etc. as described [here](https://github.com/MIC-DKFZ/nnUNet/blob/master/documentation/setting_up_paths.md).
 
 2. The desired dataset for which the mask labels should be transformed needs to be located under the specified `nnUNet_raw_data_base` that has been set in the previous step. It is very important to know, that the dataset needs to have a Decathlon-like structure, ie. the name starts with `Task_XX`, whereas `XX` is a desired ID and the following structure should apply:
 
@@ -67,7 +67,16 @@ This is a general description on how to change the masks of a desired dataset ba
 													 -t_out 41
 													 -m nnUNet_raw_data_base/mappings/hippocampus_mapping.json
 ```
-After successful termination of the algorithm, the new task *-- dataset --* with ID 41 can be found at `nnUNet_raw_data_base/nnUNet_raw_data/Task041_Hippocampus` and the corresponding preprocessed dataset is located under `nnUNet_preprocessed/Task041_Hippocampus`. In both locations, the `dataset.json` will be updated and includes the new label mapping in the standard way. The original Task, ie. `nnUNet_raw_data_base/Task04_Hippocampus` still exists and include the original dataset and corresponding masks.
+After successful termination of the algorithm, the new task *-- dataset --* with ID 41 can be found at `nnUNet_raw_data_base/nnUNet_raw_data/Task041_Hippocampus` and the corresponding preprocessed dataset is located under `nnUNet_preprocessed/Task041_Hippocampus`. In both locations, the `dataset.json` will be updated and includes the new label mapping in the standard way. The original Task, ie. `nnUNet_raw_data_base/Task04_Hippocampus` still exists and include the original dataset and corresponding masks. The following images show the different masks where the difference can be observed:
+
+<p align="center">
+	<img src="references/HC_044_orig_mask.png" width="700" height="500"/>
+</p>
+
+<p align="center">
+	<img src="references/HC_044_changed_mask.png" width="700" height="500"/>
+</p>
+
 
 In the following, the possible command line arguments are presented and further discussed.
 

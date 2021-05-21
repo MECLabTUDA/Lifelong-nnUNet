@@ -166,7 +166,7 @@ def main():
     # Transform tasks to task names
     # -------------------------------
     # -- Transform fold to list if it is set to 'all'
-    if fold[0] == '\'all\'':
+    if fold[0] == 'all':
         fold = list(range(6))
     else: # change each fold type from str to int
         fold = list(map(int, fold))
