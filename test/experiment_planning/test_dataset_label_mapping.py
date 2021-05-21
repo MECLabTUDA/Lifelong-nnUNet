@@ -83,4 +83,3 @@ def test_dataset_label_mapping():
     except Exception as ex:
         if type(ex).__name__ != "AssertionError":
             assert False, "Expected an AssertionError, not another Error type."
-        pass
