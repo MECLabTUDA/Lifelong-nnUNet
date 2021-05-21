@@ -16,6 +16,8 @@ from nnunet.experiment_planning.nnUNet_convert_decathlon_task import crawl_and_r
 
 def _perform_transformation_on_mask_using_mapping(mask, mapping):
     r"""This function changes the labeling in the mask given a specified mapping. The mask should be a SimpleITK image."""
+    # -- Ensure that mapping is not empty -- #
+    assert mapping is not None and len(mapping) != 0, "The mapping dict is empty --> can not change labels according to empty mapping."
     # -- Load the mask using SimpleITK and convert it to a numpy array for transformation -- #
     img_array = sitk.GetArrayFromImage(mask).astype(np.float32)
 
@@ -29,14 +31,11 @@ def _perform_transformation_on_mask_using_mapping(mask, mapping):
     img_array[img_array > 0] = 0    # Set all old labels to background
 
     # -- Invert all negative labels to get the desired (transformed) mask -- #
-    img_array = img_array * -1
-
-    # -- Flip the mask, since it has changed due to transformation -- #
-    img_array = np.flip(img_array, (1, 2))
+    img_array = np.absolute(img_array)
 
     # -- Convert the transformed numpy array back to a SimpleITK image and save the new mask by overwriting the old one -- #
     mask = sitk.GetImageFromArray(img_array)
-
+    
     # -- Return the new mask image -- #
     return mask
             
@@ -49,12 +48,12 @@ def main():
     parser = argparse.ArgumentParser()
     
     # NOTE: The input task should have the same structure as for the conventional nnUNet!
-    parser.add_argument("-t_in", "--tasks_in_path", nargs="+", help="Specify a list of paths to tasks TaskXX_TASKNAME folders.", required=True)
-    parser.add_argument("-t_out", "--tasks_out_ids", nargs="+", type=int, help="Specify the task ids for the output folders. "
+    parser.add_argument("-t_in", "--tasks_in_path", nargs="+", help="Specify one or a list of paths to tasks TaskXX_TASKNAME folders.", required=True)
+    parser.add_argument("-t_out", "--tasks_out_ids", nargs="+", type=int, help="Specify the unique task ids for the output folders. "
                                                                                "Since the task ids of the input folder are already used "
                                                                                "with the original (unchanged) masked this is required."
                                                                                "Keep in mind that IDs need to be unique --> This will be tested!", required=True)
-    parser.add_argument("-m", "--mapping_file_path", nargs="+", help="Specify a list of paths to the mapping (.json) files corresponding to the task ids.",
+    parser.add_argument("-m", "--mapping_files_path", nargs="+", help="Specify a list of paths to the mapping (.json) files corresponding to the task ids.",
                         required=True)
     parser.add_argument("-p", required=False, default=default_num_threads, type=int,
                         help="Use this to specify how many processes are used to run the script. "
@@ -69,7 +68,7 @@ def main():
     #                           Mapping .json strcutre definition
     # The mapping file should be a .json file and needs to have the following structure:
     #   {
-    #        "(old_label_description, old_label)": new_label,
+    #        "old_label_description --> old_label": new_label,
     #        ...
     #   }
     # For example changing in Hippocampus Posterior to 1 and Anterior to 2:
@@ -92,7 +91,7 @@ def main():
     args = parser.parse_args()
     tasks_in = args.tasks_in_path    # List of the paths to the tasks
     task_out = args.tasks_out_ids   # List of the tasks IDss
-    mappings = args.mapping_file_path       # List of the paths to the mapping files
+    mappings = args.mapping_files_path       # List of the paths to the mapping files
     disable_pp = args.no_pp # Flag that specifies if nnUNet_plan_and_preprocess should be performed
 
     # -- Sanity checks for input -- #
@@ -169,7 +168,7 @@ def main():
         # -- Plan and preprocess the new dataset if the flag is not set -- #
         if not disable_pp:
             # -- Update user -- #
-            print("Performing planning and preprocessing of task {}..".format(full_task_name))
+            print("Performing planning and preprocessing of task {}..".format("Task%03.0d_" % out_task + task_name))
             # -- Execute the nnUNet_plan_and_preprocess command -- #
             os.system('nnUNet_plan_and_preprocess -t ' + str(out_task))
 

@@ -4,28 +4,36 @@
 #########################################################################################################
 
 import os
-import torch
+from nnunet_ext.paths import default_plans_identifier
 from nnunet.training.network_training.nnUNetTrainerV2 import nnUNetTrainerV2
 from batchgenerators.utilities.file_and_folder_operations import *
 
 
 class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class for 2D, 3D low resolution and 3D full resolution U-Net 
     def __init__(self, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
-                 unpack_data=True, deterministic=True, fp16=False, save_interval=5):
-        r"""Instructor of Sequential trainer for 2D, 3D low resolution and 3D full resolution U-Nets.
+                 unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None,
+                 identifier=default_plans_identifier):
+        r"""Instructor of Sequential trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
         """
         # -- Initialize using parent class -- #
         super().__init__(plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic, fp16)
 
-        # -- Define self.already_trained_on dictionary to keep track of the trained tasks so far for restoring -- #
-        self.already_trained_on = {self.fold: {'finished_training_on': list(), 'start_training_on': None}}
+        # -- Set identifier to use for building the .json file that is used for restoring states -- #
+        self.identifier = identifier
+
+        # -- Initialize or set self.already_trained_on dictionary to keep track of the trained tasks so far for restoring -- #
+        if already_trained_on is not None:
+            self.already_trained_on = already_trained_on
+        else:
+            self.already_trained_on = {str(self.fold): {'finished_training_on': list(), 'start_training_on': None,
+                                                        'used_identifier': identifier}}
         
         # -- Set the path were the trained_on file will be stored: grand parent directory from output_folder, ie. were all tasks are stored -- #
         self.trained_on_path = os.path.dirname(os.path.dirname(os.path.realpath(output_folder)))
 
-        # -- Store the save_interval that indicates at each epoch interval, the current validation metrices will be stored --- #
-        self.save_interval = save_interval
-
+        # -- Set save_every, so the super trainer class creates checkpoint individually and the validation metrics will be filtered accordingly -- #
+        self.save_every = save_interval
+        
         # -- Store the fold for tracking and saving in the self.already_trained_on file -- #
         self.fold = fold
 
@@ -41,8 +49,15 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
         # -- Set nr_epochs to provided number -- #
         self.max_num_epochs = num_epochs
 
+        # -- Initialize the trained_on_tasks and load trained_on_folds -- #
+        trained_on_tasks = list()
+        trained_on_folds = self.already_trained_on.get(str(self.fold), list())
+        
+        # -- Reset the trained_on_tasks if the trained_on_folds exist for the current fold -- #
+        if isinstance(trained_on_folds, dict):
+            trained_on_tasks = trained_on_folds.get('finished_training_on', list())
+
         # -- The new_trainer indicates if the model is a new sequential model, ie. if it has been trained on only one task so far (True) or on more than one (False) -- #
-        trained_on_tasks = self.already_trained_on.get(self.fold, list()).get('finished_training_on', list())
         if len(trained_on_tasks) > 1:
             self.new_trainer = False
         else:
@@ -56,6 +71,9 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
         :return:
         """
         if self.trainer is None:
+            # -- Set trainer in already_trained_on to the class name -- #
+            self.already_trained_on[str(self.fold)]['prev_trainer'] = self.__class__.__name__
+
             # -- Initialize from beginning and start training, since no model is provided -- #
             super().initialize_network() # --> This updates the corresponding variables automatically since we inherit this class
             return  # Done with initialization
@@ -66,8 +84,9 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
             # -- Remove the addition of fold_X from the output_folder, since the plans.pkl is outside of the fold_X directories -- #
             plans_dir = self.trainer.output_folder.replace('fold_', '')[:-1]
         else:
-            # -- If no fold_ in output_folder, everything is finde -- #
+            # -- If no fold_ in output_folder, everything is fine -- #
             plans_dir = self.trainer.output_folder
+            
         assert isfile(join(plans_dir, "plans.pkl")), "Folder with saved model weights must contain a plans.pkl file"
 
         # -- Check that the trainer type is as expected: -- #
@@ -75,7 +94,10 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
 
         # -- If the trainer is already of Sequential type, there should also be a pkl file with the sets it has already been trained on ! -- #
         if isinstance(self.trainer, nnUNetTrainerSequential):   # If model was trained using nnUNetTrainerV2, the pickle file won't exist
-            self.already_trained_on = load_json(join(self.already_trained_on, "seq_trained_on.json"))
+            self.already_trained_on = load_json(join(self.trained_on_path, "seq_trained_on.json"))
+        
+        # -- Set trainer in already_trained_on based on self.trainer (= prev_trainer) -- #
+        self.already_trained_on[str(self.fold)]['prev_trainer'] = self.trainer.__class__.__name__
 
         # -- Load the model and parameters -- #
         print("Loading trainer and setting the network for training")
@@ -93,12 +115,12 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
         super().initialize_optimizer_and_scheduler()
 
     def update_trainer(self, prev_trainer, output_folder):
-        r"""This function updates the previous trainer in a class by reinitiaizes the network again and resetting the output_folder.
+        r"""This function updates the previous trainer in a class by reinitializing the network again and resetting the output_folder.
         """
         # -- Update intern trainer representing a pretrained (sequential or non-sequential) model -- #
         self.trainer = prev_trainer
 
-        # -- Update output_folder --#
+        # -- Update output_folder -- #
         self.output_folder = output_folder
 
         # -- Initialize the network again to update the actual trainer represented by self -- #
@@ -112,13 +134,17 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
         """
         # -- Add the provided task at the end of the list, sort the list and dump it as pkl file -- #
         if finished:    # Task finished with training
-            trained_on = self.already_trained_on[self.fold]['finished_training_on']
+            trained_on = self.already_trained_on[str(self.fold)]['finished_training_on']
             trained_on.append(task)
-            self.already_trained_on[self.fold]['finished_training_on'] = trained_on
+            self.already_trained_on[str(self.fold)]['finished_training_on'] = trained_on
             # -- Remove the task from start_training_on -- #
-            self.already_trained_on[self.fold]['start_training_on'] = None 
+            self.already_trained_on[str(self.fold)]['start_training_on'] = None 
         else:   # Task started to train
-            self.already_trained_on[self.fold]['start_training_on'] = task
+            self.already_trained_on[str(self.fold)]['start_training_on'] = task
+        
+        # -- In both cases update the prev_trainer and used_identifier -- #
+        self.already_trained_on[str(self.fold)]['prev_trainer'] = self.trainer.__class__.__name__
+        self.already_trained_on[str(self.fold)]['used_identifier'] = self.identifier
 
         save_json(self.already_trained_on, join(self.trained_on_path, "seq_trained_on.json"))
 
@@ -134,4 +160,16 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
         # -- When model trained on second task and the self.new_trainer is still not updated, then update it -- #
         if self.new_trainer and len(self.already_trained_on) > 1:
             self.new_trainer = False
-        return ret
+
+        # -- Extract every self.save_everys validation metric (Disce score) -- #
+        validation_results = self.all_val_eval_metrics[::self.save_every]
+
+        # -- Transform this list into a dictionary -- #
+        validation = dict()
+        for idx, val in enumerate(validation_results):
+            validation['epoch_'+str(idx*self.save_every)+'_Dice'] = val
+
+        # -- Save the dictionary as json file in the corresponding output_folder -- #
+        save_json(validation, join(self.output_folder, 'val_metrics.json'))
+        
+        return ret  # Finished with training for the specific task

@@ -4,6 +4,7 @@
 #########################################################################################################
 
 import os, argparse
+import numpy as np
 from nnunet_ext.utilities.helpful_functions import delete_dir_con, join_texts_with_char, move_dir
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet_ext.paths import network_training_output_dir
@@ -138,15 +139,15 @@ def main():
     if isinstance(num_epochs, list):    # When the num_epochs get returned as a list, extract the number to avoid later appearing errors
         num_epochs = num_epochs[0]
     init_seq = args.init_seq    # Indicates if the first task is an initialization. If True, the training start from 0 and will not be based on a provided model
+    # -- Extract necessary information for initilization -- #
+    prev_trainer = args.initialize_with_network_trainer # Trainer for first task with first fold
     if init_seq:
-        # -- Extract necessary information for initilization -- #
-        init_identifier = args.used_identifier_in_init_network_trainer  # Extract init_identifyer
-        prev_trainer = args.initialize_with_network_trainer # Trainer for first task with first fold
         # -- Check that prev_trainer is provided -- #
         assert prev_trainer is not None, "When using the first provided task as a base for sequential training, the network_trainer needs to be specified as well."
-        # -- Set init_identifier if not provided -- #
-        if init_identifier is None:
-            init_identifier = default_plans_identifier  # Set to init_identifier
+    # -- Set init_identifier if not provided -- #
+    init_identifier = args.used_identifier_in_init_network_trainer  # Extract init_identifyer
+    if init_identifier is None:
+        init_identifier = default_plans_identifier  # Set to init_identifier
     disable_saving = args.disable_saving
     save_interval = args.save_interval
     cuda = args.device
@@ -191,28 +192,40 @@ def main():
     # Train sequentially for each task for all provided folds
     # ----------------------------------------------------------
     # -- Initilize variable that indicates if the trainer has been initialized -- #
-    trainer_initialized = False
-    
+    already_trained_on = None
+
     # -- Loop through folds so each fold will be trained in full before the next one will be started -- #
     for t_fold in fold:
         # -- Initialize running_task_list that includes all tasks that are performed for this fold -- #
-        prev_trainer_path = None
         running_task_list = list()
+
+        # -- Initialize the previous trainer path -- #
+        prev_trainer_path = None
 
         # -- Reset the tasks for each fold so it will be trained on every task -- #
         tasks = tasks_for_folds
-
+        
         # -- When continual_learning flag used there is a special case: The algorithm needs to know where to continue with its training -- #
         # -- For this the already_trained_on file will be loaded and the tasks based on the content prepared for training. -- #
         # -- The started but yet not finished task will be continued and then the remaining task(s) will be trained the normal way. -- #
         if continue_training:
+            print("Try to restore a state to continue with the training..")
+
             # -- Load already trained on file from ../network_training_output_dir/network/tasks_joined_name -- #
-            already_trained_on = load_json(join(network_training_output_dir, network, tasks_joined_name))
+            already_trained_on = load_json(join(network_training_output_dir, network, tasks_joined_name, "seq_trained_on.json"))
+            
+            # -- Initialize began_with and running_task_list for continuing training -- #
+            began_with = -1
+            running_task_list = list()
 
-            # -- Get the task that the model started to train as well as all tasks that are finished with training -- #
-            began_with = already_trained_on.get(t_fold, -1).get('start_training_on', None)
-            running_task_list = already_trained_on[t_fold]['finished_training_on']
+            # -- Get the data regarding the current fold (if it exists, otherwise -1 is returned) -- #
+            trained_on_folds = already_trained_on.get(str(t_fold), -1)
 
+            # -- If something is retrieved, ie. trained_on_folds is a dict, then set began_with and running_task_list -- #
+            if isinstance(trained_on_folds, dict):
+                began_with = trained_on_folds.get('start_training_on', None)
+                running_task_list = already_trained_on[str(t_fold)]['finished_training_on']
+            
             # -- If began_with is None, the fold has not started training with --> Start with the first task as -c would not have been set -- #
             if began_with is None:
                 # -- Check if all tasks have been trained on so far, if so, this fold is finished with training, else it is not -- #
@@ -220,10 +233,15 @@ def main():
                 run_tasks = running_task_list
 
                 # -- If the sorted lists are equal, continue with the next fold, if not, specify the right task in the following steps -- #
-                if all_tasks.sort() == run_tasks.sort():
+                if (np.array(all_tasks) == np.array(run_tasks)).all():  # Use numpy because lists return true if at least one match in both lists!
                     # -- Update the user that the current fold is finished with training -- #
                     print("Fold {} has been trained on all tasks --> move on to the next fold..".format(t_fold))
+                    # -- Treat the last fold as initialization, so set init_seq to True -- #
+                    init_seq = True
+                    # -- Set continue_learning to False so there will be no error in the process of building the trainer -- #
+                    continue_training = False
                     continue
+                    
 
             # -- If this list is empty, the trainer did not train on any task --> Start directly with the first task as -c would not have been set -- #
             if began_with != -1 and len(running_task_list) != 0: # At this point began_with is either a task or -1 but not None
@@ -231,9 +249,43 @@ def main():
                 for task in tasks:
                     # -- If the task has already been trained, remove the entry from the tasks dictionary -- #
                     if task in running_task_list:
+                        prev_task = task    # Keep track to insert it at the end again
                         tasks.remove(task)
+                    
+                # -- Insert the previous task to the beginning of the list to ensure that the model will be initialized the right way -- #
+                tasks.insert(0, prev_task)
+
+                # -- Remove the prev_task in running_task_list, since this is now the first in tasks --> otherwise this is redundandent and raises error -- #
+                running_task_list.remove(prev_task)
+                
+                # -- Treat the last fold as initialization, so set init_seq to True -- #
+                init_seq = True
+                # -- Set continue_learning to False so there will be no error in the process of building the trainer -- #
+                continue_training = False
+                
+                # -- Set the prev_trainer and the init_identifier so the trainer will be build correctly -- #
+                prev_trainer = already_trained_on[str(t_fold)]['prev_trainer']
+                init_identifier = already_trained_on[str(t_fold)]['used_identifier']
+
+                # -- Set began_with to first task since at this point it is either a task or it can be None if previous fold was not trained in full -- #
+                began_with = tasks[0]
+
                 # -- Update the user that the fold for training has been found -- #
                 print("Fold {} has not been trained on all tasks --> continue the training with task {}..".format(t_fold, began_with))
+
+            # -- began_with == -1 or no tasks to train --> nothing to restore -- #
+            else:
+                # -- Treat the last fold as initialization, so set init_seq to True -- #
+                init_seq = True
+                # -- Set continue_learning to False so there will be no error in the process of building the trainer -- #
+                continue_training = False
+                
+                # -- Set the prev_trainer and the init_identifier so the trainer will be build correctly -- #
+                prev_trainer = already_trained_on[str(t_fold)]['prev_trainer']
+                init_identifier = already_trained_on[str(t_fold)]['used_identifier']
+                
+                # -- Set began_with to first task since at this point it is either a task or it can be None if previous fold was not trained in full -- #
+                began_with = tasks[0]
     
         # -- Loop through the tasks and train for each task the (finished) model -- #
         for idx, t in enumerate(tasks):
@@ -250,7 +302,7 @@ def main():
             # -- NOTE: Perform preprocessing and planning for sequential before ! --> Load always a sequential trainer at this point ! -- #
             plans_file, output_folder_name, dataset_directory, batch_dice, stage, \
             trainer_class = get_default_configuration(network, t, running_task, network_trainer, tasks_joined_name,\
-                                                      plans_identifier, extension_type='sequential', base_model_seq=True)
+                                                      plans_identifier, extension_type='sequential')
 
             if trainer_class is None:
                 raise RuntimeError("Could not find trainer class in nnunet_ext.training.network_training")
@@ -277,33 +329,38 @@ def main():
                 assert isinstance(t, str) and prev_trainer is not None and init_identifier is not None and isinstance(t_fold, int),\
                     "The informations for building the initial trainer to use for sequential training is not fully provided, check the arguments.."
                 
-                # -- If the trainer is not from sequential origin, change the search_in and base_module parameter for the get_default_configuration
-                if isinstance(prev_trainer, nnUNetTrainerSequential):
-                    base_model_seq = True
-                else:
-                    base_model_seq = False
-                
                 # -- Get default configuration for nnunet/nnunet_ext model (finished training) -- #
                 plans_file, init_output_folder, dataset_directory, batch_dice, stage, \
                 trainer_class = get_default_configuration(network, t, running_task, prev_trainer, tasks_joined_name,\
-                                                          init_identifier, extension_type='sequential', base_model_seq=base_model_seq)
-                
+                                                          init_identifier, extension_type='sequential')
+
                 # -- Ensure that trainer_class is not None -- #
                 if trainer_class is None:
                     raise RuntimeError("Could not find trainer class in nnunet.training.network_training or nnunet_ext.training.network_training")
-                
+
                 # -- Load trainer and initialize it -- #
                 prev_trainer = trainer_class(plans_file, t_fold, output_folder=init_output_folder, dataset_directory=dataset_directory,
-                                            batch_dice=batch_dice, stage=stage)
+                                             batch_dice=batch_dice, stage=stage)
                 prev_trainer.initialize(training=False)
 
                 # -- Continue with next element, since the previous trainer is initialized, otherwise it will be trained as well -- #
                 continue
 
+            # -- Restore previous trained trainer as prev_trainer for the task that will be trained in this loop -- #
+            elif init_seq and not continue_training:
+                # -- Ensure that prev_trainer and already trained on is not none, since it should be everything from last loop -- #
+                assert prev_trainer is not None and already_trained_on is not None and len(already_trained_on) != 0\
+                    and prev_trainer_path is not None,\
+                    "The information that is necessary for training on the previous model is not provided as it should be.."
+                
+                # -- Initialize prev_trainer -- #
+                prev_trainer.initialize(training=False)
+
             # -- Extract trainer and set saving indicating variables to False if desired -- #
             trainer = trainer_class(plans_file, t_fold, output_folder=output_folder_name, dataset_directory=dataset_directory,
                                     batch_dice=batch_dice, stage=stage, unpack_data=decompress_data,
-                                    deterministic=deterministic, fp16=run_mixed_precision, save_interval=save_interval)
+                                    deterministic=deterministic, fp16=run_mixed_precision, save_interval=save_interval,
+                                    already_trained_on=already_trained_on, identifier=init_identifier)
             
             if disable_saving:
                 trainer.save_final_checkpoint = False # whether or not to save the final checkpoint
@@ -312,16 +369,11 @@ def main():
                 trainer.save_latest_only = True  # if false it will not store/overwrite _latest but separate files each
 
             # -- Update trained_on 'manually' if first task is done but finished_training_on is empty --> first task was used for initialization -- #
-            if idx == 1 and len(trainer.already_trained_on[t_fold]['finished_training_on']) == 0:
+            if idx == 1 and len(trainer.already_trained_on[str(t_fold)]['finished_training_on']) == 0:
                 trainer.update_save_trained_on_json(t, finished=True)
 
-            # -- Initialize the trainer if trainer_initialized is False, else just update the prev_trainer and output_folder -- #
-            # -- If prev_trainer is not provided, ie. None, the first task embodies the initialization of prev_trainer through training -- #
-            if not trainer_initialized:
-                trainer.initialize(not validation_only, num_epochs=num_epochs, prev_trainer=prev_trainer)
-                trainer_initialized = True
-            else:
-                trainer.update_trainer(prev_trainer = prev_trainer, output_folder = output_folder_name)
+            # -- Initialize the trainer since it is newly created every time because of the new dataset, task, fold, optimizer, etc. -- #
+            trainer.initialize(not validation_only, num_epochs=num_epochs, prev_trainer=prev_trainer)
 
             # -- Find a matchting lr given the provided num_epochs -- #
             if find_lr:
@@ -332,7 +384,7 @@ def main():
                         # -- User wants to continue previous training while ignoring pretrained weights -- #
                         trainer.load_latest_checkpoint()
                         # -- Set continue_training to false for possible upcoming tasks -- #
-                        # -- --> otherwise an error might occur because there is no trainer to reinitialize -- #
+                        # -- --> otherwise an error might occur because there is no trainer to restore -- #
                         continue_training = False
                     elif (not continue_training) and (args.pretrained_weights is not None):
                         # -- Start a new training and use pretrained_weights if they are set -- #
@@ -372,6 +424,9 @@ def main():
             # -- Update prev_trainer and prev_trainer_path -- #
             prev_trainer = trainer
             prev_trainer_path = output_folder_name
+            
+            # -- Update the already_trained_on file, so it is up to date and can be used for next iteration -- #
+            already_trained_on = trainer.already_trained_on
 
             # -- If the models for each sequence should not be stored, delete the last model and only keep the current finished ones -- #
             if disable_saving and prev_trainer_path is not None:
@@ -383,6 +438,12 @@ def main():
             p_folder_path = os.path.dirname(os.path.realpath(prev_trainer_path))
             # -- Delete content of the folder -- #
             move_dir(prev_trainer_path, p_folder_path)
+
+        
+        # -- Reset init_seq, prev_trainer and already_trained_on -- #
+        init_seq = args.init_seq
+        prev_trainer = args.initialize_with_network_trainer
+        already_trained_on = None
 
 if __name__ == "__main__":
     main()

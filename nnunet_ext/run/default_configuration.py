@@ -11,19 +11,24 @@ from nnunet.paths import network_training_output_dir as orig_network_training_ou
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet.experiment_planning.summarize_plans import summarize_plans
 from nnunet.training.model_restore import recursive_find_python_class
+from nnunet.training.network_training.nnUNetTrainerV2 import nnUNetTrainerV2
 
 #------------------------------------------- Partially copied from original implementation -------------------------------------------#
-def get_default_configuration(network, task, running_task, network_trainer, tasks_joined_name, plans_identifier=default_plans_identifier, extension_type='sequential',
-                              search_in=None, base_module=None, base_model_seq=False):
+def get_default_configuration(network, task, running_task, network_trainer, tasks_joined_name, plans_identifier=default_plans_identifier,
+                              search_in=None, base_module=None, extension_type='sequential'):
     r"""This function extracts paths to the plans_file, specifies the output_folder_name, dataset_directory, batch_dice, stage, and trainer_class.
+        The extension type specifies which nnUNet extension will be used (sequential, rehearsal, etc.).
     """
+    # -- Extract network_trainer type -- #
+    is_classic_trainer = network_trainer.__class__.__name__ == nnUNetTrainerV2.__class__.__name__
+
     # -- If search_in not provided set it with base_module -- #
     if search_in is None:
         search_in = (nnunet_ext.__path__[0], "training", "network_training", extension_type)
         base_module = 'nnunet_ext.training.network_training.' + extension_type
 
     # -- If the trainer to extract is of not sequential origin, then search in unnet module -- #
-    if not base_model_seq:
+    if is_classic_trainer:
         search_in = (nnunet.__path__[0], "training", "network_training")
         base_module = 'nnunet.training.network_training'
 
@@ -55,7 +60,7 @@ def get_default_configuration(network, task, running_task, network_trainer, task
     output_folder_name = join(network_training_output_dir, network, tasks_joined_name, running_task, network_trainer + "__" + plans_identifier)
 
     # -- Copy the model to nnunet_ext folder if it is not of sequential origin -- #
-    if not base_model_seq:
+    if is_classic_trainer:
         source = join(orig_network_training_output_dir, network, task, network_trainer + "__" + plans_identifier)
         dest = output_folder_name
         # -- NOTE: If dest exists, it will be emptied, since the folder should be empty at this point, --#

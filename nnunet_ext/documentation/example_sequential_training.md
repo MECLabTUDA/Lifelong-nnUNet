@@ -1,0 +1,1 @@
+# Example: 3D U-Net sequential training on the Hippocampus and Cardiac dataset
