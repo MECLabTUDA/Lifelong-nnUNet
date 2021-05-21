@@ -11,7 +11,7 @@ This specific branch of the [nnUNet_extensions repository](https://github.com/ca
 [Extensions](#extensions)
   * [Sequential Training](#sequential-training)
   * [Rehearsal Training](#rehearsal-training)
-  * [Elastic Weight Consolidation](#ealstic-weight-consolidation)
+  * [Elastic Weight Consolidation](#elastic-weight-consolidation)
   * [Learning Without Forgetting](#learning-without-forgetting)
   * [TBD](#tbd)
 
