@@ -29,7 +29,7 @@ The simplest and most convenient way to install everything can be achieved by us
 2. Install CUDA and PyTorch through conda with the command specified by https://pytorch.org/. The command for Linux was at the time `conda install pytorch torchvision cudatoolkit=10.2 -c pytorch`.
 3. Navigate to the project root (where setup.py lives)
 4. Execute `pip install -r requirements.txt` to install all required packages. With this step, the [original nnU-Net](https://github.com/MIC-DKFZ/nnUNet) will be installed as well, so all commands described there will work as well.
-5. Set your paths as described [here](/nnunet_ext/documentation/setting_up_paths.md) in documents.
+5. Set your paths as described [here](/documentation/setting_up_paths.md) in documents.
 6. Execute `pytest` to ensure that everything is working. All tests should work, however one test specifically tests if at least one GPU is present, so this one might fail if no GPU is installed.
 
 NOTE: Maybe create own setting-up patsh file since location or name might change from original repo..
