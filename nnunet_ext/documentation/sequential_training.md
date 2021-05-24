@@ -1,0 +1,1 @@
+# nnU-Net Continual Learning (CL) extension: Sequential Training
