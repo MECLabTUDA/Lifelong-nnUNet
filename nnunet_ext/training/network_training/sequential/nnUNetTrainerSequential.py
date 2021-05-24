@@ -4,6 +4,7 @@
 #########################################################################################################
 
 import os
+import numpy as np
 from nnunet_ext.paths import default_plans_identifier
 from nnunet.training.network_training.nnUNetTrainerV2 import nnUNetTrainerV2
 from batchgenerators.utilities.file_and_folder_operations import *
@@ -12,8 +13,8 @@ from batchgenerators.utilities.file_and_folder_operations import *
 class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class for 2D, 3D low resolution and 3D full resolution U-Net 
     def __init__(self, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None,
-                 identifier=default_plans_identifier):
-        r"""Instructor of Sequential trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
+                 identifier=default_plans_identifier, extension='sequential', trainer_class_name=None):
+        r"""Constructor of Sequential trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
         """
         # -- Initialize using parent class -- #
         super().__init__(plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic, fp16)
@@ -38,6 +39,21 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
         
         # -- Store the fold for tracking and saving in the self.already_trained_on file -- #
         self.fold = fold
+
+        # -- Extract network_name that might come in handy at a later stage -- #
+        # -- For more details on how self.output_folder is built look at get_default_configuration -- #
+        help_path = os.path.normpath(self.output_folder)    # Normalize path in order to avoid errors
+        help_path = help_path.split(os.sep) # Split the path using '\' seperator
+        self.network_name = help_path[-5]   # 5th element from back is network
+
+        # -- Set trainer_class_name -- #
+        self.trainer_class_name = trainer_class_name
+
+        # -- Set the extension for output file -- #
+        self.extension = extension
+
+        # -- Set variable that stores the IOU aka Jaccard Index
+        self.all_val_iou_eval_metrics = list()
 
     def initialize(self, training=True, force_load_plans=False, num_epochs=500, prev_trainer=None):
         r"""Overwrite parent initialize function, since we want to include a prev_trainer to enable sequence training and 
@@ -96,7 +112,7 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
 
         # -- If the trainer is already of Sequential type, there should also be a pkl file with the sets it has already been trained on ! -- #
         if isinstance(self.trainer, nnUNetTrainerSequential):   # If model was trained using nnUNetTrainerV2, the pickle file won't exist
-            self.already_trained_on = load_json(join(self.trained_on_path, "seq_trained_on.json"))
+            self.already_trained_on = load_json(join(self.trained_on_path, self.extension+'_trained_on.json'))
         
         # -- Set trainer in already_trained_on based on self.trainer (= prev_trainer) -- #
         self.already_trained_on[str(self.fold)]['prev_trainer'] = self.trainer.__class__.__name__
@@ -141,14 +157,17 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
             self.already_trained_on[str(self.fold)]['finished_training_on'] = trained_on
             # -- Remove the task from start_training_on -- #
             self.already_trained_on[str(self.fold)]['start_training_on'] = None 
+            # -- Update the prev_trainer -- #
+            self.already_trained_on[str(self.fold)]['prev_trainer'] = [self.trainer_class_name]
         else:   # Task started to train
             self.already_trained_on[str(self.fold)]['start_training_on'] = task
+            # -- Update the prev_trainer -- #
+            self.already_trained_on[str(self.fold)]['prev_trainer'] = self.trainer.__class__.__name__
         
-        # -- In both cases update the prev_trainer and used_identifier -- #
-        self.already_trained_on[str(self.fold)]['prev_trainer'] = self.trainer.__class__.__name__
+        # -- Update the used_identifier -- #
         self.already_trained_on[str(self.fold)]['used_identifier'] = self.identifier
 
-        save_json(self.already_trained_on, join(self.trained_on_path, "seq_trained_on.json"))
+        save_json(self.already_trained_on, join(self.trained_on_path, self.extension+'_trained_on.json'))
 
     def run_training(self, task):
         r"""Perform training using sequential trainer. Simply executes training method of parent class (nnUNetTrainerV2)
@@ -163,15 +182,48 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
         if self.new_trainer and len(self.already_trained_on) > 1:
             self.new_trainer = False
 
-        # -- Extract every self.save_everys validation metric (Disce score) -- #
-        validation_results = self.all_val_eval_metrics[::self.save_every]
+        # -- Extract every self.save_everys validation metric (Disce + IOU score) -- #
+        iou_results = self.all_val_iou_eval_metrics[::self.save_every]
+        dice_results = self.all_val_eval_metrics[::self.save_every]
 
-        # -- Transform this list into a dictionary -- #
+        # -- Transform this list into a dictionary and load the data into it so it can be saved it -- #
         validation = dict()
-        for idx, val in enumerate(validation_results):
-            validation['epoch_'+str(idx*self.save_every)+'_Dice'] = val
+        for idx in range(len(dice_results)):
+            validation['epoch_'+str(idx*self.save_every)+'_IOU'] = str(iou_results[idx])
+            validation['epoch_'+str(idx*self.save_every)+'_Dice'] = str(dice_results[idx])
 
         # -- Save the dictionary as json file in the corresponding output_folder -- #
         save_json(validation, join(self.output_folder, 'val_metrics.json'))
         
         return ret  # Finished with training for the specific task
+
+    def finish_online_evaluation(self):
+        r"""Calculate the Dice Score and IOU (Intersection Over Union) on the validation dataset during training.
+        """
+        # -- Get current True-Positive, False-Positive and False-Negative -- #
+        self.online_eval_tp = np.sum(self.online_eval_tp, 0)
+        self.online_eval_fp = np.sum(self.online_eval_fp, 0)
+        self.online_eval_fn = np.sum(self.online_eval_fn, 0)
+
+        # -- Claculate the IOU -- #
+        global_iou_per_class = [i for i in [i / (i + j + k) for i, j, k in
+                                           zip(self.online_eval_tp, self.online_eval_fp, self.online_eval_fn)]
+                               if not np.isnan(i)]
+
+        # -- Calculate the Dice -- #
+        global_dc_per_class = [i for i in [2 * i / (2 * i + j + k) for i, j, k in
+                                           zip(self.online_eval_tp, self.online_eval_fp, self.online_eval_fn)]
+                               if not np.isnan(i)]
+
+        # -- Store IOU and Dice values -- #
+        self.all_val_eval_metrics.append(np.mean(global_dc_per_class))
+        self.all_val_iou_eval_metrics.append(np.mean(global_iou_per_class))
+
+        self.print_to_log_file("Average global foreground Dice:", str(global_dc_per_class))
+        self.print_to_log_file("(interpret this as an estimate for the Dice of the different classes. This is not "
+                               "exact.)")
+
+        self.online_eval_foreground_dc = []
+        self.online_eval_tp = []
+        self.online_eval_fp = []
+        self.online_eval_fn = []

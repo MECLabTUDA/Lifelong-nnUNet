@@ -344,7 +344,7 @@ def run_training(extension='sequential'):
                     prev_trainer = None
                     init_identifier = default_plans_identifier
                 else:
-                    prev_trainer = already_trained_on[str(t_fold)]['prev_trainer']
+                    prev_trainer = already_trained_on[str(t_fold)]['prev_trainer'][-1]
                     init_identifier = already_trained_on[str(t_fold)]['used_identifier']
                 
                 # -- Set began_with to first task since at this point it is either a task or it can be None if previous fold was not trained in full -- #
@@ -356,7 +356,7 @@ def run_training(extension='sequential'):
             if idx == 0:
                 assert t == began_with, "Training should be continued, however the wrong task is used --> user has changed order of the tasks.."
 
-            # -- Update running task list and create running task which are all (trained tasks and current task joined for output folder name -- #
+            # -- Update running task list and create running task which are all (trained tasks and current task joined) for output folder name -- #
             running_task_list.append(t)
             running_task = join_texts_with_char(running_task_list, '_')
 
