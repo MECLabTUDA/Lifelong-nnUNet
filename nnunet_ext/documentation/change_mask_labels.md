@@ -1,5 +1,5 @@
 
-# Change mask labels for dataset given a mapping file
+# nnU-Net Continual Learning (CL) extension: Change mask labels for dataset given a mapping file
 
 This is a general description on how to change the masks of a desired dataset based on a provided mapping file using the nnU-Net extension.
 

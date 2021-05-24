@@ -1,10 +1,10 @@
-# Setting up paths for nnU-Net Continual Learning extensions
+# nnU-Net Continual Learning (CL) extension: Setting up paths
 
 The process of setting up the paths for the nnU-Net Continual Learning (CL) extension is nearly the same as for the conventional nnU-Net from [here](https://github.com/MIC-DKFZ/nnUNet/blob/master/documentation/setting_up_paths.md). The paths for the conventinonal nnU-Net need to be set in all cases, luckily by using the extension there is not that much to add. If the user wants to perform or replicate one of the presented experiments by using the provided evaluations for a CL method, a fourth path needs to be set. If the evaluation method will not be used, only the conventional nnU-Net paths need to be set.
 
 The nnU-Net CL extension relies on the same environment variables as the conventional nnU-Net in order to access the raw and preprocessed data and to store the trained model weights. As mentioned earlier, a fourth environment variable is necessary to be able to know where the results of the Evaluation should be stored if the Evaluation will be performed.
 
-1. `nnUNet_raw_data_base`: This environment variable will be used to access the raw, cropped, not preprocessed data by the nnU-Net and the nnU-Net CL extension. As same as for the conventional nnU-Net, it is crucial that the user provides the data in a Decathlon-like structure, as described [here](https://github.com/MIC-DKFZ/nnUNet/blob/master/documentation/dataset_conversion.md). The tree structure is the same as for the conventional nnU-Net (extracted from [here](https://github.com/MIC-DKFZ/nnUNet/blob/master/documentation/setting_up_paths.md])):
+1. `nnUNet_raw_data_base`: This environment variable will be used to access the raw, cropped, not preprocessed data by the nnU-Net and the nnU-Net CL extension. As same as for the conventional nnU-Net, it is crucial that the user provides the data in a Decathlon-like structure, as described [here](https://github.com/MIC-DKFZ/nnUNet/blob/master/documentation/dataset_conversion.md). The tree structure is the same as for the conventional nnU-Net (extracted from [here](https://github.com/MIC-DKFZ/nnUNet/blob/master/documentation/setting_up_paths.md)):
 
         nnUNet_raw_data_base/nnUNet_raw_data/Task002_Heart
         ├── dataset.json
@@ -35,7 +35,7 @@ The nnU-Net CL extension relies on the same environment variables as the convent
             ├── prostate_01.nii.gz
             ├── ...
 
-2. `nnUNet_preprocessed`: The preprocessed data will be stored in this specified path. The function that enables the changing of labels based on a provided mapping *-- [see here](/change_mask_labels.md) --* stores the results there as well. During training, the preprocessed data will be used.
+2. `nnUNet_preprocessed`: The preprocessed data will be stored in this specified path. The function that enables the changing of labels based on a provided mapping *-- [see here](change_mask_labels.md) --* stores the results there as well. During training, the preprocessed data will be used.
 
 3. `RESULTS_FOLDER`: The path provided in this variable will be used to store the weights of the trained models, again used by both, nnU-Net and nnU-Net CL extension.
 
