@@ -171,6 +171,3 @@ def main():
             print("Performing planning and preprocessing of task {}..".format("Task%03.0d_" % out_task + task_name))
             # -- Execute the nnUNet_plan_and_preprocess command -- #
             os.system('nnUNet_plan_and_preprocess -t ' + str(out_task))
-
-if __name__ == "__main__":
-    main()

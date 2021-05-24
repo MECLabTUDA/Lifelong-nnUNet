@@ -1,5 +1,5 @@
 #########################################################################################################
-#----------This class represents the Training of networks using the extended nnUNet sequential ---------#
+#----------This class represents the Training of networks using the extended nnUNet LWF ----------------#
 #----------training version. This runs the Training for the LWF approach.-------------------------------#
 #########################################################################################################
 
