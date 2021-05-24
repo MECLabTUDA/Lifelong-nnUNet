@@ -33,7 +33,7 @@ def run_training(extension='sequential'):
                         action="store_true")
     parser.add_argument("-c", "--continue_training", help="Use this if you want to continue a training. The program will determine "
                                                           "by itself where to continue with the learning, so provide all tasks.",
-                        action="store_true")    # TODO: Determine where it failed using the already_trained_on file!!!!!
+                        action="store_true")
     parser.add_argument("-p", help="plans identifier. Only change this if you created a custom experiment planner",
                         default=default_plans_identifier, required=False)
     parser.add_argument("--use_compressed_data", default=False, action="store_true",
@@ -279,7 +279,7 @@ def run_training(extension='sequential'):
             # -- If something is retrieved, ie. trained_on_folds is a dict, then set began_with and running_task_list -- #
             if isinstance(trained_on_folds, dict):
                 began_with = trained_on_folds.get('start_training_on', None)
-                running_task_list = already_trained_on[str(t_fold)]['finished_training_on']
+                running_task_list = already_trained_on[str(t_fold)]['finished_training_on'][:] # Without '[:]' reference will change over time as well !
 
             # -- If began_with is None, the fold has not started training with --> Start with the first task as -c would not have been set -- #
             if began_with is None:
@@ -294,7 +294,7 @@ def run_training(extension='sequential'):
                     # -- Treat the last fold as initialization, so set init_seq to True -- #
                     init_seq = True
                     
-                    continue
+                    continue    # Continue with next fold
                     
             # -- If this list is empty, the trainer did not train on any task --> Start directly with the first task as -c would not have been set -- #
             if began_with != -1 and len(running_task_list) != 0: # At this point began_with is either a task or -1 but not None
@@ -407,7 +407,7 @@ def run_training(extension='sequential'):
                 
                 # -- Ensure that trainer_class is not None -- #
                 if trainer_class is None:
-                    raise RuntimeError("Could not find trainer class in nnunet.training.network_training or nnunet_ext.training.network_training")
+                    raise RuntimeError("Could not find trainer class in nnunet.training.network_training nor nnunet_ext.training.network_training")
 
                 # -- Load trainer --> will be initialized in next loop -- #
                 if trainer_class.__name__ == str(nnUNetTrainerV2).split('.')[-1][:-2]:  # --> Initialization with nnUNetTrainerV2
@@ -427,13 +427,14 @@ def run_training(extension='sequential'):
                                                  trainer_class_name=trainer_class.__name__)
                 
                 # -- Create already trained on for this task we are going to skip -- #
-                already_trained_on = { str(t_fold): {'finished_training_on': [t], 'prev_trainer': [prev_trainer.__class__.__name__],
-                                                     'start_training_on': None, 'used_identifier': init_identifier}
-                                     }
+                if already_trained_on is None:
+                    already_trained_on = { str(t_fold): {'finished_training_on': [t], 'prev_trainer': [prev_trainer.__class__.__name__],
+                                                         'start_training_on': None, 'used_identifier': init_identifier}
+                                         }
 
-                # -- Continue with next element, since the previous trainer is initialized, otherwise it will be trained as well -- #
+                # -- Continue with next element, since the previous trainer is restored, otherwise it will be trained as well -- #
                 continue
-
+            
             # -- Restore previous trained trainer as prev_trainer for the task that will be trained in this loop -- #
             elif init_seq and not continue_training:
                 # -- Ensure that prev_trainer and already trained on is not none, since it should be everything from last loop -- #
@@ -442,7 +443,7 @@ def run_training(extension='sequential'):
                 
                 # -- Initialize prev_trainer -- #
                 prev_trainer.initialize(training=False)
-
+                
             # -- Extract trainer and set saving indicating variables to False if desired -- #
             if extension == 'rehearsal':
                 trainer = trainer_class(plans_file, t_fold, output_folder=output_folder_name, dataset_directory=dataset_directory,
@@ -503,8 +504,8 @@ def run_training(extension='sequential'):
 
                 # -- Predict the trainers validation -- #
                 trainer.validate(save_softmax=args.npz, validation_folder_name=val_folder,
-                                run_postprocessing_on_folds=not disable_postprocessing_on_folds,
-                                overwrite=args.val_disable_overwrite)
+                                 run_postprocessing_on_folds=not disable_postprocessing_on_folds,
+                                 overwrite=args.val_disable_overwrite)
 
                 # -- If disable saving, and init_seq, remove the initial trainer -- #
                 if disable_saving and idx == 0 and init_seq:
@@ -531,7 +532,7 @@ def run_training(extension='sequential'):
             # -- Delete content of the folder -- #
             move_dir(prev_trainer_path, p_folder_path)
         
-        # -- Reset init_seq, prev_trainer and already_trained_on -- #
+        # -- Reset init_seq and prev_trainer -- #
         init_seq = args.init_seq
         prev_trainer = args.initialize_with_network_trainer
 #------------------------------------------- Inspired by original implementation -------------------------------------------#

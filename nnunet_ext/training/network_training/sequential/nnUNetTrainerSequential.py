@@ -25,11 +25,13 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
         # -- Initialize or set self.already_trained_on dictionary to keep track of the trained tasks so far for restoring -- #
         if already_trained_on is not None:
             self.already_trained_on = already_trained_on    # Use provided already_trained on
-            self.already_trained_on[str(self.fold)] = {'finished_training_on': list(), 'start_training_on': None,
-                                                        'used_identifier': self.identifier}  # Add current fold as new entry
+            # -- If the current fold does not exists initialize it -- #
+            if self.already_trained_on.get(str(self.fold), None) is None:
+                self.already_trained_on[str(self.fold)] = {'finished_training_on': list(), 'start_training_on': None,
+                                                            'used_identifier': self.identifier, 'prev_trainer': list()}  # Add current fold as new entry
         else:
             self.already_trained_on = {str(self.fold): {'finished_training_on': list(), 'start_training_on': None,
-                                                        'used_identifier': self.identifier}}
+                                                        'used_identifier': self.identifier, 'prev_trainer': list()}}
         
         # -- Set the path were the trained_on file will be stored: grand parent directory from output_folder, ie. were all tasks are stored -- #
         self.trained_on_path = os.path.dirname(os.path.dirname(os.path.realpath(output_folder)))
@@ -44,7 +46,7 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
         # -- For more details on how self.output_folder is built look at get_default_configuration -- #
         help_path = os.path.normpath(self.output_folder)    # Normalize path in order to avoid errors
         help_path = help_path.split(os.sep) # Split the path using '\' seperator
-        self.network_name = help_path[-5]   # 5th element from back is network
+        self.network_name = help_path[-5]   # 5th element from back is the name of the used network
 
         # -- Set trainer_class_name -- #
         self.trainer_class_name = trainer_class_name
@@ -90,7 +92,7 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
         """
         if self.trainer is None:
             # -- Set trainer in already_trained_on to the class name -- #
-            self.already_trained_on[str(self.fold)]['prev_trainer'] = self.__class__.__name__
+            #self.already_trained_on[str(self.fold)]['prev_trainer'] = self.__class__.__name__
 
             # -- Initialize from beginning and start training, since no model is provided -- #
             super().initialize_network() # --> This updates the corresponding variables automatically since we inherit this class
@@ -114,8 +116,9 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
         if isinstance(self.trainer, nnUNetTrainerSequential):   # If model was trained using nnUNetTrainerV2, the pickle file won't exist
             self.already_trained_on = load_json(join(self.trained_on_path, self.extension+'_trained_on.json'))
         
-        # -- Set trainer in already_trained_on based on self.trainer (= prev_trainer) -- #
-        self.already_trained_on[str(self.fold)]['prev_trainer'] = self.trainer.__class__.__name__
+        # -- Set trainer in already_trained_on based on self.trainer (= prev_trainer) --> It was already done after finishing, but still -- #
+        self.already_trained_on[str(self.fold)]['prev_trainer'][-1:] = [self.trainer.__class__.__name__]
+        #self.already_trained_on[str(self.fold)]['prev_trainer'].append(self.trainer.__class__.__name__)
 
         # -- Load the model and parameters -- #
         print("Loading trainer and setting the network for training")
@@ -158,11 +161,12 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
             # -- Remove the task from start_training_on -- #
             self.already_trained_on[str(self.fold)]['start_training_on'] = None 
             # -- Update the prev_trainer -- #
-            self.already_trained_on[str(self.fold)]['prev_trainer'] = [self.trainer_class_name]
+            self.already_trained_on[str(self.fold)]['prev_trainer'].append(self.trainer_class_name)
         else:   # Task started to train
             self.already_trained_on[str(self.fold)]['start_training_on'] = task
             # -- Update the prev_trainer -- #
-            self.already_trained_on[str(self.fold)]['prev_trainer'] = self.trainer.__class__.__name__
+            self.already_trained_on[str(self.fold)]['prev_trainer'][-1:] = [self.trainer.__class__.__name__]
+            #self.already_trained_on[str(self.fold)]['prev_trainer'].append(self.trainer.__class__.__name__)
         
         # -- Update the used_identifier -- #
         self.already_trained_on[str(self.fold)]['used_identifier'] = self.identifier
@@ -175,8 +179,8 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
         """
         # -- Add the current task to the self.already_trained_on dict in case of restoring -- #
         self.update_save_trained_on_json(task, False)   # Add task to start_training
-        ret = super().run_training()    # Execute training from parent class
-        self.update_save_trained_on_json(task, True)   # Add task to finished_training
+        ret = super().run_training()                    # Execute training from parent class
+        self.update_save_trained_on_json(task, True)    # Add task to finished_training
 
         # -- When model trained on second task and the self.new_trainer is still not updated, then update it -- #
         if self.new_trainer and len(self.already_trained_on) > 1:
@@ -216,9 +220,13 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
                                if not np.isnan(i)]
 
         # -- Store IOU and Dice values -- #
-        self.all_val_eval_metrics.append(np.mean(global_dc_per_class))
         self.all_val_iou_eval_metrics.append(np.mean(global_iou_per_class))
+        self.all_val_eval_metrics.append(np.mean(global_dc_per_class))
 
+        # -- Update the log file -- #
+        self.print_to_log_file("Average global foreground IOU:", str(global_iou_per_class))
+        self.print_to_log_file("(interpret this as an estimate for the IOU of the different classes. This is not "
+                               "exact.)")
         self.print_to_log_file("Average global foreground Dice:", str(global_dc_per_class))
         self.print_to_log_file("(interpret this as an estimate for the Dice of the different classes. This is not "
                                "exact.)")

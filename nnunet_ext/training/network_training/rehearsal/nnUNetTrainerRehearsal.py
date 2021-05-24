@@ -78,23 +78,23 @@ class nnUNetTrainerRehearsal(nnUNetTrainerSequential): # Inherit default trainer
 
                 # -- Get default configuration for nnunet/nnunet_ext model (finished training) -- #
                 plans_file, _, self.dataset_directory, _, stage, \
-                _ = get_default_configuration(self.trainer_class_name, task, running_task, trained_on_folds['prev_trainer'][idx],\
-                                            self.tasks_joined_name, self.identifier, extension_type=self.extension)
+                _ = get_default_configuration(self.network_name, task, running_task, trained_on_folds['prev_trainer'][idx],\
+                                              self.tasks_joined_name, self.identifier, extension_type=self.extension)
 
                 # -- Load the plans file -- #
                 plans = load_pickle(plans_file)
 
                 # -- Extract the folder with the preprocessed data in it -- #
                 folder_with_preprocessed_data = join(self.dataset_directory, plans['data_identifier'] +
-                                                    "_stage%d" % stage)
+                                                     "_stage%d" % stage)
                                                     
                 # -- Load the dataset for the task from the loop and perform the split on it -- #
                 self.dataset = load_dataset(folder_with_preprocessed_data)
-                self.do_spilt()
+                self.do_split()
 
                 # -- Extract random sample from train and validation set -- #
-                sample_tr = random.sample(self.dataset_tr.items(), len(self.dataset_tr) * self.samples)
-                sample_val = random.sample(self.dataset_val.items(), len(self.dataset_val) * self.samples)
+                sample_tr = random.sample(self.dataset_tr.items(), round(len(self.dataset_tr) * self.samples))
+                sample_val = random.sample(self.dataset_val.items(), round(len(self.dataset_val) * self.samples))
 
                 # -- Extend the fused datasets -- #
                 self.dataset_tr_fused.update(sample_tr)
@@ -108,7 +108,7 @@ class nnUNetTrainerRehearsal(nnUNetTrainerSequential): # Inherit default trainer
 
             # -- Update the log -- #
             self.print_to_log_file("Succesfully build dataset for rehearsal training, moving on with training."
-                "Extended the train dataset from {} samples to {} samples.".format(init_tr_len), len(self.dataset_tr_fused))
+                "Extended the train dataset from {} samples to {} samples.".format(init_tr_len, len(self.dataset_tr_fused)))
 
         # -- Create the dataloaders for training and validation -- #
         if self.threeD:

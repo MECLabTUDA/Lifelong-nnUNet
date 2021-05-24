@@ -20,21 +20,22 @@ def get_default_configuration(network, task, running_task, network_trainer, task
         The extension type specifies which nnUNet extension will be used (sequential, rehearsal, etc.).
     """
     # -- Extract network_trainer type -- #
-    is_classic_trainer = network_trainer.__class__.__name__ == nnUNetTrainerV2.__class__.__name__
+    is_classic_trainer = network_trainer == str(nnUNetTrainerV2).split('.')[-1][:-2]
 
     # -- If search_in not provided set it with base_module -- #
     if search_in is None:
         search_in = (nnunet_ext.__path__[0], "training", "network_training", extension_type)
         base_module = 'nnunet_ext.training.network_training.' + extension_type
 
-    # -- If the trainer to extract is of not sequential origin, then search in unnet module -- #
+    # -- If the trainer to extract is of not one from the provided extension, then search in nnU-Net module -- #
     if is_classic_trainer:
         search_in = (nnunet.__path__[0], "training", "network_training")
         base_module = 'nnunet.training.network_training'
 
     # -- Update possible network list -- #
-    assert network in ['2d', '3d_lowres', '3d_fullres', '3d_cascade_fullres'], \
-        "network can only be one of the following: \'2d\', \'3d_lowres\', \'3d_fullres\', \'3d_cascade_fullres\'"
+    print(network)
+    assert network in ['2d', '3d_lowres', '3d_fullres'], \
+        "The network for the nnU-Net CL extension can only be one of the following: \'2d\', \'3d_lowres\', \'3d_fullres\'"
     dataset_directory = join(preprocessing_output_dir, task)
 
     if network == '2d':
@@ -45,10 +46,6 @@ def get_default_configuration(network, task, running_task, network_trainer, task
     plans = load_pickle(plans_file)
     possible_stages = list(plans['plans_per_stage'].keys())
 
-    if (network == '3d_cascade_fullres' or network == "3d_lowres") and len(possible_stages) == 1:
-        raise RuntimeError("3d_lowres/3d_cascade_fullres only applies if there is more than one stage. This task does "
-                           "not require the cascade. Run 3d_fullres instead")
-
     if network == '2d' or network == "3d_lowres":
         stage = 0
     else:
@@ -56,7 +53,7 @@ def get_default_configuration(network, task, running_task, network_trainer, task
 
     trainer_class = recursive_find_python_class([join(*search_in)], network_trainer,
                                                 current_module=base_module)
-
+                                                
     output_folder_name = join(network_training_output_dir, network, tasks_joined_name, running_task, network_trainer + "__" + plans_identifier)
 
     # -- Copy the model to nnunet_ext folder if it is not of sequential origin -- #
@@ -83,5 +80,6 @@ def get_default_configuration(network, task, running_task, network_trainer, task
 
     print("\nI am using data from this folder: ", join(dataset_directory, plans['data_identifier']))
     print("###############################################")
+    
     return plans_file, output_folder_name, dataset_directory, batch_dice, stage, trainer_class
 #------------------------------------------- Partially copied from original implementation -------------------------------------------#
