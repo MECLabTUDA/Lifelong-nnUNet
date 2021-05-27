@@ -1,1 +1,1 @@
-# nnU-Net Continual Learning (CL) extension: Training Elastic Weight Consolidation (EWC) 
+# nnU-Net Continual Learning extension: Training Elastic Weight Consolidation (EWC) 

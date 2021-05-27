@@ -1,5 +1,5 @@
 
-# nnU-Net Continual Learning (CL) extension: Change mask labels for dataset given a mapping file
+# nnU-Net Continual Learning extension: Change mask labels for dataset given a mapping file
 
 This is a general description on how to change the masks of a desired dataset based on a provided mapping file using the nnU-Net extension.
 
@@ -89,8 +89,8 @@ The following arguments and flags can be set to use this extension:
 | `-t_in` or `--tasks_in_path` | Specify one or a list of paths to tasks TaskXX_TASKNAME folders. | yes | -- | -- |
 | `-t_out` or `--tasks_out_path` | Specify the *unique* task ids for the output folders. | yes | -- | -- |
 | `-m` or `--mapping_files_path` | Specify one or a list of paths to the mapping (.json) files corresponding to the task ids. | yes | -- | -- |
-| `-p` | Use this to specify how many processes are used to run the script | no | -- | `default_num_threads` from nnunet/configuration.py |
-| `--no_pp` or `--disable_plan_ preprocess_tasks` | Set this if the plan and preprocessing step for each task using nnUNet_plan_and_preprocess should not be performed after a transformation. | -- | -- | `False` |
+| `-p` | Use this to specify how many processes are used to run the script | no | -- | `default_num_threads` from [nnunet/configuration.py](https://github.com/MIC-DKFZ/nnUNet/blob/master/nnunet/configuration.py) |
+| `--no_pp` or `--disable_plan_ preprocess_tasks` | Set this if the plan and preprocessing step for each task using nnUNet_plan_and_preprocess should not be performed after a transformation. | no | -- | `False` |
 | `-h` or `--help` | Simply shows help on which arguments can and should be used. | -- | -- | -- |
 
 When talking about lists in command lines, this does not mean to provide a real list, like values in bracket *--* `[.., .., ...]`  *--*, but rather dies it mean to provide an enumeration of values *--* `val_1 val2 val3 ...` *--*.

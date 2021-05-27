@@ -6,14 +6,17 @@
 import os
 import numpy as np
 from nnunet_ext.paths import default_plans_identifier
+from nnunet_ext.utilities.helpful_functions import join_texts_with_char
+from nnunet_ext.run.default_configuration import get_default_configuration
 from nnunet.training.network_training.nnUNetTrainerV2 import nnUNetTrainerV2
 from batchgenerators.utilities.file_and_folder_operations import *
+from nnunet.training.dataloading.dataset_loading import load_dataset
 
 
 class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class for 2D, 3D low resolution and 3D full resolution U-Net 
     def __init__(self, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None,
-                 identifier=default_plans_identifier, extension='sequential', trainer_class_name=None):
+                 identifier=default_plans_identifier, extension='sequential', tasks_joined_name=None, trainer_class_name=None):
         r"""Constructor of Sequential trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
         """
         # -- Initialize using parent class -- #
@@ -28,7 +31,7 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
             # -- If the current fold does not exists initialize it -- #
             if self.already_trained_on.get(str(self.fold), None) is None:
                 self.already_trained_on[str(self.fold)] = {'finished_training_on': list(), 'start_training_on': None,
-                                                            'used_identifier': self.identifier, 'prev_trainer': list()}  # Add current fold as new entry
+                                                           'used_identifier': self.identifier, 'prev_trainer': list()}  # Add current fold as new entry
         else:
             self.already_trained_on = {str(self.fold): {'finished_training_on': list(), 'start_training_on': None,
                                                         'used_identifier': self.identifier, 'prev_trainer': list()}}
@@ -53,6 +56,9 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
 
         # -- Set the extension for output file -- #
         self.extension = extension
+
+        # -- Set tasks_joined_name for validation dataset building -- #
+        self.tasks_joined_name = tasks_joined_name
 
         # -- Set variable that stores the IOU aka Jaccard Index
         self.all_val_iou_eval_metrics = list()
@@ -91,9 +97,6 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
         :return:
         """
         if self.trainer is None:
-            # -- Set trainer in already_trained_on to the class name -- #
-            #self.already_trained_on[str(self.fold)]['prev_trainer'] = self.__class__.__name__
-
             # -- Initialize from beginning and start training, since no model is provided -- #
             super().initialize_network() # --> This updates the corresponding variables automatically since we inherit this class
             return  # Done with initialization
@@ -116,9 +119,9 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
         if isinstance(self.trainer, nnUNetTrainerSequential):   # If model was trained using nnUNetTrainerV2, the pickle file won't exist
             self.already_trained_on = load_json(join(self.trained_on_path, self.extension+'_trained_on.json'))
         
-        # -- Set trainer in already_trained_on based on self.trainer (= prev_trainer) --> It was already done after finishing, but still -- #
-        self.already_trained_on[str(self.fold)]['prev_trainer'][-1:] = [self.trainer.__class__.__name__]
+        # -- Set trainer in already_trained_on based on self.trainer (= prev_trainer) -- #
         #self.already_trained_on[str(self.fold)]['prev_trainer'].append(self.trainer.__class__.__name__)
+        #self.already_trained_on[str(self.fold)]['prev_trainer'][-1:] = [self.trainer.__class__.__name__]
 
         # -- Load the model and parameters -- #
         print("Loading trainer and setting the network for training")
@@ -127,13 +130,15 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
         # -- Set own network to trainer.network to use this pre-trained model -- #
         self.network = self.trainer.network
 
+    """
     def initialize_optimizer_and_scheduler(self):
-        r"""This function initializes the optimizer and scheduler. If use same as parent class, delete the function.
-            Only keep it if the optimizer and lr_scheduler of foundation model will be used."""
+        rThis function initializes the optimizer and scheduler. If use same as parent class, delete the function.
+            Only keep it if the optimizer and lr_scheduler of foundation model will be used.
         assert self.network is not None, "self.initialize_network must be called first"
         
         # -- Use initial optimizer and lr_scheduler -- #
         super().initialize_optimizer_and_scheduler()
+    """
 
     def update_trainer(self, prev_trainer, output_folder):
         r"""This function updates the previous trainer in a class by reinitializing the network again and resetting the output_folder.
@@ -161,16 +166,17 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
             # -- Remove the task from start_training_on -- #
             self.already_trained_on[str(self.fold)]['start_training_on'] = None 
             # -- Update the prev_trainer -- #
-            self.already_trained_on[str(self.fold)]['prev_trainer'].append(self.trainer_class_name)
+            #self.already_trained_on[str(self.fold)]['prev_trainer'].append(self.trainer_class_name)
         else:   # Task started to train
             self.already_trained_on[str(self.fold)]['start_training_on'] = task
             # -- Update the prev_trainer -- #
-            self.already_trained_on[str(self.fold)]['prev_trainer'][-1:] = [self.trainer.__class__.__name__]
-            #self.already_trained_on[str(self.fold)]['prev_trainer'].append(self.trainer.__class__.__name__)
+            #self.already_trained_on[str(self.fold)]['prev_trainer'][-1:] = [self.trainer.__class__.__name__]
+            self.already_trained_on[str(self.fold)]['prev_trainer'].append(self.trainer.__class__.__name__)
         
         # -- Update the used_identifier -- #
         self.already_trained_on[str(self.fold)]['used_identifier'] = self.identifier
 
+        # -- Save the updated dictionary as a json file -- #
         save_json(self.already_trained_on, join(self.trained_on_path, self.extension+'_trained_on.json'))
 
     def run_training(self, task):
@@ -197,10 +203,11 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
             validation['epoch_'+str(idx*self.save_every)+'_Dice'] = str(dice_results[idx])
 
         # -- Save the dictionary as json file in the corresponding output_folder -- #
-        save_json(validation, join(self.output_folder, 'val_metrics.json'))
+        save_json(validation, join(self.output_folder, 'val_metrics_during_training.json'))
         
         return ret  # Finished with training for the specific task
 
+    #------------------------------------------ Partially copied by original implementation ------------------------------------------#
     def finish_online_evaluation(self):
         r"""Calculate the Dice Score and IOU (Intersection Over Union) on the validation dataset during training.
         """
@@ -235,3 +242,108 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
         self.online_eval_tp = []
         self.online_eval_fp = []
         self.online_eval_fn = []
+    #------------------------------------------ Partially copied by original implementation ------------------------------------------#
+
+    def validate(self, do_mirroring: bool = True, use_sliding_window: bool = True,
+                 step_size: float = 0.5, save_softmax: bool = True, use_gaussian: bool = True, overwrite: bool = True,
+                 validation_folder_name: str = 'validation_raw', debug: bool = False, all_in_gpu: bool = False,
+                 segmentation_export_kwargs: dict = None, run_postprocessing_on_folds: bool = True):
+        r"""The Sequential Trainer needs its own validation, since data from the previous tasks needs to be included in the
+            validation as well. The validation data from previous tasks will be fully used for the final validation.
+            NOTE: During training, only data from the same task will be used for validation. Only for the final validation, the
+                  data from previous tasks will be included as well.
+        """
+        # -- Initialize the variable for all results from the validation -- #
+        # -- A result is either None or an error --> in case this might be necessary -- #
+        ret_joined = list()
+
+        # -- Extract the information of the current fold -- #
+        trained_on_folds = self.already_trained_on[str(self.fold)]
+
+        # -- Extract the list of tasks the model has already finished training on -- #
+        trained_on = trained_on_folds.get('finished_training_on', None)
+
+        #  -- If the trained_on_folds list of the current fold is empty, run a simple validation using parents class function (nnUNetTrainerV2) -- #
+        if trained_on is None:
+            # -- Update the log -- #
+            self.print_to_log_file("Performing validation with validation data from last trained task.")
+
+            # -- Perform validation and return the results -- #
+            ret_joined.append(super().validate(do_mirroring=do_mirroring, use_sliding_window=use_sliding_window, step_size=step_size,
+                                               save_softmax=save_softmax, use_gaussian=use_gaussian,
+                                               overwrite=overwrite, validation_folder_name=validation_folder_name, debug=debug,
+                                               all_in_gpu=all_in_gpu, segmentation_export_kwargs=segmentation_export_kwargs,
+                                               run_postprocessing_on_folds=run_postprocessing_on_folds))
+            return ret_joined
+
+        # -- If it reaches until there, the model has already trained on a previous task, so trained_on exists -- #
+        # -- Make a copy of the variables that will be updated in the upcoming loop -- #
+        # -- Without '[:]' for lists or '.copy()' for dicts both variables will change its values which is not desired -- #
+        dataset_backup = self.dataset.copy()
+        dataset_tr_backup = self.dataset_tr.copy()
+        dataset_val_backup = self.dataset_val.copy()
+        gt_niftis_folder_backup = self.gt_niftis_folder
+        dataset_directory_backup = self.dataset_directory
+        plans_backup = self.plans.copy()
+
+        # -- For each previously trained task perform the validation on the full validation set -- #
+        running_task_list = list()
+        for idx, task in enumerate(trained_on):
+            # -- Update running task list and create running task which are all (trained tasks and current task joined) for output folder name -- #
+            running_task_list.append(task)
+            running_task = join_texts_with_char(running_task_list, '_')
+
+            # -- Get default configuration for nnunet/nnunet_ext model (finished training) -- #
+            plans_file, _, self.dataset_directory, _, stage, \
+            _ = get_default_configuration(self.network_name, task, running_task, trained_on_folds['prev_trainer'][idx],\
+                                          self.tasks_joined_name, self.identifier, extension_type=self.extension)
+
+            # -- Load the plans file -- #
+            self.plans = load_pickle(plans_file)
+            
+            # -- Update self.gt_niftis_folder that will be used in validation function so the files can be found -- #
+            self.gt_niftis_folder = join(self.dataset_directory, "gt_segmentations")
+
+            # -- Extract the folder with the preprocessed data in it -- #
+            folder_with_preprocessed_data = join(self.dataset_directory, self.plans['data_identifier'] +
+                                                 "_stage%d" % stage)
+                                                
+
+            print(self.dataset_directory, self.gt_niftis_folder)
+
+            # -- Load the dataset for the task from the loop and perform the split on it -- #
+            self.dataset = load_dataset(folder_with_preprocessed_data)
+            self.do_split()
+
+            # -- Update the log -- #
+            self.print_to_log_file("Performing validation with validation data from task {}.".format(task))
+            
+            # -- Perform individual validations with updated self.gt_niftis_folder -- #
+            ret_joined.append(super().validate(do_mirroring=do_mirroring, use_sliding_window=use_sliding_window, step_size=step_size,
+                                               save_softmax=save_softmax, use_gaussian=use_gaussian,
+                                               overwrite=overwrite, validation_folder_name=validation_folder_name, debug=debug,
+                                               all_in_gpu=all_in_gpu, segmentation_export_kwargs=segmentation_export_kwargs,
+                                               run_postprocessing_on_folds=run_postprocessing_on_folds))
+
+        # -- Restore variables to the corresponding validation set of the current task and remove backup variables -- #
+        self.dataset = dataset_backup
+        self.dataset_tr = dataset_tr_backup
+        self.dataset_val = dataset_val_backup
+        self.gt_niftis_folder = gt_niftis_folder_backup
+        self.dataset_directory = dataset_directory_backup
+        self.plans = plans_backup
+        del dataset_backup, dataset_tr_backup, dataset_val_backup, gt_niftis_folder_backup, dataset_directory_backup, plans_backup 
+
+        """
+        # -- Update the log -- #
+        self.print_to_log_file("Performing validation with validation data from last trained task.")
+
+        # -- Perform validation on the current task that the model just trained on -- #
+        ret_joined.append(super().validate(do_mirroring=do_mirroring, use_sliding_window=use_sliding_window, step_size=step_size,
+                                           save_softmax=save_softmax, use_gaussian=use_gaussian,
+                                           overwrite=overwrite, validation_folder_name=validation_folder_name, debug=debug,
+                                           all_in_gpu=all_in_gpu, segmentation_export_kwargs=segmentation_export_kwargs,
+                                           run_postprocessing_on_folds=run_postprocessing_on_folds))"""
+
+        # -- Return the result which will be an list with None valuea and/or errors -- #
+        return ret_joined

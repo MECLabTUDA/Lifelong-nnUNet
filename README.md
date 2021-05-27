@@ -53,4 +53,4 @@ TODO
 In the [documentation folder](/documentation) of this branch are multiple readme files *-- for each extension one --* that describes in general how and which arguments can be set for the specific extension followed by a setp-by-step example that can be easily replicated to understand the presented extension. Further, in each of the extensions implementation, the source code is extensively commented in such a way, that others that work with this extensions are able to follow the construction and pipeline of these models/trainers to be able to further extend it or use it in other projects.
 
 ## License
-Set license
+[Apache License 2.0](https://choosealicense.com/licenses/apache-2.0/)

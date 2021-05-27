@@ -1,4 +1,4 @@
-# nnU-Net Continual Learning (CL) extension: Setting up paths
+# nnU-Net Continual Learning extension: Setting up paths
 
 The process of setting up the paths for the nnU-Net Continual Learning (CL) extension is nearly the same as for the conventional nnU-Net from [here](https://github.com/MIC-DKFZ/nnUNet/blob/master/documentation/setting_up_paths.md). The paths for the conventinonal nnU-Net need to be set in all cases, luckily by using the extension there is not that much to add. If the user wants to perform or replicate one of the presented experiments by using the provided evaluations for a CL method, a fourth path needs to be set. If the evaluation method will not be used, only the conventional nnU-Net paths need to be set.
 

@@ -1,1 +1,1 @@
-# nnU-Net Continual Learning (CL) extension: Rehearsal Training
+# nnU-Net Continual Learning extension: Rehearsal Training

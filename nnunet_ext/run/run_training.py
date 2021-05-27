@@ -14,6 +14,7 @@ from nnunet_ext.paths import default_plans_identifier
 from nnunet.run.load_pretrained_weights import load_pretrained_weights
 from nnunet_ext.training.network_training.sequential.nnUNetTrainerSequential import nnUNetTrainerSequential # Own implemented class
 from nnunet_ext.training.network_training.rehearsal.nnUNetTrainerRehearsal import nnUNetTrainerRehearsal # Own implemented class
+from nnunet_ext.training.network_training.ewc.nnUNetTrainerEWC import nnUNetTrainerEWC # Own implemented class
 from nnunet.utilities.task_name_id_conversion import convert_id_to_task_name
 
 
@@ -120,9 +121,22 @@ def run_training(extension='sequential'):
         parser.add_argument('-samples_in_perc', action='store', type=float, nargs=1, required=False, default=0.25,
                             help='Specify how much of the previous tasks should be considered during training.'
                                 ' The number should be between 0 and 1 specifying the percentage that will be considered.'
-                                ' This percentage is used for each previous task nidividually.'
+                                ' This percentage is used for each previous task individually.'
                                 ' Default: 0.25, ie. 25% of each previous task will be considered.')
+    
+    # -- Add arguments for ewc method -- #
+    if extension == 'ewc':
+        parser.add_argument('-ewc_lambda', action='store', type=float, nargs=1, required=False, default=0.4,
+                            help='Specify the importance of the previous tasks for the EWC method.'
+                                ' This number represents the lambda value in the loss function calculation as proposed in the paper.'
+                                ' Default: ewc_lambda = 0.4')
 
+    # -- Build mapping for extension to corresponding class -- #
+    ext_map = {'standard': nnUNetTrainerV2,
+               'sequential': nnUNetTrainerSequential,
+               'rehearsal': nnUNetTrainerRehearsal,
+               'ewc': nnUNetTrainerEWC,
+               'lwf': None}
 
     # -------------------------------
     # Extract arguments from parser
@@ -184,6 +198,10 @@ def run_training(extension='sequential'):
     os.environ["CUDA_VISIBLE_DEVICES"] = cuda
 
     # -- Check that given the extension the right netwrok has been provided -- #
+    assert network_trainer == str(ext_map[extension]).split('.')[-1][:-2],\
+            "When training {}, the network is called \'{}\' and should be used, nothing else.".format(extension, str(ext_map[extension]).split('.')[-1][:-2])
+
+    """
     if extension == 'sequential':
         assert network_trainer == str(nnUNetTrainerSequential).split('.')[-1][:-2],\
             "When training sequential, the network is called \'nnUNetTrainerSequential\' and should be used, nothing else."
@@ -191,6 +209,11 @@ def run_training(extension='sequential'):
     elif extension == 'rehearsal':
         assert network_trainer == str(nnUNetTrainerRehearsal).split('.')[-1][:-2],\
             "When training rehearsal, the network is called \'nnUNetTrainerRehearsal\' and should be used, nothing else."
+
+    elif extension == 'ewc':
+        assert network_trainer == str(nnUNetTrainerEWC).split('.')[-1][:-2],\
+            "When training using Elastic Weight Consolidation method, the network is called \'nnUNetTrainerEWC\' and should be used, nothing else."
+    """
 
     # -- Extract rehearsal arguments -- #
     if extension == 'rehearsal':
@@ -208,10 +231,20 @@ def run_training(extension='sequential'):
         assert samples != 0, "Instead of setting samples_in_perc to 0 use the provided Sequential Trainer."
         assert samples > 0 and samples <= 1, "Your provided samples_in_perc is not in the specified range of (0, 1]."
 
-        # -- Notify the user that the seed should not have been changed if -c is activated --> Different results will be used then -- #
+        # -- Notify the user that the seed should not have been changed if -c is activated -- #
         if continue_training:
             print("Note: It will be continued with previous training, be sure that the provided seed has not "
                   "changed from previous one, because this will change the datasets on which the model will be trained..")
+
+    # -- Extract ewc arguments -- #
+    if extension == 'ewc':
+        # -- Extract ewc_lambda -- #
+        ewc_lambda = args.ewc_lambda
+
+        # -- Notify the user that the ewc_lambda should not have been changed if -c is activated -- #
+        if continue_training:
+            print("Note: It will be continued with previous training, be sure that the provided ewc_lambda has not "
+                  "changed from previous one..")
 
 
     # -------------------------------
@@ -240,9 +273,9 @@ def run_training(extension='sequential'):
     tasks_joined_name = join_texts_with_char(tasks_for_folds, '_')
 
 
-    # ----------------------------------------------------------
-    # Train sequentially for each task for all provided folds
-    # ----------------------------------------------------------
+    # ---------------------------------------------
+    # Train for each task for all provided folds
+    # ---------------------------------------------
     # -- Initilize variable that indicates if the trainer has been initialized -- #
     already_trained_on = None
 
@@ -329,6 +362,11 @@ def run_training(extension='sequential'):
                     assert seed == int(trained_on_folds['used_seed']),\
                         "To continue training on the fold {} the same seed, ie. \'{}\' needs to be provided, not \'{}\'.".format(t_fold, trained_on_folds['used_seed'], seed)
             
+                # -- Ensure that seed is not changed when using rehearsal method --- #
+                if extension == 'ewc':
+                    assert ewc_lambda == float(trained_on_folds['used_ewc_lambda']),\
+                        "To continue training on the fold {} the same ewc_lambda, ie. \'{}\' needs to be provided, not \'{}\'.".format(t_fold, trained_on_folds['used_ewc_lambda'], ewc_lambda)
+            
                 # -- Update the user that the fold for training has been found -- #
                 print("Fold {} has not been trained on all tasks --> continue the training with task {}..".format(t_fold, began_with))
 
@@ -373,11 +411,26 @@ def run_training(extension='sequential'):
             # -- Check that network_trainer is of the right type -- #
             if idx == 0 and not continue_training:
                 # -- At the first task, the base model can be a nnunet model, later, only sequential models are permiited -- #
-                assert issubclass(trainer_class, (nnUNetTrainerSequential, nnUNetTrainerRehearsal, nnUNetTrainerV2)),\
+                possible_trainers = ext_map.values()
+                assert issubclass(trainer_class, tuple(possible_trainers)),\
                     "Network_trainer was found but is not derived from a provided extension nor nnUNetTrainerV2."\
                     " When using this function, it is only permitted to start with an nnUNetTrainerV2 or a provided extensions"\
                     " like nnUNetTrainerSequential or nnUNetTrainerRehearsal. Choose the right trainer or use the convential"\
                     " nnunet command to train."
+                """    
+                assert issubclass(trainer_class, (nnUNetTrainerSequential, nnUNetTrainerRehearsal, nnUNetTrainerEWC, nnUNetTrainerV2)),\
+                    "Network_trainer was found but is not derived from a provided extension nor nnUNetTrainerV2."\
+                    " When using this function, it is only permitted to start with an nnUNetTrainerV2 or a provided extensions"\
+                    " like nnUNetTrainerSequential or nnUNetTrainerRehearsal. Choose the right trainer or use the convential"\
+                    " nnunet command to train." """
+            else:
+                # -- Now, at a later stage, only trainer based on extension permitted! -- #
+                assert issubclass(trainer_class, ext_map[extension]),\
+                    "Network_trainer was found but is not derived from {}."\
+                    " When using this function, only {} trainers are permitted."\
+                    " So choose {}"\
+                    " as a network_trainer corresponding to the network, or use the convential nnunet command to train.".format(ext_map[extension], extension, ext_map[extension])
+            """
             elif extension == 'sequential':
                 # -- Now, at a later stage, only sequential trainer permitted! -- #
                 assert issubclass(trainer_class, nnUNetTrainerSequential),\
@@ -392,6 +445,13 @@ def run_training(extension='sequential'):
                     " When using this function, only rehearsal trainers are permitted."\
                     " So choose nnUNetTrainerRehearsal"\
                     " as a network_trainer corresponding to the network, or use the convential nnunet command to train."
+            elif extension == 'ewc':
+                # -- Now, at a later stage, only rehearsal trainer permitted! -- #
+                assert issubclass(trainer_class, nnUNetTrainerRehearsal),\
+                    "Network_trainer was found but is not derived from nnUNetTrainerRehearsal."\
+                    " When using this function, only rehearsal trainers are permitted."\
+                    " So choose nnUNetTrainerRehearsal"\
+                    " as a network_trainer corresponding to the network, or use the convential nnunet command to train." """
 
             # -- Load trainer from last task and initialize new trainer if continue training is wrong -- #
             if idx == 0 and init_seq and not continue_training:
@@ -414,16 +474,24 @@ def run_training(extension='sequential'):
                     prev_trainer = trainer_class(plans_file, t_fold, output_folder=init_output_folder, dataset_directory=dataset_directory,
                                                  batch_dice=batch_dice, stage=stage)
                 elif trainer_class.__name__ == str(nnUNetTrainerSequential).split('.')[-1][:-2]:  # --> Initialization with nnUNetTrainerSequential
-                    prev_trainer = trainer_class(batch_dice=batch_dice, stage=stage, unpack_data=decompress_data,
+                    prev_trainer = trainer_class(plans_file, t_fold, output_folder=output_folder_name, dataset_directory=dataset_directory,
+                                                 batch_dice=batch_dice, stage=stage, unpack_data=decompress_data,
                                                  deterministic=deterministic, fp16=run_mixed_precision, save_interval=save_interval,
                                                  already_trained_on=already_trained_on, identifier=init_identifier, extension=extension,
-                                                 trainer_class_name=trainer_class.__name__)
+                                                 tasks_joined_name=tasks_joined_name, trainer_class_name=trainer_class.__name__)
                 elif trainer_class.__name__ == str(nnUNetTrainerRehearsal).split('.')[-1][:-2]:  # --> Initialization with nnUNetTrainerRehearsal
                     prev_trainer = trainer_class(plans_file, t_fold, output_folder=output_folder_name, dataset_directory=dataset_directory,
                                                  batch_dice=batch_dice, stage=stage, unpack_data=decompress_data,
                                                  deterministic=deterministic, fp16=run_mixed_precision, save_interval=save_interval,
                                                  already_trained_on=already_trained_on, identifier=init_identifier, extension=extension,
-                                                 samples_per_ds=samples, seed=seed, tasks_joined_name=tasks_joined_name,
+                                                 tasks_joined_name=tasks_joined_name, samples_per_ds=samples, seed=seed,
+                                                 trainer_class_name=trainer_class.__name__)
+                elif trainer_class.__name__ == str(nnUNetTrainerEWC).split('.')[-1][:-2]:  # --> Initialization with nnUNetTrainerEWC
+                    prev_trainer = trainer_class(plans_file, t_fold, output_folder=output_folder_name, dataset_directory=dataset_directory,
+                                                 batch_dice=batch_dice, stage=stage, unpack_data=decompress_data,
+                                                 deterministic=deterministic, fp16=run_mixed_precision, save_interval=save_interval,
+                                                 already_trained_on=already_trained_on, identifier=init_identifier, extension=extension,
+                                                 tasks_joined_name=tasks_joined_name, ewc_lambda=ewc_lambda,
                                                  trainer_class_name=trainer_class.__name__)
                 
                 # -- Create already trained on for this task we are going to skip -- #
@@ -445,19 +513,25 @@ def run_training(extension='sequential'):
                 prev_trainer.initialize(training=False)
                 
             # -- Extract trainer and set saving indicating variables to False if desired -- #
-            if extension == 'rehearsal':
+            if extension == 'sequential':
                 trainer = trainer_class(plans_file, t_fold, output_folder=output_folder_name, dataset_directory=dataset_directory,
                                         batch_dice=batch_dice, stage=stage, unpack_data=decompress_data,
                                         deterministic=deterministic, fp16=run_mixed_precision, save_interval=save_interval,
                                         already_trained_on=already_trained_on, identifier=init_identifier, extension=extension,
-                                        samples_per_ds=samples, seed=seed, tasks_joined_name=tasks_joined_name,
-                                        trainer_class_name=trainer_class.__name__)
-            else:
+                                        tasks_joined_name=tasks_joined_name, trainer_class_name=trainer_class.__name__)
+            elif extension == 'rehearsal':
                 trainer = trainer_class(plans_file, t_fold, output_folder=output_folder_name, dataset_directory=dataset_directory,
                                         batch_dice=batch_dice, stage=stage, unpack_data=decompress_data,
                                         deterministic=deterministic, fp16=run_mixed_precision, save_interval=save_interval,
                                         already_trained_on=already_trained_on, identifier=init_identifier, extension=extension,
+                                        tasks_joined_name=tasks_joined_name, samples_per_ds=samples, seed=seed,
                                         trainer_class_name=trainer_class.__name__)
+            elif extension == 'ewc':
+                trainer = trainer_class(plans_file, t_fold, output_folder=output_folder_name, dataset_directory=dataset_directory,
+                                        batch_dice=batch_dice, stage=stage, unpack_data=decompress_data,
+                                        deterministic=deterministic, fp16=run_mixed_precision, save_interval=save_interval,
+                                        already_trained_on=already_trained_on, identifier=init_identifier, extension=extension,
+                                        tasks_joined_name=tasks_joined_name, ewc_lambda=ewc_lambda, trainer_class_name=trainer_class.__name__)
             
             if disable_saving:
                 trainer.save_final_checkpoint = False # whether or not to save the final checkpoint
@@ -532,7 +606,7 @@ def run_training(extension='sequential'):
             # -- Delete content of the folder -- #
             move_dir(prev_trainer_path, p_folder_path)
         
-        # -- Reset init_seq and prev_trainer -- #
-        init_seq = args.init_seq
-        prev_trainer = args.initialize_with_network_trainer
+    # -- Reset init_seq and prev_trainer -- #
+    init_seq = args.init_seq
+    prev_trainer = args.initialize_with_network_trainer
 #------------------------------------------- Inspired by original implementation -------------------------------------------#
