@@ -160,14 +160,17 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
         """
         # -- Add the provided task at the end of the list, sort the list and dump it as pkl file -- #
         if finished:    # Task finished with training
-            trained_on = self.already_trained_on[str(self.fold)]['finished_training_on']
-            trained_on.append(task)
-            self.already_trained_on[str(self.fold)]['finished_training_on'] = trained_on
+            self.already_trained_on[str(self.fold)]['finished_training_on'].append(task)
             # -- Remove the task from start_training_on -- #
             self.already_trained_on[str(self.fold)]['start_training_on'] = None 
             # -- Update the prev_trainer -- #
             #self.already_trained_on[str(self.fold)]['prev_trainer'].append(self.trainer_class_name)
         else:   # Task started to train
+            # -- If the fold does not exist initialize it -- #
+            if self.already_trained_on.get(str(self.fold), None) is None:
+                self.already_trained_on[str(self.fold)] = {'finished_training_on': list(), 'start_training_on': None,
+                                                           'used_identifier': self.identifier, 'prev_trainer': list()}
+            # -- Add the current task -- #
             self.already_trained_on[str(self.fold)]['start_training_on'] = task
             # -- Update the prev_trainer -- #
             #self.already_trained_on[str(self.fold)]['prev_trainer'][-1:] = [self.trainer.__class__.__name__]
@@ -199,8 +202,7 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
         # -- Transform this list into a dictionary and load the data into it so it can be saved it -- #
         validation = dict()
         for idx in range(len(dice_results)):
-            validation['epoch_'+str(idx*self.save_every)+'_IOU'] = str(iou_results[idx])
-            validation['epoch_'+str(idx*self.save_every)+'_Dice'] = str(dice_results[idx])
+            validation[idx*self.save_every] = {'IOU': iou_results[idx], 'Dice': dice_results[idx] }
 
         # -- Save the dictionary as json file in the corresponding output_folder -- #
         save_json(validation, join(self.output_folder, 'val_metrics_during_training.json'))
@@ -226,9 +228,9 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
                                            zip(self.online_eval_tp, self.online_eval_fp, self.online_eval_fn)]
                                if not np.isnan(i)]
 
-        # -- Store IOU and Dice values -- #
-        self.all_val_iou_eval_metrics.append(np.mean(global_iou_per_class))
-        self.all_val_eval_metrics.append(np.mean(global_dc_per_class))
+        # -- Store IOU and Dice values. Ensure it is float64 so its JSON serializable -- #
+        self.all_val_iou_eval_metrics.append(np.mean(global_iou_per_class, dtype="float64"))
+        self.all_val_eval_metrics.append(np.mean(global_dc_per_class, dtype="float64"))
 
         # -- Update the log file -- #
         self.print_to_log_file("Average global foreground IOU:", str(global_iou_per_class))
@@ -263,18 +265,21 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
         # -- Extract the list of tasks the model has already finished training on -- #
         trained_on = trained_on_folds.get('finished_training_on', None)
 
-        #  -- If the trained_on_folds list of the current fold is empty, run a simple validation using parents class function (nnUNetTrainerV2) -- #
-        if trained_on is None:
+        #  -- If the trained_on_folds raise an error, because at this point the model should have been trained on at least one task -- #
+        assert trained_on is not None, "Before performing any validation, the model needs to be trained on at least one task."
+
+        """if trained_on is None:
+            
             # -- Update the log -- #
             self.print_to_log_file("Performing validation with validation data from last trained task.")
 
             # -- Perform validation and return the results -- #
             ret_joined.append(super().validate(do_mirroring=do_mirroring, use_sliding_window=use_sliding_window, step_size=step_size,
                                                save_softmax=save_softmax, use_gaussian=use_gaussian,
-                                               overwrite=overwrite, validation_folder_name=validation_folder_name, debug=debug,
-                                               all_in_gpu=all_in_gpu, segmentation_export_kwargs=segmentation_export_kwargs,
+                                               overwrite=overwrite, validation_folder_name=validation_folder_name+task,
+                                               debug=debug, all_in_gpu=all_in_gpu, segmentation_export_kwargs=segmentation_export_kwargs,
                                                run_postprocessing_on_folds=run_postprocessing_on_folds))
-            return ret_joined
+            return ret_joined"""
 
         # -- If it reaches until there, the model has already trained on a previous task, so trained_on exists -- #
         # -- Make a copy of the variables that will be updated in the upcoming loop -- #
@@ -308,9 +313,6 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
             folder_with_preprocessed_data = join(self.dataset_directory, self.plans['data_identifier'] +
                                                  "_stage%d" % stage)
                                                 
-
-            print(self.dataset_directory, self.gt_niftis_folder)
-
             # -- Load the dataset for the task from the loop and perform the split on it -- #
             self.dataset = load_dataset(folder_with_preprocessed_data)
             self.do_split()
@@ -321,7 +323,7 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
             # -- Perform individual validations with updated self.gt_niftis_folder -- #
             ret_joined.append(super().validate(do_mirroring=do_mirroring, use_sliding_window=use_sliding_window, step_size=step_size,
                                                save_softmax=save_softmax, use_gaussian=use_gaussian,
-                                               overwrite=overwrite, validation_folder_name=validation_folder_name, debug=debug,
+                                               overwrite=overwrite, validation_folder_name=validation_folder_name+task, debug=debug,
                                                all_in_gpu=all_in_gpu, segmentation_export_kwargs=segmentation_export_kwargs,
                                                run_postprocessing_on_folds=run_postprocessing_on_folds))
 

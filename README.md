@@ -2,6 +2,7 @@
 
 This specific branch of the [nnUNet_extensions repository](https://github.com/camgbus/nnUNet_extensions) contains multiple Continual Learning (CL) extensions for the nnU-Net framework.
 
+
 ## Table Of Contents
 
 [Introduction](#introduction)
@@ -19,8 +20,10 @@ This specific branch of the [nnUNet_extensions repository](https://github.com/ca
 
 [License](#license)
 
+
 ## Introduction
 TODO
+
 
 ## Installation
 The simplest and most convenient way to install everything can be achieved by using Anaconda:
@@ -31,8 +34,6 @@ The simplest and most convenient way to install everything can be achieved by us
 4. Execute `pip install -r requirements.txt` to install all required packages. With this step, the [original nnU-Net](https://github.com/MIC-DKFZ/nnUNet) will be installed as well, so all commands described there will work as well.
 5. Set your paths as described [here](/documentation/setting_up_paths.md) in documents.
 6. Execute `pytest` to ensure that everything is working. All tests should work, however one test specifically tests if at least one GPU is present, so this one might fail if no GPU is installed.
-
-NOTE: Maybe create own setting-up patsh file since location or name might change from original repo..
 
 
 ## Extensions
@@ -49,8 +50,10 @@ TODO
 ### TBD
 TODO
 
+
 ## Documentations
 In the [documentation folder](/documentation) of this branch are multiple readme files *-- for each extension one --* that describes in general how and which arguments can be set for the specific extension followed by a setp-by-step example that can be easily replicated to understand the presented extension. Further, in each of the extensions implementation, the source code is extensively commented in such a way, that others that work with this extensions are able to follow the construction and pipeline of these models/trainers to be able to further extend it or use it in other projects.
+
 
 ## License
 [Apache License 2.0](https://choosealicense.com/licenses/apache-2.0/)

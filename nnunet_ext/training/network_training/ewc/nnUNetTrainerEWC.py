@@ -3,7 +3,7 @@
 #----------inspired by original implementation (--> nnUNetTrainerV2), copied code is marked as such.----#
 #########################################################################################################
 
-# -- The implementation of this method is based on the following Source Code:
+# -- The implementation of this method is based on the following Source Code: -- #
 # -- https://github.com/ContinualAI/colab/blob/master/notebooks/intro_to_continual_learning.ipynb. -- #
 # -- It represents the method proposed in the paper https://arxiv.org/pdf/1612.00796.pdf -- #
 
@@ -60,10 +60,10 @@ class nnUNetTrainerEWC(nnUNetTrainerSequential): # Inherit default trainer class
                 self.already_trained_on[str(self.fold)]['fisher'][task][name] = param.grad.data.clone().pow(2)
                 self.already_trained_on[str(self.fold)]['params'][task][name] = param.data.clone()
         
-        # -- Set own network to trainer.network to use this pre-trained model -- #
-        self.network = self.trainer.network
+            # -- Set own network to trainer.network to use this pre-trained model if it exists -- #
+            self.network = self.trainer.network
 
-    """ USE LOSS FUNCTION INSTEAD --> WAY MORE ELEGANT
+    """
     #------------------------------------------ Partially copied by original implementation ------------------------------------------#
     def run_iteration(self, data_generator, do_backprop=True, run_online_evaluation=False):
         For each iteration, the Loss Function is differently calculated. It is defined in the EWC paper
@@ -149,6 +149,8 @@ class nnUNetTrainerEWC(nnUNetTrainerSequential): # Inherit default trainer class
             while updating fisher and params dicts.
         """
         # -- Choose the right loss function (EWC) that will be used during training -- #
+        # -- --> Look into the Loss function to see how the approach is implemented -- #
+        # -- Update the network paramaters after each iteration .. -- #
         self.loss = EWCLoss(self.loss, self.ds_loss_weights,
                             self.already_trained_on[str(self.fold)]['finished_training_on'],
                             self.ewc_lambda,
@@ -157,9 +159,9 @@ class nnUNetTrainerEWC(nnUNetTrainerSequential): # Inherit default trainer class
                             self.network.named_parameters())
 
         # -- Execute the training for the desired epochs -- #
-        ret = super().run_training()       # Execute training from parent class --> already_trained_on will be updated there
+        ret = super().run_training(task)       # Execute training from parent class --> already_trained_on will be updated there
 
-        # -- The gradients of the trained network (model) can be used to calculate fisher for the current task -- #
+        # -- The gradients of the freshly trained network (model) can be used to calculate fisher for the current task -- #
         for name, param in self.network.named_parameters():
             # -- Update the fisher and params dict -- #
             self.already_trained_on[str(self.fold)]['fisher'][task][name] = param.grad.data.clone().pow(2)
@@ -169,3 +171,20 @@ class nnUNetTrainerEWC(nnUNetTrainerSequential): # Inherit default trainer class
         save_json(self.already_trained_on, join(self.trained_on_path, self.extension+'_trained_on.json'))
 
         return ret  # Finished with training for the specific task
+
+    def run_iteration(self, data_generator, do_backprop=True, run_online_evaluation=False):
+        r"""This function needs to be changed for the EWC method, since it is very important, even
+            crucial to update the current models network parameters that will be used in the loss function
+            after each iteration, and not after each epoch! If this will not be done after each iteration
+            the EWC loss calculation would always use the network parameters that were initialized before the
+            first epoch took place which is wrong because it should be always the one of the current iteration.
+            It is the same with the loss, we do not calculate the loss once every epoch, but with every iteration (batch).
+        """
+        # -- Run iteration as usual -- #
+        loss = super().run_iteration(data_generator, do_backprop, run_online_evaluation)
+
+        # -- After running iteration and calculating the loss, update the parameters for the loss in next iteration -- #
+        self.loss.update_network_params(self.network.named_parameters())
+
+        # -- Return the loss -- #
+        return loss
