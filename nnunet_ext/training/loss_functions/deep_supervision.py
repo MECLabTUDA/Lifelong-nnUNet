@@ -39,20 +39,6 @@ class MultipleOutputLoss2EWC(MultipleOutputLoss2):
         self.network_params = network_params
 
     def forward(self, x, y):
-
-        assert isinstance(x, (tuple, list)), "x must be either tuple or list"
-        assert isinstance(y, (tuple, list)), "y must be either tuple or list"
-        if self.weight_factors is None:
-            weights = [1] * len(x)
-        else:
-            weights = self.weight_factors
-
-        loss = weights[0] * self.loss(x[0], y[0])
-        for i in range(1, len(x)):
-            if weights[i] != 0:
-                loss += weights[i] * self.loss(x[i], y[i])
-
-                
         # -- Calculate the loss first using the parent class -- #
         loss = super(MultipleOutputLoss2EWC, self).forward(x, y) # --> assertion in parent class causes problems..
 
@@ -65,6 +51,7 @@ class MultipleOutputLoss2EWC(MultipleOutputLoss2):
                     # -- Extract corresponding fisher and param values -- #
                     fisher_value = self.fisher[task][name]
                     param_value = self.params[task][name]
+                    print(fisher_value)
 
                     # -- loss = loss_{t} + ewc_lambda * \sum_{i} F_{i}(param_{i} - param_{t-1, i})**2 -- #
                     loss = loss + self.ewc_lambda * (fisher_value * (param_value - param).pow(2)).sum()
@@ -126,20 +113,26 @@ class MultipleOutputLoss2LWF(MultipleOutputLoss2):
         \delta_y{xentropy(y, t)} = \delta_y{kl_div(y, t)}.
         scale is required as kl_div normalizes by nelements and not batch size.
         """
-        return F.kl_div(F.log_softmax(y / self.lwf_temperature), F.softmax(teacher_scores / self.lwf_temperature)) * scale
+        # -- Calculate the loss for the one prediction -- #
+        dist_loss = F.kl_div(F.log_softmax(y / self.lwf_temperature), F.softmax(teacher_scores / self.lwf_temperature)) * scale
+        
+        # -- return the calculated distillation loss -- #
+        return dist_loss
 
     def forward(self, x, y):
         # -- Calculate the loss first using the parent class -- #
-        loss = super(MultipleOutputLoss2EWC, self).forward(x, y)
-
+        loss = super(MultipleOutputLoss2LWF, self).forward(x, y)
+        
         # -- If previous tasks exist, than update the loss accordingly -- #
-        if len(self.tasks) != 0:
+        if len(self.prev_trainer_res) != 0:
             # -- Update the loss as proposed in the paper and return this loss to the calling function instead -- #
             # -- Loop through the models that have been trained on previous tasks -- #
             # -- Compute distillation loss for each old task and add it to the current loss -- #
-            for idx in range(len(self.prev_trainers)):
+            for idx in range(len(self.prev_trainer_res)):
                 # -- loss = loss + dist_loss -- #
-                loss = loss + self.distillation_loss(self.prev_trainer_res[idx], x, self.prev_trainer_res[idx].size(-1))
+                for i in range(1, len(x)):
+                    
+                    loss = loss + self.distillation_loss(x[i], self.prev_trainer_res[idx][i], x[i].size(-1))
 
         # -- Return the updated loss value -- #
         return loss

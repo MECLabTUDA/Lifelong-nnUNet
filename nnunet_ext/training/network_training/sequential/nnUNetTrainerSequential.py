@@ -6,12 +6,11 @@
 import os
 import numpy as np
 from nnunet_ext.paths import default_plans_identifier
+from batchgenerators.utilities.file_and_folder_operations import *
+from nnunet.training.dataloading.dataset_loading import load_dataset
 from nnunet_ext.utilities.helpful_functions import join_texts_with_char
 from nnunet_ext.run.default_configuration import get_default_configuration
 from nnunet.training.network_training.nnUNetTrainerV2 import nnUNetTrainerV2
-from batchgenerators.utilities.file_and_folder_operations import *
-from nnunet.training.dataloading.dataset_loading import load_dataset
-
 
 class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class for 2D, 3D low resolution and 3D full resolution U-Net 
     def __init__(self, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
@@ -30,11 +29,11 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
             self.already_trained_on = already_trained_on    # Use provided already_trained on
             # -- If the current fold does not exists initialize it -- #
             if self.already_trained_on.get(str(self.fold), None) is None:
-                self.already_trained_on[str(self.fold)] = {'finished_training_on': list(), 'start_training_on': None,
-                                                           'used_identifier': self.identifier, 'prev_trainer': list()}  # Add current fold as new entry
+                self.already_trained_on[str(self.fold)] = {'finished_training_on': list(), 'start_training_on': None, 'finished_validation_on': list(),
+                                                           'used_identifier': self.identifier, 'prev_trainer': ['None']}  # Add current fold as new entry
         else:
-            self.already_trained_on = {str(self.fold): {'finished_training_on': list(), 'start_training_on': None,
-                                                        'used_identifier': self.identifier, 'prev_trainer': list()}}
+            self.already_trained_on = {str(self.fold): {'finished_training_on': list(), 'start_training_on': None, 'finished_validation_on': list(),
+                                                        'used_identifier': self.identifier, 'prev_trainer': ['None']}}
         
         # -- Set the path were the trained_on file will be stored: grand parent directory from output_folder, ie. were all tasks are stored -- #
         self.trained_on_path = os.path.dirname(os.path.dirname(os.path.realpath(output_folder)))
@@ -70,6 +69,7 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
         # -- The Trainer embodies the actual model that will be used as foundation to continue training on -- #
         # -- It should be already initialized since the output_folder will be used. If it is None, the model will be initialized and trained. -- #
         # -- Further the trainer needs to be of class nnUNetTrainerV2 or nnUNetTrainerSequential for this method, nothing else. -- #
+        # -- Set prev_trainer correctly as class instance and not a string -- #
         self.trainer = prev_trainer
         
         # -- Set nr_epochs to provided number -- #
@@ -112,17 +112,13 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
             
         assert isfile(join(plans_dir, "plans.pkl")), "Folder with saved model weights must contain a plans.pkl file"
 
-        # -- Check that the trainer type is as expected: -- #
+        # -- Check that the trainer type is as expected -- #
         assert isinstance(self.trainer, (nnUNetTrainerV2, nnUNetTrainerSequential)), "The trainer needs to be nnUNetTrainerV2 or nnUNetTrainerSequential"
 
         # -- If the trainer is already of Sequential type, there should also be a pkl file with the sets it has already been trained on ! -- #
         if isinstance(self.trainer, nnUNetTrainerSequential):   # If model was trained using nnUNetTrainerV2, the pickle file won't exist
             self.already_trained_on = load_json(join(self.trained_on_path, self.extension+'_trained_on.json'))
         
-        # -- Set trainer in already_trained_on based on self.trainer (= prev_trainer) -- #
-        #self.already_trained_on[str(self.fold)]['prev_trainer'].append(self.trainer.__class__.__name__)
-        #self.already_trained_on[str(self.fold)]['prev_trainer'][-1:] = [self.trainer.__class__.__name__]
-
         # -- Load the model and parameters -- #
         print("Loading trainer and setting the network for training")
         self.trainer.load_final_checkpoint(train=False)    # Load state_dict of the final model
@@ -130,20 +126,10 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
         # -- Set own network to trainer.network to use this pre-trained model -- #
         self.network = self.trainer.network
 
-    """
-    def initialize_optimizer_and_scheduler(self):
-        rThis function initializes the optimizer and scheduler. If use same as parent class, delete the function.
-            Only keep it if the optimizer and lr_scheduler of foundation model will be used.
-        assert self.network is not None, "self.initialize_network must be called first"
-        
-        # -- Use initial optimizer and lr_scheduler -- #
-        super().initialize_optimizer_and_scheduler()
-    """
-
     def update_trainer(self, prev_trainer, output_folder):
         r"""This function updates the previous trainer in a class by reinitializing the network again and resetting the output_folder.
         """
-        # -- Update intern trainer representing a pretrained (sequential or non-sequential) model -- #
+        # -- Set prev_trainer correctly as class instance and not a string -- #
         self.trainer = prev_trainer
 
         # -- Update output_folder -- #
@@ -164,17 +150,12 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
             # -- Remove the task from start_training_on -- #
             self.already_trained_on[str(self.fold)]['start_training_on'] = None 
             # -- Update the prev_trainer -- #
-            #self.already_trained_on[str(self.fold)]['prev_trainer'].append(self.trainer_class_name)
+            self.already_trained_on[str(self.fold)]['prev_trainer'].append(self.trainer_class_name)
         else:   # Task started to train
-            # -- If the fold does not exist initialize it -- #
-            if self.already_trained_on.get(str(self.fold), None) is None:
-                self.already_trained_on[str(self.fold)] = {'finished_training_on': list(), 'start_training_on': None,
-                                                           'used_identifier': self.identifier, 'prev_trainer': list()}
             # -- Add the current task -- #
             self.already_trained_on[str(self.fold)]['start_training_on'] = task
             # -- Update the prev_trainer -- #
-            #self.already_trained_on[str(self.fold)]['prev_trainer'][-1:] = [self.trainer.__class__.__name__]
-            self.already_trained_on[str(self.fold)]['prev_trainer'].append(self.trainer.__class__.__name__)
+            self.already_trained_on[str(self.fold)]['prev_trainer'][-1:] = [self.trainer.__class__.__name__]
         
         # -- Update the used_identifier -- #
         self.already_trained_on[str(self.fold)]['used_identifier'] = self.identifier
@@ -268,19 +249,6 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
         #  -- If the trained_on_folds raise an error, because at this point the model should have been trained on at least one task -- #
         assert trained_on is not None, "Before performing any validation, the model needs to be trained on at least one task."
 
-        """if trained_on is None:
-            
-            # -- Update the log -- #
-            self.print_to_log_file("Performing validation with validation data from last trained task.")
-
-            # -- Perform validation and return the results -- #
-            ret_joined.append(super().validate(do_mirroring=do_mirroring, use_sliding_window=use_sliding_window, step_size=step_size,
-                                               save_softmax=save_softmax, use_gaussian=use_gaussian,
-                                               overwrite=overwrite, validation_folder_name=validation_folder_name+task,
-                                               debug=debug, all_in_gpu=all_in_gpu, segmentation_export_kwargs=segmentation_export_kwargs,
-                                               run_postprocessing_on_folds=run_postprocessing_on_folds))
-            return ret_joined"""
-
         # -- If it reaches until there, the model has already trained on a previous task, so trained_on exists -- #
         # -- Make a copy of the variables that will be updated in the upcoming loop -- #
         # -- Without '[:]' for lists or '.copy()' for dicts both variables will change its values which is not desired -- #
@@ -336,16 +304,11 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
         self.plans = plans_backup
         del dataset_backup, dataset_tr_backup, dataset_val_backup, gt_niftis_folder_backup, dataset_directory_backup, plans_backup 
 
-        """
-        # -- Update the log -- #
-        self.print_to_log_file("Performing validation with validation data from last trained task.")
+        # -- Add to the already_trained_on that the validation is done for the task the model trained on previously -- #
+        self.already_trained_on[str(self.fold)]['finished_validation_on'].append(trained_on[-1])
 
-        # -- Perform validation on the current task that the model just trained on -- #
-        ret_joined.append(super().validate(do_mirroring=do_mirroring, use_sliding_window=use_sliding_window, step_size=step_size,
-                                           save_softmax=save_softmax, use_gaussian=use_gaussian,
-                                           overwrite=overwrite, validation_folder_name=validation_folder_name, debug=debug,
-                                           all_in_gpu=all_in_gpu, segmentation_export_kwargs=segmentation_export_kwargs,
-                                           run_postprocessing_on_folds=run_postprocessing_on_folds))"""
-
+        # -- Save the updated dictionary as a json file -- #
+        save_json(self.already_trained_on, join(self.trained_on_path, self.extension+'_trained_on.json'))
+        
         # -- Return the result which will be an list with None valuea and/or errors -- #
         return ret_joined

@@ -14,14 +14,19 @@ from itertools import tee
 from nnunet_ext.paths import default_plans_identifier
 from nnunet.utilities.to_torch import maybe_to_torch, to_cuda
 from batchgenerators.utilities.file_and_folder_operations import *
-from nnunet_ext.training.network_training.sequential.nnUNetTrainerSequential import nnUNetTrainerSequential
+from nnunet.training.loss_functions.dice_loss import DC_and_CE_loss
+from nnunet_ext.utilities.load_prev_trainers import get_prev_trainers
+#from nnunet_ext.utilities.helpful_functions import join_texts_with_char
+#from nnunet_ext.run.default_configuration import get_default_configuration
 from nnunet_ext.training.loss_functions.deep_supervision import MultipleOutputLoss2LWF as LWFLoss
+from nnunet_ext.training.network_training.sequential.nnUNetTrainerSequential import nnUNetTrainerSequential
 
 
 class nnUNetTrainerLWF(nnUNetTrainerSequential): # Inherit default trainer class for 2D, 3D low resolution and 3D full resolution U-Net 
     def __init__(self, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None,
-                 identifier=default_plans_identifier, extension='lwf', lwf_temperature=2.0, tasks_joined_name=None, trainer_class_name=None):
+                 identifier=default_plans_identifier, extension='lwf', lwf_temperature=2.0, tasks_joined_name=None,
+                 trainer_class_name=None):
         r"""Constructor of LWF trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
         """
         # -- Initialize using parent class -- #
@@ -34,42 +39,56 @@ class nnUNetTrainerLWF(nnUNetTrainerSequential): # Inherit default trainer class
         # -- Update lwf_temperature in trained on file fore restoring to be able to ensure that lwf_temperature can not be changed during training -- #
         self.already_trained_on[str(self.fold)]['used_lwf_temperature'] = self.lwf_temperature
 
-    def run_training(self, task):
-        r"""Perform training using lwf trainer. Simply executes training method of parent class (nnUNetTrainerSequential)
-            while calculating the predictions using the previous task models.
+        # -- Initialize a ModleList in which all previous tasks models will be stored -- #
+        self.prev_trainer_list = torch.nn.ModuleList()
+
+    def initialize(self, training=True, force_load_plans=False, num_epochs=500, prev_trainer=None):
+        r"""Overwrite the initialize function so the correct Loss function for the LWF method can be set.
         """
+        # -- Perform initialization of parent class -- #
+        super().initialize(training, force_load_plans, num_epochs, prev_trainer)
+
+        #  -- If this trainer is initialized for training, then load the models, else it is just an initialization as a prev_trainer -- #
+        if training:
+            # -- Update the log -- #
+            self.print_to_log_file("Start initializing all previous models so they can be used for the LWF loss calculation.")   
+
+            # -- Extract previous tasks -- #
+            previous_tasks = self.already_trained_on[str(self.fold)]['finished_training_on']
+            
+            # -- Build fisher and params dictionaries based on previous trained models -- #
+            if len(previous_tasks) != 0:
+                # -- Load the previous task models -- #
+                self.prev_trainer_list = get_prev_trainers(previous_tasks,
+                                                           network_name=self.network_name,
+                                                           tasks_joined_name=self.tasks_joined_name,
+                                                           already_trained_on=self.already_trained_on,
+                                                           fold=self.fold,
+                                                           extension=self.extension,
+                                                           prev_trainer=prev_trainer)
+
+        # -- Reset self.loss from MultipleOutputLoss2 to DC_and_CE_loss so the LWF Loss can be initialized properly -- #
+        self.loss = DC_and_CE_loss({'batch_dice': self.batch_dice, 'smooth': 1e-5, 'do_bg': False}, {})
+
         # -- Choose the right loss function (LWF) that will be used during training -- #
         # -- --> Look into the Loss function to see how the approach is implemented -- #
+        # -- NOTE: The predictions of the previous models need to be updated after each iteration -- #
         self.loss = LWFLoss(self.loss, self.ds_loss_weights, list(), self.lwf_temperature)
 
-        # -- Execute the training for the desired epochs -- #
-        ret = super().run_training()       # Execute training from parent class
-
-        return ret  # Finished with training for the specific task
-
-    def run_iteration(self, data_generator, do_backprop=True, run_online_evaluation=False):
-        r"""This function needs to be changed for the EWC method, since it is very important, even
-            crucial to update the current models network parameters that will be used in the loss function
-            after each iteration, and not after each epoch! If this will not be done after each iteration
-            the EWC loss calculation would always use the network parameters that were initialized before the
-            first epoch took place which is wrong because it should be always the one of the current iteration.
-            It is the same with the loss, we do not calculate the loss once every epoch, but with every iteration (batch).
+    def run_iteration(self, data_generator, do_backprop=True, run_online_evaluation=False, gpu_id=0):
+        r"""This function needs to be changed for the LWF method, since all previously trained models will be used
+            to predict the same batch as the current model we train on. These results go then into the Loss function
+            to compute the Loss as proposed in the paper.
         """
         # -- Initialize empty list in which the predictions of the previous models will be put -- #
         prev_trainer_res = list()
 
         # -- Loop through tasks and load the corresponding model to make predictions -- #
-        for task in self.already_trained_on[str(self.fold)]['finished_training_on']:
-            # -- Load model of previous task -- #
-            model = task #TODO
-            
-            # -- Put model on GPU and set it to evaluation so it can be properly used for inference -- #
-            model.eval()
-
+        for prev_trainer in self.prev_trainer_list:
             # -- Create a copy from the data_generator so the data_generator won't be touched. -- #
             # -- This way, each previous task uses the same batch, as well as the model that will train -- #
             # -- using the data_generator and thus same batch. -- #
-            data = tee(data_generator, n=1)
+            data = tee(data_generator, 1)[0]
 
             # -- Extract the current batch from data -- #
             x = next(data)
@@ -77,16 +96,16 @@ class nnUNetTrainerLWF(nnUNetTrainerSequential): # Inherit default trainer class
 
             # -- Put the model and data on GPU if possible -- #
             if torch.cuda.is_available():
-                x = to_cuda(x)
-                model = to_cuda(model)
+                x = to_cuda(x, gpu_id=gpu_id)
+                prev_trainer = prev_trainer.cuda(gpu_id)
 
             # -- Make predictions using the loaded model and data -- #
-            task_logit = model(x)
+            task_logit = prev_trainer(x)
 
             # -- Append the result to prev_trainer_res -- #
             prev_trainer_res.append(task_logit)
 
-        # -- Update the previous predictions list in the Loss class -- #
+        # -- Update the previous predictions list in the Loss function -- #
         self.loss.update_prev_trainer_predictions(prev_trainer_res)
 
         # -- Run iteration as usual and return the loss -- #

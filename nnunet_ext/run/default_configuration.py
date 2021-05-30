@@ -3,15 +3,14 @@
 #----------Implementation inspired by original implementation, same code is marked as such.-------------#
 #########################################################################################################
 
-from os import error
 import nnunet, nnunet_ext
 from nnunet_ext.utilities.helpful_functions import copy_dir
-from nnunet_ext.paths import network_training_output_dir, preprocessing_output_dir, default_plans_identifier
-from nnunet.paths import network_training_output_dir as orig_network_training_output_dir
 from batchgenerators.utilities.file_and_folder_operations import *
-from nnunet.experiment_planning.summarize_plans import summarize_plans
 from nnunet.training.model_restore import recursive_find_python_class
+from nnunet.experiment_planning.summarize_plans import summarize_plans
 from nnunet.training.network_training.nnUNetTrainerV2 import nnUNetTrainerV2
+from nnunet.paths import network_training_output_dir as orig_network_training_output_dir
+from nnunet_ext.paths import network_training_output_dir, preprocessing_output_dir, default_plans_identifier
 
 #------------------------------------------- Partially copied from original implementation -------------------------------------------#
 def get_default_configuration(network, task, running_task, network_trainer, tasks_joined_name, plans_identifier=default_plans_identifier,
@@ -19,9 +18,13 @@ def get_default_configuration(network, task, running_task, network_trainer, task
     r"""This function extracts paths to the plans_file, specifies the output_folder_name, dataset_directory, batch_dice, stage, and trainer_class.
         The extension type specifies which nnUNet extension will be used (sequential, rehearsal, etc.).
     """
+    # -- If network_trainer is actual trainer than transform it into a string -- #
+    if not isinstance(network_trainer, str):
+        network_trainer = str(network_trainer).split('.')[-1][:-2].split(' ')[0]    # May be sth like "TrainerXY at ..."
+        
     # -- Extract network_trainer type -- #
     is_classic_trainer = network_trainer == str(nnUNetTrainerV2).split('.')[-1][:-2]
-
+    
     # -- If search_in not provided set it with base_module -- #
     if search_in is None:
         search_in = (nnunet_ext.__path__[0], "training", "network_training", extension_type)
@@ -33,7 +36,6 @@ def get_default_configuration(network, task, running_task, network_trainer, task
         base_module = 'nnunet.training.network_training'
 
     # -- Update possible network list -- #
-    print(network)
     assert network in ['2d', '3d_lowres', '3d_fullres'], \
         "The network for the nnU-Net CL extension can only be one of the following: \'2d\', \'3d_lowres\', \'3d_fullres\'"
     dataset_directory = join(preprocessing_output_dir, task)

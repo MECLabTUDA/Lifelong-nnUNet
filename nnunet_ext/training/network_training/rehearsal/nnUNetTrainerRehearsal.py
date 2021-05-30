@@ -6,11 +6,11 @@
 import random
 from collections import OrderedDict
 from nnunet_ext.paths import default_plans_identifier
+from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet_ext.utilities.helpful_functions import join_texts_with_char
 from nnunet_ext.run.default_configuration import get_default_configuration
-from nnunet_ext.training.network_training.sequential.nnUNetTrainerSequential import nnUNetTrainerSequential
-from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet.training.dataloading.dataset_loading import load_dataset, DataLoader3D, DataLoader2D
+from nnunet_ext.training.network_training.sequential.nnUNetTrainerSequential import nnUNetTrainerSequential
 
 
 class nnUNetTrainerRehearsal(nnUNetTrainerSequential): # Inherit default trainer class for 2D, 3D low resolution and 3D full resolution U-Net 
@@ -30,8 +30,11 @@ class nnUNetTrainerRehearsal(nnUNetTrainerSequential): # Inherit default trainer
         # -- Set the seed -- #
         self.seed = seed
 
-        # -- Update seed in trained on file fore restoring to be able to ensure that seed can not be changed during training -- #
+        # -- Add seed in trained on file for restoring to be able to ensure that seed can not be changed during training -- #
         self.already_trained_on[str(self.fold)]['used_seed'] = self.seed
+
+        # -- Add the used sample portion in trained on file for restoring to be able to ensure that seed can not be changed during training -- #
+        self.already_trained_on[str(self.fold)]['used_sample_portion'] = self.samples
 
         # -- Initialize self.splitted_dataset_val that holds for each task a sample validation set and the corresponding -- #
         # -- dataset_directory. For validation it is important to be able to distinguish between it since the -- #

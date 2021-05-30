@@ -3,19 +3,22 @@
 #----------training version. Implementation inspired by original implementation.------------------------#
 #########################################################################################################
 
-import os, argparse
 import numpy as np
-from nnunet_ext.utilities.helpful_functions import delete_dir_con, join_texts_with_char, move_dir
-from batchgenerators.utilities.file_and_folder_operations import *
-from nnunet_ext.paths import network_training_output_dir
-from nnunet_ext.run.default_configuration import get_default_configuration
-from nnunet.training.network_training.nnUNetTrainerV2 import nnUNetTrainerV2
+import os, argparse
 from nnunet_ext.paths import default_plans_identifier
+from nnunet_ext.paths import network_training_output_dir
+from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet.run.load_pretrained_weights import load_pretrained_weights
+from nnunet_ext.run.default_configuration import get_default_configuration
+from nnunet.utilities.task_name_id_conversion import convert_id_to_task_name
+from nnunet_ext.utilities.helpful_functions import delete_dir_con, join_texts_with_char, move_dir
+
+# -- Import the trainer classes -- #
+from nnunet.training.network_training.nnUNetTrainerV2 import nnUNetTrainerV2
 from nnunet_ext.training.network_training.sequential.nnUNetTrainerSequential import nnUNetTrainerSequential # Own implemented class
 from nnunet_ext.training.network_training.rehearsal.nnUNetTrainerRehearsal import nnUNetTrainerRehearsal # Own implemented class
 from nnunet_ext.training.network_training.ewc.nnUNetTrainerEWC import nnUNetTrainerEWC # Own implemented class
-from nnunet.utilities.task_name_id_conversion import convert_id_to_task_name
+from nnunet_ext.training.network_training.lwf.nnUNetTrainerLWF import nnUNetTrainerLWF # Own implemented class
 
 
 #------------------------------------------- Inspired by original implementation -------------------------------------------#
@@ -130,13 +133,20 @@ def run_training(extension='sequential'):
                             help='Specify the importance of the previous tasks for the EWC method.'
                                 ' This number represents the lambda value in the loss function calculation as proposed in the paper.'
                                 ' Default: ewc_lambda = 0.4')
+    
+    # -- Add arguments for ewc method -- #
+    if extension == 'lwf':
+        parser.add_argument('-lwf_temperature', action='store', type=float, nargs=1, required=False, default=2.0,
+                            help='Specify the temperature variable for the LWF method.'
+                                ' Default: lwf_temperature = 2.0')
 
     # -- Build mapping for extension to corresponding class -- #
-    ext_map = {'standard': nnUNetTrainerV2,
-               'sequential': nnUNetTrainerSequential,
-               'rehearsal': nnUNetTrainerRehearsal,
-               'ewc': nnUNetTrainerEWC,
-               'lwf': None}
+    ext_map = {'standard': nnUNetTrainerV2, 'nnUNetTrainerV2': nnUNetTrainerV2,
+               'sequential': nnUNetTrainerSequential, 'nnUNetTrainerSequential': nnUNetTrainerSequential,
+               'rehearsal': nnUNetTrainerRehearsal, 'nnUNetTrainerRehearsal': nnUNetTrainerRehearsal,
+               'ewc': nnUNetTrainerEWC, 'nnUNetTrainerEWC': nnUNetTrainerEWC,
+               'lwf': nnUNetTrainerLWF, 'nnUNetTrainerLWF': nnUNetTrainerLWF}
+
 
     # -------------------------------
     # Extract arguments from parser
@@ -246,6 +256,16 @@ def run_training(extension='sequential'):
             print("Note: It will be continued with previous training, be sure that the provided ewc_lambda has not "
                   "changed from previous one..")
 
+    # -- Extract lwf arguments -- #
+    if extension == 'lwf':
+        # -- Extract ewc_lambda -- #
+        lwf_temperature = args.lwf_temperature
+
+        # -- Notify the user that the ewc_lambda should not have been changed if -c is activated -- #
+        if continue_training:
+            print("Note: It will be continued with previous training, be sure that the provided lwf_temperature has not "
+                  "changed from previous one..")
+
 
     # -------------------------------
     # Transform tasks to task names
@@ -321,7 +341,7 @@ def run_training(extension='sequential'):
                 run_tasks = running_task_list
 
                 # -- If the sorted lists are equal, continue with the next fold, if not, specify the right task in the following steps -- #
-                if (np.array(all_tasks) == np.array(run_tasks)).all():  # Use numpy because lists return true if at least one match in both lists!
+                if np.array(np.array(all_tasks) == np.array(run_tasks)).all():  # Use numpy because lists return true if at least one match in both lists!
                     # -- Update the user that the current fold is finished with training -- #
                     print("Fold {} has been trained on all tasks --> move on to the next fold..".format(t_fold))
                     # -- Treat the last fold as initialization, so set init_seq to True -- #
@@ -351,21 +371,29 @@ def run_training(extension='sequential'):
                 continue_training = False
                 
                 # -- Set the prev_trainer and the init_identifier so the trainer will be build correctly -- #
-                prev_trainer = already_trained_on[str(t_fold)]['prev_trainer'][-1]
+                prev_trainer = ext_map.get(already_trained_on[str(t_fold)]['prev_trainer'][-1], None)
                 init_identifier = already_trained_on[str(t_fold)]['used_identifier']
 
                 # -- Set began_with to first task since at this point it is either a task or it can be None if previous fold was not trained in full -- #
                 began_with = tasks[0]
 
-                # -- Ensure that seed is not changed when using rehearsal method --- #
+                # -- Ensure that seed and sample portion is not changed when using rehearsal method --- #
                 if extension == 'rehearsal':
                     assert seed == int(trained_on_folds['used_seed']),\
                         "To continue training on the fold {} the same seed, ie. \'{}\' needs to be provided, not \'{}\'.".format(t_fold, trained_on_folds['used_seed'], seed)
+                    assert samples == float(trained_on_folds['used_sample_portion']),\
+                        "To continue training on the fold {} the same portion of samples for previous tasks should be used, ie. \'{}\' needs to be provided, "\
+                        "not \'{}\'.".format(t_fold, trained_on_folds['used_sample_portion'], samples)
             
-                # -- Ensure that seed is not changed when using rehearsal method --- #
+                # -- Ensure that ewc_lambda is not changed when using EWC method --- #
                 if extension == 'ewc':
                     assert ewc_lambda == float(trained_on_folds['used_ewc_lambda']),\
                         "To continue training on the fold {} the same ewc_lambda, ie. \'{}\' needs to be provided, not \'{}\'.".format(t_fold, trained_on_folds['used_ewc_lambda'], ewc_lambda)
+            
+                # -- Ensure that lwf_temperature is not changed when using LWF method --- #
+                if extension == 'lwf':
+                    assert lwf_temperature == float(trained_on_folds['used_lwf_temperature']),\
+                        "To continue training on the fold {} the same lwf_temperature, ie. \'{}\' needs to be provided, not \'{}\'.".format(t_fold, trained_on_folds['used_lwf_temperature'], lwf_temperature)
             
                 # -- Update the user that the fold for training has been found -- #
                 print("Fold {} has not been trained on all tasks --> continue the training with task {}..".format(t_fold, began_with))
@@ -382,7 +410,7 @@ def run_training(extension='sequential'):
                     prev_trainer = None
                     init_identifier = default_plans_identifier
                 else:
-                    prev_trainer = already_trained_on[str(t_fold)]['prev_trainer'][-1]
+                    prev_trainer = ext_map.get(already_trained_on[str(t_fold)]['prev_trainer'][-1], None)
                     init_identifier = already_trained_on[str(t_fold)]['used_identifier']
                 
                 # -- Set began_with to first task since at this point it is either a task or it can be None if previous fold was not trained in full -- #
@@ -399,7 +427,7 @@ def run_training(extension='sequential'):
             running_task = join_texts_with_char(running_task_list, '_')
 
             # -- Extract the configurations and check that trainer_class is not None -- #
-            # -- NOTE: Each task will be saved as new folder using the running_task that are all previous and current ask joined together. -- #
+            # -- NOTE: Each task will be saved as new folder using the running_task that are all previous and current task joined together. -- #
             # -- NOTE: Perform preprocessing and planning for sequential before ! --> Load always a sequential trainer at this point ! -- #
             plans_file, output_folder_name, dataset_directory, batch_dice, stage, \
             trainer_class = get_default_configuration(network, t, running_task, network_trainer, tasks_joined_name,\
@@ -411,7 +439,7 @@ def run_training(extension='sequential'):
             # -- Check that network_trainer is of the right type -- #
             if idx == 0 and not continue_training:
                 # -- At the first task, the base model can be a nnunet model, later, only sequential models are permiited -- #
-                possible_trainers = ext_map.values()
+                possible_trainers = set(ext_map.values())   # set to avoid the double values, since every class is represented twice
                 assert issubclass(trainer_class, tuple(possible_trainers)),\
                     "Network_trainer was found but is not derived from a provided extension nor nnUNetTrainerV2."\
                     " When using this function, it is only permitted to start with an nnUNetTrainerV2 or a provided extensions"\
@@ -430,29 +458,7 @@ def run_training(extension='sequential'):
                     " When using this function, only {} trainers are permitted."\
                     " So choose {}"\
                     " as a network_trainer corresponding to the network, or use the convential nnunet command to train.".format(ext_map[extension], extension, ext_map[extension])
-            """
-            elif extension == 'sequential':
-                # -- Now, at a later stage, only sequential trainer permitted! -- #
-                assert issubclass(trainer_class, nnUNetTrainerSequential),\
-                    "Network_trainer was found but is not derived from nnUNetTrainerSequential."\
-                    " When using this function, only sequential trainers are permitted."\
-                    " So choose nnUNetTrainerSequential"\
-                    " as a network_trainer corresponding to the network, or use the convential nnunet command to train."
-            elif extension == 'rehearsal':
-                # -- Now, at a later stage, only rehearsal trainer permitted! -- #
-                assert issubclass(trainer_class, nnUNetTrainerRehearsal),\
-                    "Network_trainer was found but is not derived from nnUNetTrainerRehearsal."\
-                    " When using this function, only rehearsal trainers are permitted."\
-                    " So choose nnUNetTrainerRehearsal"\
-                    " as a network_trainer corresponding to the network, or use the convential nnunet command to train."
-            elif extension == 'ewc':
-                # -- Now, at a later stage, only rehearsal trainer permitted! -- #
-                assert issubclass(trainer_class, nnUNetTrainerRehearsal),\
-                    "Network_trainer was found but is not derived from nnUNetTrainerRehearsal."\
-                    " When using this function, only rehearsal trainers are permitted."\
-                    " So choose nnUNetTrainerRehearsal"\
-                    " as a network_trainer corresponding to the network, or use the convential nnunet command to train." """
-
+            
             # -- Load trainer from last task and initialize new trainer if continue training is wrong -- #
             if idx == 0 and init_seq and not continue_training:
                 # -- Initialize the prev_trainer if it is not None. If it is None, the trainer will be initialized in the parent class -- #
@@ -493,11 +499,19 @@ def run_training(extension='sequential'):
                                                  already_trained_on=already_trained_on, identifier=init_identifier, extension=extension,
                                                  tasks_joined_name=tasks_joined_name, ewc_lambda=ewc_lambda,
                                                  trainer_class_name=trainer_class.__name__)
+                elif trainer_class.__name__ == str(nnUNetTrainerLWF).split('.')[-1][:-2]:  # --> Initialization with nnUNetTrainerEWC
+                    prev_trainer = trainer_class(plans_file, t_fold, output_folder=output_folder_name, dataset_directory=dataset_directory,
+                                                 batch_dice=batch_dice, stage=stage, unpack_data=decompress_data,
+                                                 deterministic=deterministic, fp16=run_mixed_precision, save_interval=save_interval,
+                                                 already_trained_on=already_trained_on, identifier=init_identifier, extension=extension,
+                                                 tasks_joined_name=tasks_joined_name, lwf_temperature=lwf_temperature,
+                                                 trainer_class_name=trainer_class.__name__)
                 
                 # -- Create already trained on for this task we are going to skip -- #
                 if already_trained_on is None:
                     already_trained_on = { str(t_fold): {'finished_training_on': [t], 'prev_trainer': [prev_trainer.__class__.__name__],
-                                                         'start_training_on': None, 'used_identifier': init_identifier}
+                                                         'finished_validation_on': [t], 'start_training_on': None,
+                                                         'used_identifier': init_identifier}
                                          }
 
                 # -- Continue with next element, since the previous trainer is restored, otherwise it will be trained as well -- #
@@ -532,6 +546,12 @@ def run_training(extension='sequential'):
                                         deterministic=deterministic, fp16=run_mixed_precision, save_interval=save_interval,
                                         already_trained_on=already_trained_on, identifier=init_identifier, extension=extension,
                                         tasks_joined_name=tasks_joined_name, ewc_lambda=ewc_lambda, trainer_class_name=trainer_class.__name__)
+            elif extension == 'lwf':
+                trainer = trainer_class(plans_file, t_fold, output_folder=output_folder_name, dataset_directory=dataset_directory,
+                                        batch_dice=batch_dice, stage=stage, unpack_data=decompress_data,
+                                        deterministic=deterministic, fp16=run_mixed_precision, save_interval=save_interval,
+                                        already_trained_on=already_trained_on, identifier=init_identifier, extension=extension,
+                                        tasks_joined_name=tasks_joined_name, lwf_temperature=lwf_temperature, trainer_class_name=trainer_class.__name__)
             
             if disable_saving:
                 trainer.save_final_checkpoint = False # whether or not to save the final checkpoint
