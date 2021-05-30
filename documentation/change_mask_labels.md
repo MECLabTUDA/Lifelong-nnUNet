@@ -15,23 +15,23 @@ This is a general description on how to change the masks of a desired dataset ba
 	        ├── (imagesTs)
 	        │   ├── <dataset_name>_<img_nr>_0000.nii.gz
 	        │   ├── ...
-	        ├── labelsTr
-	        │   ├── <dataset_name>_<img_nr>.nii.gz
-	        │   ├── ...
+	        └── labelsTr
+	            ├── <dataset_name>_<img_nr>.nii.gz
+	            ├── ...
 
 	Note that the `dataset.json` is crucial for this functionality, since the original label mappings should be/are  defined in there. Additionally, the task ID needs to be unique, otherwise there will be an error during training, when the nnU-Net implementation tries to map a provided Task ID to its Task name -- so always provide distinct Task IDs. For simplicity let's assume we want to change the labels for the Hippocampus dataset. The Dataset has already the desired structure, so nothing needs to be changed there:
 
 		nnUNet_raw_data_base/Task04_Hippocampus/
-		├── dataset.json
+				├── dataset.json
 		        ├── imagesTr
 		        │   ├── hippocampus_001_0000.nii.gz
 		        │   ├── ...
 		        ├── (imagesTs)
 		        │   ├── hippocampus_002_0000.nii.gz
 		        │   ├── ...
-		        ├── labelsTr
-		        │   ├── hippocampus_001.nii.gz
-		        │   ├── ...
+		        └── labelsTr
+		            ├── hippocampus_001.nii.gz
+		            ├── ...
 
 3. In a next step, the mapping `.json` file needs to be created. The location of this file is irrelevant, as long as the algorithm has permission to follow the path and access the file under the provided path. The most straight forward way is to create a mappings folder in `nnUNet_raw_data_base/mappings`, where all the mappings are stored. Every mappings file must be in the JSON format and must have the following structure:
 	```
@@ -77,7 +77,7 @@ The following images show the different masks where the difference can be observ
 	<img src="references/HC_044_changed_mask.png" width="700" height="500" title="Original Image with changed mask"/>
 </p>
 
-As we have seen, the Anterior region *-- that was previouly red --* is now not visible, ie. background, whereas the Posterior region *-- that was previouly green --* is now red and represents a new label internally.
+As we have seen, the Anterior region *-- that was previouly red --* is now not visible, ie. background, whereas the Posterior region *-- that was previously green --* is now red and represents a new label internally.
 
 In the following, the possible command line arguments are presented and further discussed.
 

@@ -20,6 +20,7 @@ The nnU-Net CL extension relies on the same environment variables as the convent
             ├── la_003.nii.gz
             ├── la_004.nii.gz
             ├── ...
+
         nnUNet_raw_data_base/nnUNet_raw_data/Task005_Prostate/
         ├── dataset.json
         ├── imagesTr

@@ -8,6 +8,7 @@
 # -- It represents the method proposed in the paper https://arxiv.org/pdf/1612.00796.pdf -- #
 
 #from itertools import tee
+from torch import autograd
 from nnunet_ext.utilities.load_prev_trainers import get_prev_trainers
 from nnunet_ext.paths import default_plans_identifier
 from batchgenerators.utilities.file_and_folder_operations import *
@@ -55,7 +56,6 @@ class nnUNetTrainerEWC(nnUNetTrainerSequential): # Inherit default trainer class
     def initialize(self, training=True, force_load_plans=False, num_epochs=500, prev_trainer=None):
         r"""Overwrite the initialize function so the correct Loss function for the EWC method can be set.
         """
-        import torch
         # -- Perform initialization of parent class -- #
         super().initialize(training, force_load_plans, num_epochs, prev_trainer)
 
@@ -77,7 +77,7 @@ class nnUNetTrainerEWC(nnUNetTrainerSequential): # Inherit default trainer class
                                                 fold=self.fold,
                                                 extension=self.extension,
                                                 prev_trainer=prev_trainer)
-        
+
                 # -- Set fisher and params accordingly -- #
                 for idx, model in enumerate(prev_models):
                     # -- Extract the current task --> prev_models are in same order added to the list as the task from the provided list -- #
@@ -89,8 +89,6 @@ class nnUNetTrainerEWC(nnUNetTrainerSequential): # Inherit default trainer class
                     # -- Loop through the extracted models parameters and calculate fisher and params -- #
                     for name, param in model.named_parameters():
                         print(param.grad is None)
-                        if param.grad is None:
-                            continue
                         self.fisher[c_task][name] = param.grad.data.clone().pow(2)
                         self.params[c_task][name] = param.data.clone()
 

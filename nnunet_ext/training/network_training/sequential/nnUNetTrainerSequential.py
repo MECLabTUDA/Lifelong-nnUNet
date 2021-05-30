@@ -83,7 +83,8 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
         if isinstance(trained_on_folds, dict):
             trained_on_tasks = trained_on_folds.get('finished_training_on', list())
 
-        # -- The new_trainer indicates if the model is a new sequential model, ie. if it has been trained on only one task so far (True) or on more than one (False) -- #
+        # -- The new_trainer indicates if the model is a new sequential model, -- #
+        # -- ie. if it has been trained on only one task so far (True) or on more than one (False) -- #
         if len(trained_on_tasks) > 1:
             self.new_trainer = False
         else:
@@ -121,7 +122,7 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
         
         # -- Load the model and parameters -- #
         print("Loading trainer and setting the network for training")
-        self.trainer.load_final_checkpoint(train=False)    # Load state_dict of the final model
+        self.trainer.load_final_checkpoint(train=True) #TRUE OR FALSE??!!    # Load state_dict of the final model
 
         # -- Set own network to trainer.network to use this pre-trained model -- #
         self.network = self.trainer.network

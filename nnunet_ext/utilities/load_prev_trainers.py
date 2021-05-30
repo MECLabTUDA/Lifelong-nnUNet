@@ -32,7 +32,7 @@ def get_prev_trainers(previous_task_names=list(), network_name=None, tasks_joine
 
     # -- Loop through previous tasks and initialize its models -- #
     running_task_list = list()
-    for _, task in enumerate(previous_task_names):
+    for task in previous_task_names:
         # -- Update running task list and create running task which are all (trained tasks and current task joined) for output folder name -- #
         running_task_list.append(task)
         running_task = join_texts_with_char(running_task_list, '_')
@@ -62,7 +62,10 @@ def get_prev_trainers(previous_task_names=list(), network_name=None, tasks_joine
         prev_trainer.initialize(training=False)
 
         # -- Set the trainer to evaluation so it can be properly used for inference -- #
-        prev_trainer.network.eval()
+        #prev_trainer.network.eval()
+
+        #for name, param in prev_trainer.network.named_parameters():
+        #    print(param.grad)
 
         # -- Add the model to the trainers -- #
         trainers.append(prev_trainer.network)

@@ -115,7 +115,7 @@ class nnUNetTrainerRehearsal(nnUNetTrainerSequential): # Inherit default trainer
             # -- Restore the data from backup and delete unnecessary variables -- #
             # -- NOTE: Do not restore self.dataset, since it has to include all data that will be used -- #
             self.dataset = dataset_fused
-            self.dataset_tr = dataset_tr_backup
+            self.dataset_tr = dataset_tr_fused#dataset_tr_backup
             self.dataset_val = dataset_val_backup
             self.dataset_directory = dataset_directory_backup
             del dataset_tr_backup, dataset_val_backup, dataset_directory_backup

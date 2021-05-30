@@ -346,7 +346,6 @@ def run_training(extension='sequential'):
                     print("Fold {} has been trained on all tasks --> move on to the next fold..".format(t_fold))
                     # -- Treat the last fold as initialization, so set init_seq to True -- #
                     init_seq = True
-                    
                     continue    # Continue with next fold
                     
             # -- If this list is empty, the trainer did not train on any task --> Start directly with the first task as -c would not have been set -- #
@@ -364,11 +363,8 @@ def run_training(extension='sequential'):
                 # -- Remove the prev_task in running_task_list, since this is now the first in tasks --> otherwise this is redundandent and raises error -- #
                 running_task_list.remove(prev_task)
                 
-                # -- Treat the last fold as initialization, so set init_seq to True -- #
+                # -- Treat the last fold as initialization, so set init_seq to True by keeping continue_learning to True  -- #
                 init_seq = True
-
-                # -- Set continue_learning to False so there will be no error in the process of building the trainer -- #
-                continue_training = False
                 
                 # -- Set the prev_trainer and the init_identifier so the trainer will be build correctly -- #
                 prev_trainer = ext_map.get(already_trained_on[str(t_fold)]['prev_trainer'][-1], None)
@@ -460,7 +456,7 @@ def run_training(extension='sequential'):
                     " as a network_trainer corresponding to the network, or use the convential nnunet command to train.".format(ext_map[extension], extension, ext_map[extension])
             
             # -- Load trainer from last task and initialize new trainer if continue training is wrong -- #
-            if idx == 0 and init_seq and not continue_training:
+            if idx == 0 and init_seq:# and not continue_training:
                 # -- Initialize the prev_trainer if it is not None. If it is None, the trainer will be initialized in the parent class -- #
                 # -- Further check that all necessary information is provided, otheriwse exit with error message -- #
                 assert isinstance(t, str) and prev_trainer is not None and init_identifier is not None and isinstance(t_fold, int),\
@@ -518,7 +514,7 @@ def run_training(extension='sequential'):
                 continue
             
             # -- Restore previous trained trainer as prev_trainer for the task that will be trained in this loop -- #
-            elif init_seq and not continue_training:
+            elif init_seq:# and not continue_training:
                 # -- Ensure that prev_trainer and already trained on is not none, since it should be everything from last loop -- #
                 assert prev_trainer is not None and already_trained_on is not None and len(already_trained_on) != 0,\
                     "The information that is necessary for training on the previous model is not provided as it should be.."

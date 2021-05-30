@@ -30,6 +30,9 @@ class MultipleOutputLoss2EWC(MultipleOutputLoss2):
         self.params = params
         self.network_params = network_params
 
+        for n, p in self.network_params:
+            print(p.grad)
+
     def update_network_params(self, network_params):
         r"""The network parameters should be updated after every finished iteration of an epoch, 
             in order for the loss to use always the current network parameters. --> use this in
@@ -48,6 +51,7 @@ class MultipleOutputLoss2EWC(MultipleOutputLoss2):
             # -- Loop through the tasks the model has already been trained on -- #
             for task in self.tasks:
                 for name, param in self.network_params: # Get named parameters of the current model
+                    print(param.grad)
                     # -- Extract corresponding fisher and param values -- #
                     fisher_value = self.fisher[task][name]
                     param_value = self.params[task][name]
@@ -69,23 +73,7 @@ class MultipleOutputLoss2LWF(MultipleOutputLoss2):
     def __init__(self, loss, weight_factors=None, prev_trainer_res=list(), lwf_temperature=2.0):
         """This Loss function is based on the nnU-Nets loss function called MultipleOutputLoss2, but extends it
            for the LWF approach. The loss function will be updated using the proposed method in the paper linked above.
-           It needs the previous task names in form of a list, the lwf_temperature for previous tasks,
-           the fisher dictionary, the params dictionary and the network parameters from the current model,
-           which is simply model.named_parameters().
-           NOTE: In the linked implementation they are using multiple classifiers to calculate the distillation loss
-                 and finally the overall loss to perform backprop on, however we only have one model in our case,
-                 that is used to create segmentations, so we do not have multiple ones. That's a major difference.
-                 So our target_logits, pred_logits are lists consisting one element each, meaning only one model.
-                 target_logit includes the predictions of the previous model trained on task 0, ..., t-1 for a certain
-                 batch (x) and pred_logit includes the predictions of the same batch (x) using the current model
-                 that will be trained on task t.
-                 Models trained on previous tasks are not equal to different classifiers, because the number of
-                 classifiers for the current model should be equal to the previous model which would not be the case!
-                 So we always use the latest, previously on t-1 tasks trained model in combination with the model
-                 that will be trained on task t. --> Do not mix number classifiers with number tasks a model trained on,
-                 these are totally different things.
-                 The implementation of the LWF approach in this case assumes that only one model will be used,
-                 not multiple ones.
+           It needs the predicitions of the previous models, the lwf_temperature for weighting the result of previous tasks.
            NOTE: Since our model does not have t output layers, ie. for each task one as in the propsed paper, the loss
                  will be calculated differently: The distillation will be calculated using all previous models (0, .., t-1)
                  on the current batch x and added to the loss of the current model training on task t using the same batch.
@@ -100,7 +88,7 @@ class MultipleOutputLoss2LWF(MultipleOutputLoss2):
         self.lwf_temperature = lwf_temperature
 
     def update_prev_trainer_predictions(self, prev_trainer_res):
-        r"""This function is used to update the list with the prediction of previous tasks.
+        r"""This function is used to update the list with the predictions of previous tasks.
         """
         # -- Update the prev_trainer_res -- #
         self.prev_trainer_res = prev_trainer_res
@@ -123,15 +111,16 @@ class MultipleOutputLoss2LWF(MultipleOutputLoss2):
         # -- Calculate the loss first using the parent class -- #
         loss = super(MultipleOutputLoss2LWF, self).forward(x, y)
         
+        # -- At this point, the parent class ensured that x (and y) are both tuples or lists -- #
         # -- If previous tasks exist, than update the loss accordingly -- #
         if len(self.prev_trainer_res) != 0:
             # -- Update the loss as proposed in the paper and return this loss to the calling function instead -- #
             # -- Loop through the models that have been trained on previous tasks -- #
             # -- Compute distillation loss for each old task and add it to the current loss -- #
             for idx in range(len(self.prev_trainer_res)):
-                # -- loss = loss + dist_loss -- #
+                # -- Loop through every instance in x and update the loss -- #
                 for i in range(1, len(x)):
-                    
+                    # -- loss = loss + dist_loss -- #
                     loss = loss + self.distillation_loss(x[i], self.prev_trainer_res[idx][i], x[i].size(-1))
 
         # -- Return the updated loss value -- #

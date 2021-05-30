@@ -10,7 +10,7 @@ my_output_identifier = "nnUNet_ext"
 default_plans_identifier = "nnUNetPlansv2.1"
 default_data_identifier = 'nnUNetData_plans_v2.1'
 default_trainer = "nnUNetTrainerSequential"
-default_cascade_trainer = "nnUNetTrainerSequentialCascadeFullRes"
+#default_cascade_trainer = "nnUNetTrainerV2CascadeFullRes"
 
 #------------------------------------------- Copied and adapted from original implementation -------------------------------------------#
 """

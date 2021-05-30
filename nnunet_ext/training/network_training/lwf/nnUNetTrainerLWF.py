@@ -85,6 +85,9 @@ class nnUNetTrainerLWF(nnUNetTrainerSequential): # Inherit default trainer class
 
         # -- Loop through tasks and load the corresponding model to make predictions -- #
         for prev_trainer in self.prev_trainer_list:
+            # -- Set prev_trainer to eval -- #
+            prev_trainer.eval()
+            
             # -- Create a copy from the data_generator so the data_generator won't be touched. -- #
             # -- This way, each previous task uses the same batch, as well as the model that will train -- #
             # -- using the data_generator and thus same batch. -- #
