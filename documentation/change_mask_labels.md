@@ -1,5 +1,5 @@
 
-# Change mask labels for dataset given a mapping file
+# nnU-Net Continual Learning extension: Change mask labels for dataset given a mapping file
 
 This is a general description on how to change the masks of a desired dataset based on a provided mapping file using the nnU-Net extension.
 
@@ -15,23 +15,23 @@ This is a general description on how to change the masks of a desired dataset ba
 	        ├── (imagesTs)
 	        │   ├── <dataset_name>_<img_nr>_0000.nii.gz
 	        │   ├── ...
-	        ├── labelsTr
-	        │   ├── <dataset_name>_<img_nr>.nii.gz
-	        │   ├── ...
+	        └── labelsTr
+	            ├── <dataset_name>_<img_nr>.nii.gz
+	            ├── ...
 
 	Note that the `dataset.json` is crucial for this functionality, since the original label mappings should be/are  defined in there. Additionally, the task ID needs to be unique, otherwise there will be an error during training, when the nnU-Net implementation tries to map a provided Task ID to its Task name -- so always provide distinct Task IDs. For simplicity let's assume we want to change the labels for the Hippocampus dataset. The Dataset has already the desired structure, so nothing needs to be changed there:
 
 		nnUNet_raw_data_base/Task04_Hippocampus/
-		├── dataset.json
+				├── dataset.json
 		        ├── imagesTr
 		        │   ├── hippocampus_001_0000.nii.gz
 		        │   ├── ...
 		        ├── (imagesTs)
 		        │   ├── hippocampus_002_0000.nii.gz
 		        │   ├── ...
-		        ├── labelsTr
-		        │   ├── hippocampus_001.nii.gz
-		        │   ├── ...
+		        └── labelsTr
+		            ├── hippocampus_001.nii.gz
+		            ├── ...
 
 3. In a next step, the mapping `.json` file needs to be created. The location of this file is irrelevant, as long as the algorithm has permission to follow the path and access the file under the provided path. The most straight forward way is to create a mappings folder in `nnUNet_raw_data_base/mappings`, where all the mappings are stored. Every mappings file must be in the JSON format and must have the following structure:
 	```
@@ -77,7 +77,7 @@ The following images show the different masks where the difference can be observ
 	<img src="references/HC_044_changed_mask.png" width="700" height="500" title="Original Image with changed mask"/>
 </p>
 
-As we have seen, the Anterior region *-- that was previouly red --* is now not visible, ie. background, whereas the Posterior region *-- that was previouly green --* is now red and represents a new label internally.
+As we have seen, the Anterior region *-- that was previouly red --* is now not visible, ie. background, whereas the Posterior region *-- that was previously green --* is now red and represents a new label internally.
 
 In the following, the possible command line arguments are presented and further discussed.
 
@@ -89,8 +89,9 @@ The following arguments and flags can be set to use this extension:
 | `-t_in` or `--tasks_in_path` | Specify one or a list of paths to tasks TaskXX_TASKNAME folders. | yes | -- | -- |
 | `-t_out` or `--tasks_out_path` | Specify the *unique* task ids for the output folders. | yes | -- | -- |
 | `-m` or `--mapping_files_path` | Specify one or a list of paths to the mapping (.json) files corresponding to the task ids. | yes | -- | -- |
-| `-p` | Use this to specify how many processes are used to run the script | no | -- | `default_num_threads` from nnunet/configuration.py |
-| `--no_pp` or `--disable_plan_ preprocess_tasks` | Set this if the plan and preprocessing step for each task using nnUNet_plan_and_preprocess should not be performed after a transformation. | -- | -- | `False` |
+| `-c` or `--channels` | Use this to specify which channels should be used. Note the channel indices should be 0 based. If multiple values are provided, they are used for each task from `-t_in` equally. | no | -- | `all` |
+| `-p` | Use this to specify how many processes are used to run the script | no | -- | `default_num_threads` from [nnunet/configuration.py](https://github.com/MIC-DKFZ/nnUNet/blob/master/nnunet/configuration.py) |
+| `--no_pp` or `--disable_plan_ preprocess_tasks` | Set this if the plan and preprocessing step for each task using nnUNet_plan_and_preprocess should not be performed after a transformation. | no | -- | `False` |
 | `-h` or `--help` | Simply shows help on which arguments can and should be used. | -- | -- | -- |
 
 When talking about lists in command lines, this does not mean to provide a real list, like values in bracket *--* `[.., .., ...]`  *--*, but rather dies it mean to provide an enumeration of values *--* `val_1 val2 val3 ...` *--*.
@@ -105,6 +106,19 @@ For instance, the general command for changing the labels in a mask of multiple 
 						     -m <mapping_1> <mapping_2> ... <mapping_n> 
 						    [-p <number> --no_pp]
 ```
+
+Let's assume the dataset has 5 channels and only the first and last channel would be of interest, than the command would look like the following:
+
+```bash
+          ~ $ source ~/.bashrc
+          ~ $ source activate <your_anaconda_env>
+(<your_anaconda_env>) $ nnUNet_dataset_label_mapping -t_in <path_1> <path_2> ... <path_n> 
+						     -t_out <ID_1> <ID_2> ... <ID_n> 
+						     -m <mapping_1> <mapping_2> ... <mapping_n> 
+							 -c 0 4
+						    [-p <number> --no_pp]
+```
+Note that the channel indices are 0 based and that the channel selection will be performed for each task from `-t_in`.
 
 If `--no_pp` or `--disable_plan_ preprocess_task` is not set, the function will run the nnU-Nets pipeline configuration and preprocessing using the 
 ```bash
