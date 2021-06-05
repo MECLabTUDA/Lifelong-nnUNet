@@ -4,6 +4,7 @@
 #########################################################################################################
 
 import os
+import torch
 import numpy as np
 from nnunet_ext.paths import default_plans_identifier
 from batchgenerators.utilities.file_and_folder_operations import *
@@ -11,6 +12,7 @@ from nnunet.training.dataloading.dataset_loading import load_dataset
 from nnunet_ext.utilities.helpful_functions import join_texts_with_char
 from nnunet_ext.run.default_configuration import get_default_configuration
 from nnunet.training.network_training.nnUNetTrainerV2 import nnUNetTrainerV2
+from nnunet.training.data_augmentation.data_augmentation_moreDA import get_moreDA_augmentation
 
 class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class for 2D, 3D low resolution and 3D full resolution U-Net 
     def __init__(self, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
@@ -30,10 +32,10 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
             # -- If the current fold does not exists initialize it -- #
             if self.already_trained_on.get(str(self.fold), None) is None:
                 self.already_trained_on[str(self.fold)] = {'finished_training_on': list(), 'start_training_on': None, 'finished_validation_on': list(),
-                                                           'used_identifier': self.identifier, 'prev_trainer': ['None']}  # Add current fold as new entry
+                                                           'used_identifier': self.identifier, 'prev_trainer': ['None'], 'val_metrics_should_exist': False}  # Add current fold as new entry
         else:
             self.already_trained_on = {str(self.fold): {'finished_training_on': list(), 'start_training_on': None, 'finished_validation_on': list(),
-                                                        'used_identifier': self.identifier, 'prev_trainer': ['None']}}
+                                                        'used_identifier': self.identifier, 'prev_trainer': ['None']}, 'val_metrics_should_exist': False}
         
         # -- Set the path were the trained_on file will be stored: grand parent directory from output_folder, ie. were all tasks are stored -- #
         self.trained_on_path = os.path.dirname(os.path.dirname(os.path.realpath(output_folder)))
@@ -59,7 +61,19 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
         # -- Set tasks_joined_name for validation dataset building -- #
         self.tasks_joined_name = tasks_joined_name
 
-        # -- Set variable that stores the IOU aka Jaccard Index
+        # -- Define a dictionary for the metrics for validation after every nth epoch -- #
+        self.validation_results = dict()
+
+        # -- If -c is used, the self.validation_results need to be restored as well -- #
+        try:
+            # -- Check if the val_metrics should exist -- #
+            if self.already_trained_on[str(self.fold)]['val_metrics_should_exist']:
+                    # -- Try to load the file -- #
+                    self.validation_results = load_json(join(self.output_folder, 'val_metrics.json'))
+        except: # File does not exist
+            assert False, "The val_metrics.json file could not be loaded although it is expected to exist given the current state of the model."
+        
+        # -- Set variable that stores the IoU aka Jaccard Index
         self.all_val_iou_eval_metrics = list()
 
     def initialize(self, training=True, force_load_plans=False, num_epochs=500, prev_trainer=None):
@@ -164,6 +178,146 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
         # -- Save the updated dictionary as a json file -- #
         save_json(self.already_trained_on, join(self.trained_on_path, self.extension+'_trained_on.json'))
 
+    #------------------------------------------ Partially copied from original implementation ------------------------------------------#
+    def finish_online_evaluation_extended(self, task):
+        r"""Calculate the Dice Score and IoU (Intersection over Union) on the validation dataset during training.
+            NOTE: The function name is different from the original one, since it is used in another context
+                  than the original one, ie. only in special cases why it needs to have a different name.
+        """
+        # -- Get current True-Positive, False-Positive and False-Negative -- #
+        self.online_eval_tp = np.sum(self.online_eval_tp, 0)
+        self.online_eval_fp = np.sum(self.online_eval_fp, 0)
+        self.online_eval_fn = np.sum(self.online_eval_fn, 0)
+
+        # -- Calculate the IoU -- #
+        global_iou_per_class = [i for i in [i / (i + j + k) for i, j, k in
+                                           zip(self.online_eval_tp, self.online_eval_fp, self.online_eval_fn)]
+                               if not np.isnan(i)]
+
+        # -- Calculate the Dice -- #
+        global_dc_per_class = [i for i in [2 * i / (2 * i + j + k) for i, j, k in
+                                           zip(self.online_eval_tp, self.online_eval_fp, self.online_eval_fn)]
+                               if not np.isnan(i)]
+
+        # -- Store IoU and Dice values. Ensure it is float64 so its JSON serializable -- #
+        self.all_val_iou_eval_metrics.append(np.mean(global_iou_per_class, dtype="float64"))
+        self.all_val_eval_metrics.append(np.mean(global_dc_per_class, dtype="float64"))
+
+        # -- Update the log file -- #
+        self.print_to_log_file("Average global foreground IoU for task {}: {}".format(task, str(global_iou_per_class)))
+        self.print_to_log_file("(interpret this as an estimate for the IoU of the different classes. This is not "
+                               "exact.)")
+        self.print_to_log_file("Average global foreground Dice for task {}: {}".format(task, str(global_dc_per_class)))
+        self.print_to_log_file("(interpret this as an estimate for the Dice of the different classes. This is not "
+                               "exact.)")
+
+        # -- Add the results to self.validation_results based on task and epoch -- #
+        if self.validation_results.get(self.epoch, None) is None:
+            self.validation_results[self.epoch] = { task: {
+                                                                'IoU': self.all_val_iou_eval_metrics[-1],
+                                                                'Dice': self.all_val_eval_metrics[-1]
+                                                          }
+                                                  }
+        else:   # Epoch entry does already exist in self.validation_results, so only add the task with the corresponding values
+            self.validation_results[self.epoch][task] =  { 'IoU': self.all_val_iou_eval_metrics[-1],
+                                                           'Dice': self.all_val_eval_metrics[-1]
+                                                         }
+                                                       
+        # -- Empty the variables for next iteration -- #
+        self.online_eval_foreground_dc = []
+        self.online_eval_tp = []
+        self.online_eval_fp = []
+        self.online_eval_fn = []
+    #------------------------------------------ Partially copied from original implementation ------------------------------------------#
+
+    def _perform_validation(self):
+        r"""This function performs a full validation on all previous tasks and the current task.
+            The Dice and IoU will be calculated and the results will be stored in 'val_metrics.json'.
+        """
+        # -- Extract the information of the current fold -- #
+        trained_on_folds = self.already_trained_on[str(self.fold)]
+
+        # -- Extract the list of tasks the model has already finished training on -- #
+        trained_on = trained_on_folds.get('finished_training_on', list())
+
+        # -- Extract all tasks into a list to loop through -- #
+        tasks = trained_on.extend(self.already_trained_on[str(self.fold)]['start_training_on']) # At this point this can not be None
+
+        # -- NOTE: Since the current task the model is training on is always added at the end of the list, -- #
+        # --       After this loop everything is automatically set as before, so no restoring needs to be done -- #
+        # -- For each previously trained task perform the validation on the full validation set -- #
+        running_task_list = list()
+        for idx, task in enumerate(tasks):
+            # -- Update running task list and create running task which are all (trained tasks and current task joined) for output folder name -- #
+            running_task_list.append(task)
+            running_task = join_texts_with_char(running_task_list, '_')
+
+            # -- Get default configuration for nnunet/nnunet_ext model (finished training) -- #
+            plans_file, _, self.dataset_directory, _, stage, \
+            _ = get_default_configuration(self.network_name, task, running_task, trained_on_folds['prev_trainer'][idx],\
+                                          self.tasks_joined_name, self.identifier, extension_type=self.extension)
+
+            # -- Load the plans file -- #
+            self.plans = load_pickle(plans_file)
+
+            # -- Extract the folder with the preprocessed data in it -- #
+            folder_with_preprocessed_data = join(self.dataset_directory, self.plans['data_identifier'] +
+                                                 "_stage%d" % stage)
+                                                
+            # -- Load the dataset for the task from the loop and perform the split on it -- #
+            self.dataset = load_dataset(folder_with_preprocessed_data)
+            self.do_split()
+
+            # -- Extract corresponding self.val_gen --> the used function is extern and does not change any values from self -- #
+            self.tr_gen, self.val_gen = get_moreDA_augmentation(
+                                                                self.dl_tr, self.dl_val,    # Changed due to do_split ;)
+                                                                self.data_aug_params[
+                                                                    'patch_size_for_spatialtransform'],
+                                                                self.data_aug_params,
+                                                                deep_supervision_scales=self.deep_supervision_scales,
+                                                                pin_memory=self.pin_memory,
+                                                                use_nondetMultiThreadedAugmenter=False
+                                                               )
+            # -- Update the log -- #
+            self.print_to_log_file("Performing validation with validation data from task {}.".format(task))
+            
+            # -- For evaluation, no gradients are necessary so do not use them -- #
+            with torch.no_grad():
+                # -- Put current netowkr into evaluation mode -- #
+                self.network.eval()
+                # -- Run an iteration for each batch in validation generator -- #
+                for _ in range(self.num_val_batches_per_epoch):
+                    # -- Run iteration without backprop but online_evaluation to be able to get TP, FP, FN for Dice and IoU -- #
+                    _ = self.run_iteration(self.val_gen, False, True)
+            
+            # -- Calculate Dice and IoU --> self.validation_results is already updated once the evaluation is done -- #
+            self.finish_online_evaluation_extended(task)
+
+        # -- Save the dictionary as json file in the corresponding output_folder -- #
+        save_json(self.validation_results, join(self.output_folder, 'val_metrics.json'))
+
+        # -- Update already_trained_on if not already done before -- #
+        if not self.already_trained_on[str(self.fold)]['val_metrics_should_exist']:
+            # -- Set to True -- #
+            self.already_trained_on[str(self.fold)]['val_metrics_should_exist'] = True
+            # -- Save the updated dictionary as a json file -- #
+            save_json(self.already_trained_on, join(self.trained_on_path, self.extension+'_trained_on.json'))
+
+    def run_iteration(self, data_generator, do_backprop=True, run_online_evaluation=False):
+        r"""This function needs to be changed in order to perform a validation on all previous tasks in such a way
+            to calculate the Dice and IoU after every save_interval epoch. --> Will be stored into a metric file
+            called 'val_metrics.json'.
+        """
+        # -- Run iteration as usual -- #
+        loss = super().run_iteration(data_generator, do_backprop, run_online_evaluation)
+
+        # -- If the current epoch can be divided without a rest by self.save_every than its time for a validation -- #
+        if self.epoch % self.save_every == (self.save_every - 1):   # Same as checkpoint saving from nnU-Net
+            self._perform_validation()
+        
+        # -- Return the loss -- #
+        return loss
+
     def run_training(self, task):
         r"""Perform training using sequential trainer. Simply executes training method of parent class (nnUNetTrainerV2)
             while updating seq_trained_on.pkl file.
@@ -177,56 +331,20 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
         if self.new_trainer and len(self.already_trained_on) > 1:
             self.new_trainer = False
 
-        # -- Extract every self.save_everys validation metric (Disce + IOU score) -- #
+        """
+        # -- Extract every self.save_everys validation metric (Disce + IoU score) -- #
         iou_results = self.all_val_iou_eval_metrics[::self.save_every]
         dice_results = self.all_val_eval_metrics[::self.save_every]
 
         # -- Transform this list into a dictionary and load the data into it so it can be saved it -- #
         validation = dict()
         for idx in range(len(dice_results)):
-            validation[idx*self.save_every] = {'IOU': iou_results[idx], 'Dice': dice_results[idx] }
+            validation[idx*self.save_every] = {'IoU': iou_results[idx], 'Dice': dice_results[idx] }
 
         # -- Save the dictionary as json file in the corresponding output_folder -- #
-        save_json(validation, join(self.output_folder, 'val_metrics_during_training.json'))
+        save_json(validation, join(self.output_folder, 'val_metrics_during_training.json'))"""
         
         return ret  # Finished with training for the specific task
-
-    #------------------------------------------ Partially copied by original implementation ------------------------------------------#
-    def finish_online_evaluation(self):
-        r"""Calculate the Dice Score and IOU (Intersection Over Union) on the validation dataset during training.
-        """
-        # -- Get current True-Positive, False-Positive and False-Negative -- #
-        self.online_eval_tp = np.sum(self.online_eval_tp, 0)
-        self.online_eval_fp = np.sum(self.online_eval_fp, 0)
-        self.online_eval_fn = np.sum(self.online_eval_fn, 0)
-
-        # -- Claculate the IOU -- #
-        global_iou_per_class = [i for i in [i / (i + j + k) for i, j, k in
-                                           zip(self.online_eval_tp, self.online_eval_fp, self.online_eval_fn)]
-                               if not np.isnan(i)]
-
-        # -- Calculate the Dice -- #
-        global_dc_per_class = [i for i in [2 * i / (2 * i + j + k) for i, j, k in
-                                           zip(self.online_eval_tp, self.online_eval_fp, self.online_eval_fn)]
-                               if not np.isnan(i)]
-
-        # -- Store IOU and Dice values. Ensure it is float64 so its JSON serializable -- #
-        self.all_val_iou_eval_metrics.append(np.mean(global_iou_per_class, dtype="float64"))
-        self.all_val_eval_metrics.append(np.mean(global_dc_per_class, dtype="float64"))
-
-        # -- Update the log file -- #
-        self.print_to_log_file("Average global foreground IOU:", str(global_iou_per_class))
-        self.print_to_log_file("(interpret this as an estimate for the IOU of the different classes. This is not "
-                               "exact.)")
-        self.print_to_log_file("Average global foreground Dice:", str(global_dc_per_class))
-        self.print_to_log_file("(interpret this as an estimate for the Dice of the different classes. This is not "
-                               "exact.)")
-
-        self.online_eval_foreground_dc = []
-        self.online_eval_tp = []
-        self.online_eval_fp = []
-        self.online_eval_fn = []
-    #------------------------------------------ Partially copied by original implementation ------------------------------------------#
 
     def validate(self, do_mirroring: bool = True, use_sliding_window: bool = True,
                  step_size: float = 0.5, save_softmax: bool = True, use_gaussian: bool = True, overwrite: bool = True,
@@ -313,3 +431,44 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
         
         # -- Return the result which will be an list with None valuea and/or errors -- #
         return ret_joined
+
+
+""" BACKUP --> Never know what happens 
+#------------------------------------------ Partially copied from original implementation ------------------------------------------#
+    def finish_online_evaluation_extended(self, task):
+        rCalculate the Dice Score and IoU (Intersection over Union) on the validation dataset during training.
+        
+        # -- Get current True-Positive, False-Positive and False-Negative -- #
+        self.online_eval_tp = np.sum(self.online_eval_tp, 0)
+        self.online_eval_fp = np.sum(self.online_eval_fp, 0)
+        self.online_eval_fn = np.sum(self.online_eval_fn, 0)
+
+        # -- Calculate the IoU -- #
+        global_iou_per_class = [i for i in [i / (i + j + k) for i, j, k in
+                                           zip(self.online_eval_tp, self.online_eval_fp, self.online_eval_fn)]
+                               if not np.isnan(i)]
+
+        # -- Calculate the Dice -- #
+        global_dc_per_class = [i for i in [2 * i / (2 * i + j + k) for i, j, k in
+                                           zip(self.online_eval_tp, self.online_eval_fp, self.online_eval_fn)]
+                               if not np.isnan(i)]
+
+        # -- Store IoU and Dice values. Ensure it is float64 so its JSON serializable -- #
+        self.all_val_iou_eval_metrics.append(np.mean(global_iou_per_class, dtype="float64"))
+        self.all_val_eval_metrics.append(np.mean(global_dc_per_class, dtype="float64"))
+
+        # -- Update the log file -- #
+        self.print_to_log_file("Average global foreground IoU for task {}: {}".format(task, str(global_iou_per_class)))
+        self.print_to_log_file("(interpret this as an estimate for the IoU of the different classes. This is not "
+                               "exact.)")
+        self.print_to_log_file("Average global foreground Dice for task {}: {}".format(task, str(global_dc_per_class)))
+        self.print_to_log_file("(interpret this as an estimate for the Dice of the different classes. This is not "
+                               "exact.)")
+
+        # -- Empty the variable for next iteration -- #
+        self.online_eval_foreground_dc = []
+        self.online_eval_tp = []
+        self.online_eval_fp = []
+        self.online_eval_fn = []
+    #------------------------------------------ Partially copied from original implementation ------------------------------------------#
+"""

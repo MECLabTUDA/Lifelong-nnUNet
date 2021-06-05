@@ -211,20 +211,6 @@ def run_training(extension='sequential'):
     assert network_trainer == str(ext_map[extension]).split('.')[-1][:-2],\
             "When training {}, the network is called \'{}\' and should be used, nothing else.".format(extension, str(ext_map[extension]).split('.')[-1][:-2])
 
-    """
-    if extension == 'sequential':
-        assert network_trainer == str(nnUNetTrainerSequential).split('.')[-1][:-2],\
-            "When training sequential, the network is called \'nnUNetTrainerSequential\' and should be used, nothing else."
-
-    elif extension == 'rehearsal':
-        assert network_trainer == str(nnUNetTrainerRehearsal).split('.')[-1][:-2],\
-            "When training rehearsal, the network is called \'nnUNetTrainerRehearsal\' and should be used, nothing else."
-
-    elif extension == 'ewc':
-        assert network_trainer == str(nnUNetTrainerEWC).split('.')[-1][:-2],\
-            "When training using Elastic Weight Consolidation method, the network is called \'nnUNetTrainerEWC\' and should be used, nothing else."
-    """
-
     # -- Extract rehearsal arguments -- #
     if extension == 'rehearsal':
         # -- Extract the seed and samples_in_perc -- #

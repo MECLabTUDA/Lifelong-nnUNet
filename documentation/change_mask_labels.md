@@ -89,6 +89,7 @@ The following arguments and flags can be set to use this extension:
 | `-t_in` or `--tasks_in_path` | Specify one or a list of paths to tasks TaskXX_TASKNAME folders. | yes | -- | -- |
 | `-t_out` or `--tasks_out_path` | Specify the *unique* task ids for the output folders. | yes | -- | -- |
 | `-m` or `--mapping_files_path` | Specify one or a list of paths to the mapping (.json) files corresponding to the task ids. | yes | -- | -- |
+| `-c` or `--channels` | Use this to specify which channels should be used. Note the channel indices should be 0 based. If multiple values are provided, they are used for each task from `-t_in` equally. | no | -- | `all` |
 | `-p` | Use this to specify how many processes are used to run the script | no | -- | `default_num_threads` from [nnunet/configuration.py](https://github.com/MIC-DKFZ/nnUNet/blob/master/nnunet/configuration.py) |
 | `--no_pp` or `--disable_plan_ preprocess_tasks` | Set this if the plan and preprocessing step for each task using nnUNet_plan_and_preprocess should not be performed after a transformation. | no | -- | `False` |
 | `-h` or `--help` | Simply shows help on which arguments can and should be used. | -- | -- | -- |
@@ -105,6 +106,19 @@ For instance, the general command for changing the labels in a mask of multiple 
 						     -m <mapping_1> <mapping_2> ... <mapping_n> 
 						    [-p <number> --no_pp]
 ```
+
+Let's assume the dataset has 5 channels and only the first and last channel would be of interest, than the command would look like the following:
+
+```bash
+          ~ $ source ~/.bashrc
+          ~ $ source activate <your_anaconda_env>
+(<your_anaconda_env>) $ nnUNet_dataset_label_mapping -t_in <path_1> <path_2> ... <path_n> 
+						     -t_out <ID_1> <ID_2> ... <ID_n> 
+						     -m <mapping_1> <mapping_2> ... <mapping_n> 
+							 -c 0 4
+						    [-p <number> --no_pp]
+```
+Note that the channel indices are 0 based and that the channel selection will be performed for each task from `-t_in`.
 
 If `--no_pp` or `--disable_plan_ preprocess_task` is not set, the function will run the nnU-Nets pipeline configuration and preprocessing using the 
 ```bash

@@ -41,7 +41,7 @@ class nnUNetTrainerRehearsal(nnUNetTrainerSequential): # Inherit default trainer
         # -- corresponding paths need to be set the right way -- #
         #self.splitted_dataset_val = dict()
 
-    #------------------------------------------ Partially copied by original implementation ------------------------------------------#
+    #------------------------------------------ Partially copied from original implementation ------------------------------------------#
     def get_basic_generators(self):
         r"""Calculate the joined dataset for the rehearsal training task.
         """
@@ -148,94 +148,4 @@ class nnUNetTrainerRehearsal(nnUNetTrainerSequential): # Inherit default trainer
 
         # --- Return the dataloaders -- #
         return dl_tr, dl_val
-    #------------------------------------------ Partially copied by original implementation ------------------------------------------#
-
-    """
-    def validate(self, do_mirroring: bool = True, use_sliding_window: bool = True,
-                 step_size: float = 0.5, save_softmax: bool = True, use_gaussian: bool = True, overwrite: bool = True,
-                 validation_folder_name: str = 'validation_raw', debug: bool = False, all_in_gpu: bool = False,
-                 segmentation_export_kwargs: dict = None, run_postprocessing_on_folds: bool = True):
-        rThe Rehearsal Trainer needs its own validation, since the folder with preprocessed data changes through
-            validation based from which task the data comes when performing the validation.
-            NOTE: Unlike the Sequential Trainer, the data from all previous tasks will be used for validation
-                  during training and during final validation -- both based on self.samples --.
-        
-        # -- Initialize the variable for all results from the validation -- #
-        # -- A result is either None or an error --> in case this might be necessary -- #
-        ret_joined = list()
-
-        # -- If self.splitted_dataset_val is empty it has been trained on the first task so far --> no rehearsal used so far -- #
-        if len(self.splitted_dataset_val) == 0:
-            # -- Update the log -- #
-            self.print_to_log_file("Performing validation with validation data from last trained task.")
-
-            # -- Perform validation and return the results -- #
-            # -- --> call grandparents class validation (nnUNetTrainerV2) since parent class validation (nnUNetTrainerSequential) is different -- #
-            ret_joined.append(super(nnUNetTrainerSequential, self).validate(do_mirroring=do_mirroring,
-                                                                            use_sliding_window=use_sliding_window,
-                                                                            step_size=step_size,
-                                                                            save_softmax=save_softmax, use_gaussian=use_gaussian,
-                                                                            overwrite=overwrite, validation_folder_name=validation_folder_name,
-                                                                            debug=debug, all_in_gpu=all_in_gpu,
-                                                                            segmentation_export_kwargs=segmentation_export_kwargs,
-                                                                            run_postprocessing_on_folds=run_postprocessing_on_folds))
-            return ret_joined
-
-        # -- If it reaches until there, the model has already trained on a previous task, so self.splitted_dataset_val is not empty -- #
-        # -- Make a copy of the variables that will be updated in the upcoming loop -- #
-        dataset_val_backup = self.dataset_val.copy()
-        gt_niftis_folder_backup = self.gt_niftis_folder
-        plans_backup = self.plans.copy()
-
-        # -- For each previously trained task perform the validation -- #
-        for task, dataset_val_and_folder_and_plans in self.splitted_dataset_val.items():
-            # -- Change self.dataset_val to the validation dataset of the task from the loop -- #
-            self.dataset_val = dataset_val_and_folder_and_plans[0]
-
-            # -- Update self.dataset_directory for the split in validation -- #
-            self.dataset_directory = dataset_val_and_folder_and_plans[1]
-
-            # -- Update self.gt_niftis_folder that will be used in validation function so the files can be found -- #
-            self.gt_niftis_folder = join(self.dataset_directory, "gt_segmentations")
-            
-            # -- Load plans file for validation -- #
-            self.plans = load_pickle(dataset_val_and_folder_and_plans[2])
-
-            print(self.dataset_directory, self.gt_niftis_folder)
-            
-            # -- Update the log -- #
-            self.print_to_log_file("Performing validation with validation data from task {}.".format(task))
-            
-            # -- Call grandparents class validation (nnUNetTrainerV2) since parent class validation (nnUNetTrainerSequential) is different -- #
-            ret_joined.append(super(nnUNetTrainerSequential, self).validate(do_mirroring=do_mirroring,
-                                                                            use_sliding_window=use_sliding_window,
-                                                                            step_size=step_size,
-                                                                            save_softmax=save_softmax, use_gaussian=use_gaussian,
-                                                                            overwrite=overwrite, validation_folder_name=validation_folder_name+task,
-                                                                            debug=debug, all_in_gpu=all_in_gpu,
-                                                                            segmentation_export_kwargs=segmentation_export_kwargs,
-                                                                            run_postprocessing_on_folds=run_postprocessing_on_folds))
-            
-        # -- Restore variables to the corresponding validation set of the current task and remove backup variables -- #
-        self.dataset_val = dataset_val_backup
-        self.gt_niftis_folder = gt_niftis_folder_backup
-        self.plans = plans_backup
-        del dataset_val_backup, gt_niftis_folder_backup, plans_backup
-
-        # -- Update the log -- #
-        self.print_to_log_file("Performing validation with validation data from last trained task.")
-
-        # -- Perform validation on the current task using grandparents class validation (nnUNetTrainerV2) -- #
-        # -- since parent class validation (nnUNetTrainerSequential) is different -- #
-        ret_joined.append(super(nnUNetTrainerSequential, self).validate(do_mirroring=do_mirroring,
-                                                                        use_sliding_window=use_sliding_window,
-                                                                        step_size=step_size,
-                                                                        save_softmax=save_softmax, use_gaussian=use_gaussian,
-                                                                        overwrite=overwrite, validation_folder_name=validation_folder_name,
-                                                                        debug=debug, all_in_gpu=all_in_gpu,
-                                                                        segmentation_export_kwargs=segmentation_export_kwargs,
-                                                                        run_postprocessing_on_folds=run_postprocessing_on_folds))
-        
-        # -- Return the result which will be an list with None valuea and/or errors -- #
-        return ret_joined
-        """
+    #------------------------------------------ Partially copied from original implementation ------------------------------------------#

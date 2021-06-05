@@ -4,20 +4,86 @@
 #########################################################################################################
 
 import os
+import shutil
 import argparse
 import numpy as np
 from tqdm import tqdm
 import SimpleITK as sitk
-from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet.configuration import default_num_threads
 from nnunet.experiment_planning.utils import split_4d
+from nnunet_ext.utilities.helpful_functions import delete_dir_con
+from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet_ext.paths import preprocessing_output_dir, nnUNet_raw_data
 from nnunet.experiment_planning.nnUNet_convert_decathlon_task import crawl_and_remove_hidden_from_decathlon
+
+def _extract_desired_channels(path, task_name, channels):
+    r"""This function transforms all nifti scans specified in the path in such a way that only the desired
+        channels are extracted. In this process a new folder is generated that needs to be deleted after 
+        the processing of the data (beyond this function) is finished.
+        :param path: Path to the corresponding dataset, like '/.../Task05_Prostate'
+        :param task_name: The full name of the task, like 'Task05_Prostate'
+        :param channels: List of integers representing the channels that should be selected (should be 0-based),
+                         like [0, 2]
+        :return: Either None or the name of the path to the new folder if it exists
+        NOTE: This function expects Decathlon-Like datastructure whereas the path leads to all the folders,
+              namely 'imagesTr', 'imagesTs' and 'labelsTr'. It copies the file to a new path, whereas the name
+              is the same as transmitted, extended with '_mod'."""
+    # -- Ensure that channels is not all, if so just return -- #
+    if channels == 'all':
+        return
+    
+    # -- Ensure that the path exists and is a directory -- #
+    assert os.path.isdir(path), "The provided path does not point to a directory: {}.".format(path)
+
+    # -- Define the folder names that might exists and contain data with multiple channels -- #
+    pos_folders = ['imagesTr', 'imagesTs']
+
+    # -- Define the new task_name with respect to return -- #
+    new_task = task_name+'_mod'
+
+    # -- Create a new directory for the 'new' task, which contains the modified images -- #
+    new_path = join(path.replace(task_name, new_task))
+    assert not os.path.exists(new_path), "The generated task at {} name for temporary copies already exists although it should not..".format(new_path)
+
+    # -- Create all necessary directories -- #
+    os.makedirs(new_path)
+
+    # -- Copy the labels folder (since they always have one channel) and all other files except imagesTr, imagesTs -- #
+    shutil.copytree(join(path, "labelsTr"), join(new_path, "labelsTr"))
+    shutil.copy(join(path, "dataset.json"), new_path)
+
+    # -- Go into each folder (if it exists) and then extract the desired channels -- #
+    for folder in pos_folders:
+        # -- Create a new path and folder-- #
+        base = join(path, folder)
+        # -- Only proceed if the directory exists and if it contains files -- #
+        if os.path.isdir(base) and len(os.listdir(base)) > 0:
+            # -- Create new directory in the new_tasks path -- #
+            os.makedirs(join(new_path, folder))
+            # -- Loop through the files -- #
+            for file in os.listdir(base):
+                # -- Load the file if it is in nifti format and a non binary file -- #
+                if 'nii.gz' in file and '._' not in file:
+                    # -- Load the file in form of a (SimpleITK -->) array -- #
+                    img = sitk.GetArrayFromImage(sitk.ReadImage(join(base, file)))
+                    # -- Based on channels extract the right slices -- #
+                    if len(img.shape) == 4:
+                        try:
+                            img = img[channels, :, :, :]
+                            if len(channels) == 1: # Only one channel, so go from 4D to 3D
+                                img = img[0]
+                        except:
+                            assert False, "You provided the wrong channel(s): {}. The image has \'{}\' channel(s)..".format(channels, img.shape(2))
+                    # -- Save the image again at new location -- #
+                    sitk.WriteImage(sitk.GetImageFromArray(img), join(new_path, folder, file))
+
+    return new_path  # Return the path to the new task
 
 def _perform_transformation_on_mask_using_mapping(mask, mapping):
     r"""This function changes the labeling in the mask given a specified mapping. The mask should be a SimpleITK image."""
     # -- Ensure that mapping is not empty -- #
     assert mapping is not None and len(mapping) != 0, "The mapping dict is empty --> can not change labels according to empty mapping."
+    
     # -- Load the mask using SimpleITK and convert it to a numpy array for transformation -- #
     img_array = sitk.GetArrayFromImage(mask).astype(np.float32)
 
@@ -55,6 +121,9 @@ def main():
                                                                                "Keep in mind that IDs need to be unique --> This will be tested!", required=True)
     parser.add_argument("-m", "--mapping_files_path", nargs="+", help="Specify a list of paths to the mapping (.json) files corresponding to the task ids.",
                         required=True)
+    parser.add_argument("-c", "--channels", nargs="+", help="Specify which channels to extract. Use (possible) indices 0, 1, ... or \'all\'."
+                                                            " When using multiple tasks, consider that it is used for each task. Further consider"
+                                                            " that the indices are all 0-based. If not specified, all channels will be extracted", required=False)
     parser.add_argument("-p", required=False, default=default_num_threads, type=int,
                         help="Use this to specify how many processes are used to run the script. "
                              "Default is %d" % default_num_threads)
@@ -90,8 +159,9 @@ def main():
     # -- Extract parser arguments -- #
     args = parser.parse_args()
     tasks_in = args.tasks_in_path    # List of the paths to the tasks
-    task_out = args.tasks_out_ids   # List of the tasks IDss
+    task_out = args.tasks_out_ids   # List of the tasks IDs
     mappings = args.mapping_files_path       # List of the paths to the mapping files
+    channels = args.channels       # List of the channels to extract
     disable_pp = args.no_pp # Flag that specifies if nnUNet_plan_and_preprocess should be performed
 
     # -- Sanity checks for input -- #
@@ -103,6 +173,12 @@ def main():
     for mapping in mappings:
         assert mapping[-5:] == '.json', "The mapping files should be in .json format."
 
+    # -- If channels is not set or ['all'], set it to all
+    if channels is None or channels[0] == 'all':
+        channels = 'all'
+    else: # Ensure that the list contains only integers
+        channels = list(map(int, channels))
+        
 
     # ------------------------------------------------
     # Transform masks based on the provided mappings
@@ -119,17 +195,28 @@ def main():
         # -- Extract task name --> copied from nnUNet split4d function (nnunet/experiment_planning/utils.py) -- #
         full_task_name = in_task.split("/")[-1]
         task_name = full_task_name[7:]
+        mod_in_task = in_task
+
+        # -- Select the desired channels from the dataset if not all are desired -- #
+        if channels != 'all':
+            print("Extracting only the desired channels from the scans..")
+            mod_in_task = _extract_desired_channels(in_task, full_task_name, channels)
 
         # -- Use nnUNet provided split_4d function that is used for Decathlon data but check before if task is unique! -- #
         out_task = task_out[idx]
         assert ("Task%03.0d_" % out_task + task_name not in os.listdir(preprocessing_output_dir)\
                 and "Task%03.0d_" % out_task + task_name not in os.listdir(nnUNet_raw_data)), "The task is not unique, use another one.."
         print("Perform 4D split..")
-        split_4d(in_task, args.p, out_task)
+        split_4d(mod_in_task, args.p, out_task)
 
         # -- Define the base for correct loading and saving -- #
-        # -- Load dataset.json that includes informations about the dataset, for instance the different labels that need to be changed -- #
         base = join(nnUNet_raw_data, "Task%03.0d_" % out_task + task_name)
+
+        # -- Do not to forget to change the name from the new generated task by split_4d -- #
+        if '_mod' in mod_in_task: # Modified task name because the generated folder is being used (correctly) after channel selection
+            os.rename(base+'_mod', base)
+
+        # -- Load dataset.json that includes informations about the dataset, for instance the different labels that need to be changed -- #
         dataset_info = load_json(join(base, 'dataset.json'))
 
         # -- Check if the provided mapping matches the dataset_info. A mapping key consist of pairs of the old label description and the corresponding label -- #
@@ -165,9 +252,18 @@ def main():
         dataset_info['labels'] = new_labels
         save_json(dataset_info, join(base, 'dataset.json'))
 
+        # -- Do not forget to delete the copied directory if it exists -- #
+        if mod_in_task != in_task:
+            delete_dir_con(mod_in_task) # Delete the whole folder
+
         # -- Plan and preprocess the new dataset if the flag is not set -- #
         if not disable_pp:
             # -- Update user -- #
             print("Performing planning and preprocessing of task {}..".format("Task%03.0d_" % out_task + task_name))
             # -- Execute the nnUNet_plan_and_preprocess command -- #
             os.system('nnUNet_plan_and_preprocess -t ' + str(out_task))
+
+
+
+if __name__ == "__main__":
+    main()
