@@ -73,7 +73,7 @@ def _extract_desired_channels(path, task_name, channels):
                             if len(channels) == 1: # Only one channel, so go from 4D to 3D
                                 img = img[0]
                         except:
-                            assert False, "You provided the wrong channel(s): {}. The image has \'{}\' channel(s)..".format(channels, img.shape(2))
+                            assert False, "You provided the wrong channel(s): {}. The image has \'{}\' channel(s)..".format(channels, img.shape[0])
                     # -- Save the image again at new location -- #
                     sitk.WriteImage(sitk.GetImageFromArray(img), join(new_path, folder, file))
 

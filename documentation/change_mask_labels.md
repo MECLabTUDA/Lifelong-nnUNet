@@ -104,7 +104,7 @@ For instance, the general command for changing the labels in a mask of multiple 
 (<your_anaconda_env>) $ nnUNet_dataset_label_mapping -t_in <path_1> <path_2> ... <path_n> 
 						     -t_out <ID_1> <ID_2> ... <ID_n> 
 						     -m <mapping_1> <mapping_2> ... <mapping_n> 
-						    [-p <number> --no_pp]
+						    [-c <number(s)> -p <number(s)> --no_pp]
 ```
 
 Let's assume the dataset has 5 channels and only the first and last channel would be of interest, than the command would look like the following:
@@ -116,7 +116,7 @@ Let's assume the dataset has 5 channels and only the first and last channel woul
 						     -t_out <ID_1> <ID_2> ... <ID_n> 
 						     -m <mapping_1> <mapping_2> ... <mapping_n> 
 							 -c 0 4
-						    [-p <number> --no_pp]
+						    [-p <number(s)> --no_pp]
 ```
 Note that the channel indices are 0 based and that the channel selection will be performed for each task from `-t_in`.
 

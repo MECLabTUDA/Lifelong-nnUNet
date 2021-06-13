@@ -261,16 +261,19 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
             self.plans = load_pickle(plans_file)
 
             # -- Extract the folder with the preprocessed data in it -- #
-            folder_with_preprocessed_data = join(self.dataset_directory, self.plans['data_identifier'] +
-                                                 "_stage%d" % stage)
+            self.folder_with_preprocessed_data = join(self.dataset_directory, self.plans['data_identifier'] +
+                                                      "_stage%d" % stage)
                                                 
+            # -- Create the corresponding dataloaders for train ind val (dataset loading and split performed in function) -- #
+            # -- Since we do validation, there is no need to unpack the data -- #
+            self.dl_tr, self.dl_val = self.get_basic_generators()
+
             # -- Load the dataset for the task from the loop and perform the split on it -- #
-            self.dataset = load_dataset(folder_with_preprocessed_data)
-            self.do_split()
+            #self.dataset = load_dataset(folder_with_preprocessed_data)
+            #self.do_split()
 
             # -- Extract corresponding self.val_gen --> the used function is extern and does not change any values from self -- #
-            self.tr_gen, self.val_gen = get_moreDA_augmentation(
-                                                                self.dl_tr, self.dl_val,    # Changed due to do_split ;)
+            self.tr_gen, self.val_gen = get_moreDA_augmentation(self.dl_tr, self.dl_val,    # Changed due to do_split ;)
                                                                 self.data_aug_params[
                                                                     'patch_size_for_spatialtransform'],
                                                                 self.data_aug_params,
