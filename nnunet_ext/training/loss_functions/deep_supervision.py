@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from nnunet.training.loss_functions.deep_supervision import MultipleOutputLoss2
 
 # -- Loss function for the Elastic Weight Consolidation approach -- #
-class MultipleOutputLoss2EWC(MultipleOutputLoss2):
+class MultipleOutputLossEWC(MultipleOutputLoss2):
     # -- The implementation of this method is based on the following Source Code: -- #
     # -- https://github.com/ContinualAI/colab/blob/master/notebooks/intro_to_continual_learning.ipynb. -- #
     # -- It represents the method proposed in the paper https://arxiv.org/pdf/1612.00796.pdf -- #
@@ -19,7 +19,7 @@ class MultipleOutputLoss2EWC(MultipleOutputLoss2):
            which is simply model.named_parameters().
         """
         # -- Initialize using the MultipleOutputLoss2 from nnU-Net -- #
-        super(MultipleOutputLoss2EWC, self).__init__(loss, weight_factors)
+        super(MultipleOutputLossEWC, self).__init__(loss, weight_factors)
 
         # -- Set all variables that are used by parent class and are necessary for the EWC loss calculation -- #
         self.weight_factors = weight_factors
@@ -43,7 +43,7 @@ class MultipleOutputLoss2EWC(MultipleOutputLoss2):
 
     def forward(self, x, y):
         # -- Calculate the loss first using the parent class -- #
-        loss = super(MultipleOutputLoss2EWC, self).forward(x, y) # --> assertion in parent class causes problems..
+        loss = super(MultipleOutputLossEWC, self).forward(x, y) # --> assertion in parent class causes problems..
 
         # -- If previous tasks exist, than update the loss accordingly -- #
         if len(self.tasks) != 0:
@@ -64,7 +64,7 @@ class MultipleOutputLoss2EWC(MultipleOutputLoss2):
         return loss
 
 # -- Loss function for the Learning Without Forgetting approach -- #
-class MultipleOutputLoss2LWF(MultipleOutputLoss2):
+class MultipleOutputLossLWF(MultipleOutputLoss2):
     # -- The implementation of this method is based on the following Source Code: -- #
     # -- https://github.com/arunmallya/packnet/blob/master/src/lwf.py. -- #
     # -- It represents the method proposed in the paper https://arxiv.org/pdf/1606.09282.pdf -- #
@@ -79,7 +79,7 @@ class MultipleOutputLoss2LWF(MultipleOutputLoss2):
                  on the current batch x and added to the loss of the current model training on task t using the same batch.
         """
         # -- Initialize using the MultipleOutputLoss2 from nnU-Net -- #
-        super(MultipleOutputLoss2LWF, self).__init__(loss, weight_factors)
+        super(MultipleOutputLossLWF, self).__init__(loss, weight_factors)
 
         # -- Set all variables that are used by parent class and are necessary for the EWC loss calculation -- #
         self.weight_factors = weight_factors
@@ -109,7 +109,7 @@ class MultipleOutputLoss2LWF(MultipleOutputLoss2):
 
     def forward(self, x, y):
         # -- Calculate the loss first using the parent class -- #
-        loss = super(MultipleOutputLoss2LWF, self).forward(x, y)
+        loss = super(MultipleOutputLossLWF, self).forward(x, y)
         
         # -- At this point, the parent class ensured that x (and y) are both tuples or lists -- #
         # -- If previous tasks exist, than update the loss accordingly -- #

@@ -1,40 +1,34 @@
 #########################################################################################################
-#----------This class represents the nnUNet trainer for sequential training. Implementation-------------#
+#----------This class represents the nnUNet Multiple Head Trainer. Implementation-----------------------#
 #----------inspired by original implementation (--> nnUNetTrainerV2), copied code is marked as such.----#
 #########################################################################################################
 
 import os
-#import torch
+import torch
 import numpy as np
 from nnunet_ext.paths import default_plans_identifier
 from batchgenerators.utilities.file_and_folder_operations import *
-#from nnunet.training.dataloading.dataset_loading import load_dataset
-#from nnunet_ext.utilities.helpful_functions import join_texts_with_char
-#from nnunet_ext.run.default_configuration import get_default_configuration
-#from nnunet.training.network_training.nnUNetTrainerV2 import nnUNetTrainerV2
-#from nnunet.training.data_augmentation.data_augmentation_moreDA import get_moreDA_augmentation
-from nnunet_ext.training.network_training.nnUNetTrainerMultiHead import nnUNetTrainerMultiHead
+from nnunet.training.dataloading.dataset_loading import load_dataset
+from nnunet_ext.utilities.helpful_functions import join_texts_with_char
+from nnunet_ext.run.default_configuration import get_default_configuration
+from nnunet_ext.network_architecture.mh_generic_UNet import MH_Generic_UNet
+from nnunet.training.network_training.nnUNetTrainerV2 import nnUNetTrainerV2
+from nnunet.training.data_augmentation.data_augmentation_moreDA import get_moreDA_augmentation
 
-class nnUNetTrainerSequential(nnUNetTrainerMultiHead):
-    # -- Basically the Multi Head Trainer -- #
+class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class for 2D, 3D low resolution and 3D full resolution U-Net 
     def __init__(self, split, task, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None,
-                 identifier=default_plans_identifier, extension='sequential', tasks_joined_name=None, trainer_class_name=None):
-        r"""Constructor of Sequential trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
+                 identifier=default_plans_identifier, extension='multi_head', tasks_joined_name=None, trainer_class_name=None):
+        r"""Constructor of Multi Head Trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
         """
         # -- Initialize using parent class -- #
-        super().__init__(split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic,
-                         fp16, save_interval, already_trained_on, identifier, extension, tasks_joined_name, trainer_class_name)
-
-""" Sequential Trainer BACKUP
-class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class for 2D, 3D low resolution and 3D full resolution U-Net 
-    def __init__(self, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
-                 unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None,
-                 identifier=default_plans_identifier, extension='sequential', tasks_joined_name=None, trainer_class_name=None):
-        rConstructor of Sequential trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
-        
-        # -- Initialize using parent class -- #
         super().__init__(plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic, fp16)
+
+        # -- Set the provided split -- #
+        self.split = split
+
+        # -- Set the name of the head which is referred to as a task name -- #
+        self.task = task
 
         # -- Set identifier to use for building the .json file that is used for restoring states -- #
         self.identifier = identifier
@@ -90,9 +84,9 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
         self.all_val_iou_eval_metrics = list()
 
     def initialize(self, training=True, force_load_plans=False, num_epochs=500, prev_trainer=None):
-        rOverwrite parent initialize function, since we want to include a prev_trainer to enable sequence training and 
-            we want to set the num_epochs as well.
-        
+        r"""Overwrite parent function, since we want to include a prev_trainer that is used as a base for the Multi Head Trainer.
+            Further the num_epochs should be set by the user if desired.
+        """
         # -- The Trainer embodies the actual model that will be used as foundation to continue training on -- #
         # -- It should be already initialized since the output_folder will be used. If it is None, the model will be initialized and trained. -- #
         # -- Further the trainer needs to be of class nnUNetTrainerV2 or nnUNetTrainerSequential for this method, nothing else. -- #
@@ -120,12 +114,19 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
         super().initialize(training, force_load_plans) # --> This updates the corresponding variables automatically since we inherit this class
 
     def initialize_network(self):
-        rExtend Initialization of Network --> Load pre-trained model (specified to setup the network).
-        Optimizer and lr initialization is still the same, since only the network is different.
-        
+        r"""Extend Initialization of Network --> Load pre-trained model (specified to setup the network).
+            Optimizer and lr initialization is still the same, since only the network is different.
+        """
         if self.trainer is None:
             # -- Initialize from beginning and start training, since no model is provided -- #
             super().initialize_network() # --> This updates the corresponding variables automatically since we inherit this class
+            # -- Create a Multi Head Generic_UNet from the current network using the provided split and task name -- #
+            self.mh_network = MH_Generic_UNet(self.split, self.task, self.num_input_channels, self.base_num_features, self.num_classes,
+                                              len(self.net_num_pool_op_kernel_sizes), self.conv_per_stage, prev_trainer=self.network)
+            # -- Add the split to the already_trained_on since it is simplified by now -- #
+            self.already_trained_on[str(self.fold)]['used_split'] = self.mh_network.split
+            # -- Save the updated dictionary as a json file -- #
+            save_json(self.already_trained_on, join(self.trained_on_path, self.extension+'_trained_on.json'))
             return  # Done with initialization
 
         # -- Some sanity checks and loads.. -- #
@@ -137,65 +138,42 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
             # -- If no fold_ in output_folder, everything is fine -- #
             plans_dir = self.trainer.output_folder
             
-        assert isfile(join(plans_dir, "plans.pkl")), "Folder with saved model weights must contain a plans.pkl file"
+        assert isfile(join(plans_dir, "plans.pkl")), "Folder with saved model weights must contain a plans.pkl file.."
 
         # -- Check that the trainer type is as expected -- #
-        assert isinstance(self.trainer, (nnUNetTrainerV2, nnUNetTrainerSequential)), "The trainer needs to be nnUNetTrainerV2 or nnUNetTrainerSequential"
+        assert isinstance(self.trainer, (nnUNetTrainerV2, nnUNetTrainerMultiHead)), "The trainer needs to be nnUNetTrainerV2 or nnUNetTrainerMultiHead.."
 
-        # -- If the trainer is already of Sequential type, there should also be a pkl file with the sets it has already been trained on ! -- #
-        if isinstance(self.trainer, nnUNetTrainerSequential):   # If model was trained using nnUNetTrainerV2, the pickle file won't exist
+        # -- If the trainer is already of Multi Head type, there should also be a pkl file with the sets it has already been trained on ! -- #
+        if isinstance(self.trainer, nnUNetTrainerMultiHead):   # If model was trained using nnUNetTrainerV2, the pickle file won't exist
             self.already_trained_on = load_json(join(self.trained_on_path, self.extension+'_trained_on.json'))
         
         # -- Load the model and parameters -- #
+        # -- NOTE: self.trainer is a Multi Head network, so it has a model, body, heads. -- #
         print("Loading trainer and setting the network for training")
-        self.trainer.load_final_checkpoint(train=True) #TRUE OR FALSE??!!    # Load state_dict of the final model
+        self.trainer.load_final_checkpoint(train=True) # Load state_dict of the final model
 
-        # -- Set own network to trainer.network to use this pre-trained model -- #
-        self.network = self.trainer.network
-
-    def update_trainer(self, prev_trainer, output_folder):
-        rThis function updates the previous trainer in a class by reinitializing the network again and resetting the output_folder.
-        
-        # -- Set prev_trainer correctly as class instance and not a string -- #
-        self.trainer = prev_trainer
-
-        # -- Update output_folder -- #
-        self.output_folder = output_folder
-
-        # -- Initialize the network again to update the actual trainer represented by self -- #
-        self.initialize_network()
-
-    def update_save_trained_on_json(self, task, finished=True):
-        rThis function updates the dictionary, if a model is trained for 3 different tasks, this list needs to be updated
-            after each sucessful training of a task and stored accordingly! The 'finished' specifies if the task is finished training
-            or just started for training.
-            This function also saves the already_trained_on list as a pickle file under the path of the new model task (output_folder).
-        
-        # -- Add the provided task at the end of the list, sort the list and dump it as pkl file -- #
-        if finished:    # Task finished with training
-            self.already_trained_on[str(self.fold)]['finished_training_on'].append(task)
-            # -- Remove the task from start_training_on -- #
-            self.already_trained_on[str(self.fold)]['start_training_on'] = None 
-            # -- Update the prev_trainer -- #
-            self.already_trained_on[str(self.fold)]['prev_trainer'].append(self.trainer_class_name)
-        else:   # Task started to train
-            # -- Add the current task -- #
-            self.already_trained_on[str(self.fold)]['start_training_on'] = task
-            # -- Update the prev_trainer -- #
-            self.already_trained_on[str(self.fold)]['prev_trainer'][-1:] = [self.trainer.__class__.__name__]
-        
-        # -- Update the used_identifier -- #
-        self.already_trained_on[str(self.fold)]['used_identifier'] = self.identifier
-
-        # -- Save the updated dictionary as a json file -- #
-        save_json(self.already_trained_on, join(self.trained_on_path, self.extension+'_trained_on.json'))
-
+        # -- Set mh_network -- #
+        # -- Make it to Multi Head network if it is not already -- #
+        if isinstance(self.trainer, nnUNetTrainerV2):
+            self.mh_network = MH_Generic_UNet(self.split, self.task, self.num_input_channels, self.base_num_features, self.num_classes,
+                                              len(self.net_num_pool_op_kernel_sizes), self.conv_per_stage, prev_trainer=self.trainer.networks)
+        else: # Already Multi Head type
+            self.mh_network = self.trainer#.mh_network
+            # -- Ensure that the split that has been previously used and the current one are equal -- #
+            # -- NOTE: Do this after initialization, since the splits might be different before but still lead to the same level after -- #
+            # --       simplification. -- #
+            prev_split = self.already_trained_on[str(self.fold)]['used_split']
+            assert self.mh_network.split == prev_split,\
+                "To continue training on the fold {} the same split, ie. \'{}\' needs to be provided, not \'{}\'.".format(self.fold, self.mh_network.split, prev_split)
+            # -- Delete the prev_split --> not necessary anymore -- #
+            del prev_split
+    
     #------------------------------------------ Partially copied from original implementation ------------------------------------------#
     def finish_online_evaluation_extended(self, task):
-        rCalculate the Dice Score and IoU (Intersection over Union) on the validation dataset during training.
+        r"""Calculate the Dice Score and IoU (Intersection over Union) on the validation dataset during training.
             NOTE: The function name is different from the original one, since it is used in another context
-                  than the original one, ie. only in special cases why it needs to have a different name.
-        
+                  than the original one, ie. it is only called in special cases why it needs to have a different name.
+        """
         # -- Get current True-Positive, False-Positive and False-Negative -- #
         self.online_eval_tp = np.sum(self.online_eval_tp, 0)
         self.online_eval_fp = np.sum(self.online_eval_fp, 0)
@@ -242,19 +220,81 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
         self.online_eval_fn = []
     #------------------------------------------ Partially copied from original implementation ------------------------------------------#
 
-    def _perform_validation(self):
-        rThis function performs a full validation on all previous tasks and the current task.
-            The Dice and IoU will be calculated and the results will be stored in 'val_metrics.json'.
+    def run_iteration(self, data_generator, do_backprop=True, run_online_evaluation=False):
+        r"""This function needs to be changed in order to perform a validation on all previous tasks in such a way
+            to calculate the Dice and IoU after every save_interval epoch. --> Will be stored into a metric file
+            called 'val_metrics.json'.
+            NOTE: The calling class needs to set self.network according to the desired task, this is not done in this
+                  function but expected by the user.
+        """
+        # -- Run iteration as usual -- #
+        loss = super().run_iteration(data_generator, do_backprop, run_online_evaluation)
+
+        # -- If the current epoch can be divided without a rest by self.save_every than its time for a validation -- #
+        if self.epoch % self.save_every == (self.save_every - 1):   # Same as checkpoint saving from nnU-Net
+            self._perform_validation()
         
+        # -- Return the loss -- #
+        return loss
+
+    def run_training(self, task):
+        r"""Perform training using Multi Head Trainer. Simply executes training method of parent class
+            while updating seq_trained_on.pkl file.
+            NOTE: If the task does not exist, a new head will be initialized using the init_head from the initialization
+                  of the class. This new head is saved under task and will then be trained.
+        """
+        # -- Add the current task to the self.already_trained_on dict in case of restoring -- #
+        self.update_save_trained_on_json(task, False)   # Add task to start_training
+        # -- Register the task if it does not exist in one of the heads -- #
+        if task not in self.mh_network.heads.keys():
+            # -- Add this task into heads -- #
+            self.mh_network.add_new_task(task)   
+            # -- Activate the model accordingly -- #
+            self.mh_network._assemble_model(task)
+            # -- Set the network to the assembled model that is then used for training -- #
+            self.network = self.mh_network.model
+
+        # -- Run the training from parent class -- #
+        ret = super().run_training()
+
+        # -- Add task to finished_training -- #
+        self.update_save_trained_on_json(task, True)
+
+        # -- When model trained on second task and the self.new_trainer is still not updated, then update it -- #
+        if self.new_trainer and len(self.already_trained_on) > 1:
+            self.new_trainer = False
+        
+        return ret  # Finished with training for the specific task
+
+    def save_checkpoint(self, fname, save_optimizer=True):
+        r"""Overwrite the parent class, since we want to store the body and heads along with the current activated model
+            and not only the current network we train on.
+        """
+        # -- Set the network to the full MH_Generic_UNet network to save everything in the class not only the current model -- #
+        self.network = self.mh_network
+
+        # -- Use parent class to save checkpoint for MH_Generic_UNet model consisting of self.model, self.body and self.heads -- #
+        super().save_checkpoint(fname, save_optimizer)
+
+        # -- Reset network to the assembled model to continue training -- #
+        self.network = self.mh_network.model
+
+    def _perform_validation(self):
+        r"""This function performs a full validation on all previous tasks and the current task.
+            The Dice and IoU will be calculated and the results will be stored in 'val_metrics.json'.
+        """
         # -- Extract the information of the current fold -- #
         trained_on_folds = self.already_trained_on[str(self.fold)]
 
         # -- Extract the list of tasks the model has already finished training on -- #
-        trained_on = trained_on_folds.get('finished_training_on', list())
+        #trained_on = trained_on_folds.get('finished_training_on', list())
 
         # -- Extract all tasks into a list to loop through -- #
-        tasks = trained_on.extend(self.already_trained_on[str(self.fold)]['start_training_on']) # At this point this can not be None
+        #tasks = trained_on.extend(self.already_trained_on[str(self.fold)]['start_training_on']) # At this point this can not be None
+        tasks = self.mh_network.heads.keys().copy()
 
+        # -- NOTE: Since the head is an (ordered) ModuleDict, the current task is the last head, so there -- #
+        # --       is nothing to restore at the end. -- #
         # -- NOTE: Since the current task the model is training on is always added at the end of the list, -- #
         # --       After this loop everything is automatically set as before, so no restoring needs to be done -- #
         # -- For each previously trained task perform the validation on the full validation set -- #
@@ -295,10 +335,15 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
                                                                )
             # -- Update the log -- #
             self.print_to_log_file("Performing validation with validation data from task {}.".format(task))
+
+            # -- Activate the current task to train on the right model -- #
+            # -- Set self.network, since the parent classes all use self.network to train -- #
+            # -- NOTE: self.mh_network.model is also updated to self.task split ! -- #
+            self.network = self.mh_network._assemble_model(task)
             
             # -- For evaluation, no gradients are necessary so do not use them -- #
             with torch.no_grad():
-                # -- Put current netowkr into evaluation mode -- #
+                # -- Put current network into evaluation mode -- #
                 self.network.eval()
                 # -- Run an iteration for each batch in validation generator -- #
                 for _ in range(self.num_val_batches_per_epoch):
@@ -318,58 +363,15 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
             # -- Save the updated dictionary as a json file -- #
             save_json(self.already_trained_on, join(self.trained_on_path, self.extension+'_trained_on.json'))
 
-    def run_iteration(self, data_generator, do_backprop=True, run_online_evaluation=False):
-        rThis function needs to be changed in order to perform a validation on all previous tasks in such a way
-            to calculate the Dice and IoU after every save_interval epoch. --> Will be stored into a metric file
-            called 'val_metrics.json'.
-        
-        # -- Run iteration as usual -- #
-        loss = super().run_iteration(data_generator, do_backprop, run_online_evaluation)
-
-        # -- If the current epoch can be divided without a rest by self.save_every than its time for a validation -- #
-        if self.epoch % self.save_every == (self.save_every - 1):   # Same as checkpoint saving from nnU-Net
-            self._perform_validation()
-        
-        # -- Return the loss -- #
-        return loss
-
-    def run_training(self, task):
-        rPerform training using sequential trainer. Simply executes training method of parent class (nnUNetTrainerV2)
-            while updating seq_trained_on.pkl file.
-        
-        # -- Add the current task to the self.already_trained_on dict in case of restoring -- #
-        self.update_save_trained_on_json(task, False)   # Add task to start_training
-        ret = super().run_training()                    # Execute training from parent class
-        self.update_save_trained_on_json(task, True)    # Add task to finished_training
-
-        # -- When model trained on second task and the self.new_trainer is still not updated, then update it -- #
-        if self.new_trainer and len(self.already_trained_on) > 1:
-            self.new_trainer = False
-
-        
-        # -- Extract every self.save_everys validation metric (Disce + IoU score) -- #
-        iou_results = self.all_val_iou_eval_metrics[::self.save_every]
-        dice_results = self.all_val_eval_metrics[::self.save_every]
-
-        # -- Transform this list into a dictionary and load the data into it so it can be saved it -- #
-        validation = dict()
-        for idx in range(len(dice_results)):
-            validation[idx*self.save_every] = {'IoU': iou_results[idx], 'Dice': dice_results[idx] }
-
-        # -- Save the dictionary as json file in the corresponding output_folder -- #
-        save_json(validation, join(self.output_folder, 'val_metrics_during_training.json'))
-        
-        return ret  # Finished with training for the specific task
-
     def validate(self, do_mirroring: bool = True, use_sliding_window: bool = True,
                  step_size: float = 0.5, save_softmax: bool = True, use_gaussian: bool = True, overwrite: bool = True,
                  validation_folder_name: str = 'validation_raw', debug: bool = False, all_in_gpu: bool = False,
                  segmentation_export_kwargs: dict = None, run_postprocessing_on_folds: bool = True):
-        rThe Sequential Trainer needs its own validation, since data from the previous tasks needs to be included in the
+        r"""The Multi Head Trainer needs its own validation, since data from the previous tasks needs to be included in the
             validation as well. The validation data from previous tasks will be fully used for the final validation.
-            NOTE: During training, only data from the same task will be used for validation. Only for the final validation, the
-                  data from previous tasks will be included as well.
-        
+            NOTE: This function is different from _perform_validation since it uses the parent validate function that perfomrs
+                  validations and saves the results (predicted segmentations) in corresponding folders.
+        """
         # -- Initialize the variable for all results from the validation -- #
         # -- A result is either None or an error --> in case this might be necessary -- #
         ret_joined = list()
@@ -378,21 +380,25 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
         trained_on_folds = self.already_trained_on[str(self.fold)]
 
         # -- Extract the list of tasks the model has already finished training on -- #
-        trained_on = trained_on_folds.get('finished_training_on', None)
+        #trained_on = trained_on_folds.get('finished_training_on', None)
+        trained_on = self.mh_network.heads.keys()
 
         #  -- If the trained_on_folds raise an error, because at this point the model should have been trained on at least one task -- #
-        assert trained_on is not None, "Before performing any validation, the model needs to be trained on at least one task."
+        #assert trained_on is not None, "Before performing any validation, the model needs to be trained on at least one task."
+        assert len(trained_on) != 0, "Before performing any validation, the model needs to be trained on at least one task."
 
         # -- If it reaches until there, the model has already trained on a previous task, so trained_on exists -- #
         # -- Make a copy of the variables that will be updated in the upcoming loop -- #
         # -- Without '[:]' for lists or '.copy()' for dicts both variables will change its values which is not desired -- #
-        dataset_backup = self.dataset.copy()
-        dataset_tr_backup = self.dataset_tr.copy()
-        dataset_val_backup = self.dataset_val.copy()
-        gt_niftis_folder_backup = self.gt_niftis_folder
-        dataset_directory_backup = self.dataset_directory
-        plans_backup = self.plans.copy()
+        #dataset_backup = self.dataset.copy()
+        #dataset_tr_backup = self.dataset_tr.copy()
+        #dataset_val_backup = self.dataset_val.copy()
+        #gt_niftis_folder_backup = self.gt_niftis_folder
+        #dataset_directory_backup = self.dataset_directory
+        #plans_backup = self.plans.copy()
 
+        # -- NOTE: Since the head is an (ordered) ModuleDict, the current task is the last head, so there -- #
+        # --       is nothing to restore at the end. -- #
         # -- For each previously trained task perform the validation on the full validation set -- #
         running_task_list = list()
         for idx, task in enumerate(trained_on):
@@ -422,6 +428,11 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
             # -- Update the log -- #
             self.print_to_log_file("Performing validation with validation data from task {}.".format(task))
             
+            # -- Activate the current task to train on the right model -- #
+            # -- Set self.network, since the parent classes all use self.network to train -- #
+            # -- NOTE: self.mh_network.model is also updated to self.task split ! -- #
+            self.network = self.mh_network._assemble_model(task)
+
             # -- Perform individual validations with updated self.gt_niftis_folder -- #
             ret_joined.append(super().validate(do_mirroring=do_mirroring, use_sliding_window=use_sliding_window, step_size=step_size,
                                                save_softmax=save_softmax, use_gaussian=use_gaussian,
@@ -430,13 +441,19 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
                                                run_postprocessing_on_folds=run_postprocessing_on_folds))
 
         # -- Restore variables to the corresponding validation set of the current task and remove backup variables -- #
-        self.dataset = dataset_backup
-        self.dataset_tr = dataset_tr_backup
-        self.dataset_val = dataset_val_backup
-        self.gt_niftis_folder = gt_niftis_folder_backup
-        self.dataset_directory = dataset_directory_backup
-        self.plans = plans_backup
-        del dataset_backup, dataset_tr_backup, dataset_val_backup, gt_niftis_folder_backup, dataset_directory_backup, plans_backup 
+        #self.dataset = dataset_backup
+        #self.dataset_tr = dataset_tr_backup
+        #self.dataset_val = dataset_val_backup
+        #self.gt_niftis_folder = gt_niftis_folder_backup
+        #self.dataset_directory = dataset_directory_backup
+        #self.plans = plans_backup
+        #del dataset_backup, dataset_tr_backup, dataset_val_backup, gt_niftis_folder_backup, dataset_directory_backup, plans_backup 
+
+        # -- Restore the network the class is trained on using self.task -- #
+        # -- Activate the current task to train on the right model -- #
+        # -- Set self.network, since the parent classes all use self.network to train -- #
+        # -- NOTE: self.mh_network.model is also updated to self.task split ! -- #
+        #self.network = self.mh_network._assemble_model(self.task)
 
         # -- Add to the already_trained_on that the validation is done for the task the model trained on previously -- #
         self.already_trained_on[str(self.fold)]['finished_validation_on'].append(trained_on[-1])
@@ -444,46 +461,30 @@ class nnUNetTrainerSequential(nnUNetTrainerV2): # Inherit default trainer class 
         # -- Save the updated dictionary as a json file -- #
         save_json(self.already_trained_on, join(self.trained_on_path, self.extension+'_trained_on.json'))
         
-        # -- Return the result which will be an list with None valuea and/or errors -- #
+        # -- Return the result which will be a list with None valuea and/or errors -- #
         return ret_joined
-"""
-
-""" BACKUP --> Never know what happens 
-#------------------------------------------ Partially copied from original implementation ------------------------------------------#
-    def finish_online_evaluation_extended(self, task):
-        rCalculate the Dice Score and IoU (Intersection over Union) on the validation dataset during training.
+    
+    def update_save_trained_on_json(self, task, finished=True):
+        r"""This function updates the dictionary, if a model is trained for 3 different tasks, this list needs to be updated
+            after each sucessful training of a task and stored accordingly! The 'finished' specifies if the task is finished training
+            or just started for training.
+            This function also saves the already_trained_on list as a pickle file under the path of the new model task (output_folder).
+        """
+        # -- Add the provided task at the end of the list, sort the list and dump it as pkl file -- #
+        if finished:    # Task finished with training
+            self.already_trained_on[str(self.fold)]['finished_training_on'].append(task)
+            # -- Remove the task from start_training_on -- #
+            self.already_trained_on[str(self.fold)]['start_training_on'] = None 
+            # -- Update the prev_trainer -- #
+            self.already_trained_on[str(self.fold)]['prev_trainer'].append(self.trainer_class_name)
+        else:   # Task started to train
+            # -- Add the current task -- #
+            self.already_trained_on[str(self.fold)]['start_training_on'] = task
+            # -- Update the prev_trainer -- #
+            self.already_trained_on[str(self.fold)]['prev_trainer'][-1:] = [self.trainer.__class__.__name__]
         
-        # -- Get current True-Positive, False-Positive and False-Negative -- #
-        self.online_eval_tp = np.sum(self.online_eval_tp, 0)
-        self.online_eval_fp = np.sum(self.online_eval_fp, 0)
-        self.online_eval_fn = np.sum(self.online_eval_fn, 0)
+        # -- Update the used_identifier -- #
+        self.already_trained_on[str(self.fold)]['used_identifier'] = self.identifier
 
-        # -- Calculate the IoU -- #
-        global_iou_per_class = [i for i in [i / (i + j + k) for i, j, k in
-                                           zip(self.online_eval_tp, self.online_eval_fp, self.online_eval_fn)]
-                               if not np.isnan(i)]
-
-        # -- Calculate the Dice -- #
-        global_dc_per_class = [i for i in [2 * i / (2 * i + j + k) for i, j, k in
-                                           zip(self.online_eval_tp, self.online_eval_fp, self.online_eval_fn)]
-                               if not np.isnan(i)]
-
-        # -- Store IoU and Dice values. Ensure it is float64 so its JSON serializable -- #
-        self.all_val_iou_eval_metrics.append(np.mean(global_iou_per_class, dtype="float64"))
-        self.all_val_eval_metrics.append(np.mean(global_dc_per_class, dtype="float64"))
-
-        # -- Update the log file -- #
-        self.print_to_log_file("Average global foreground IoU for task {}: {}".format(task, str(global_iou_per_class)))
-        self.print_to_log_file("(interpret this as an estimate for the IoU of the different classes. This is not "
-                               "exact.)")
-        self.print_to_log_file("Average global foreground Dice for task {}: {}".format(task, str(global_dc_per_class)))
-        self.print_to_log_file("(interpret this as an estimate for the Dice of the different classes. This is not "
-                               "exact.)")
-
-        # -- Empty the variable for next iteration -- #
-        self.online_eval_foreground_dc = []
-        self.online_eval_tp = []
-        self.online_eval_fp = []
-        self.online_eval_fn = []
-    #------------------------------------------ Partially copied from original implementation ------------------------------------------#
-"""
+        # -- Save the updated dictionary as a json file -- #
+        save_json(self.already_trained_on, join(self.trained_on_path, self.extension+'_trained_on.json'))

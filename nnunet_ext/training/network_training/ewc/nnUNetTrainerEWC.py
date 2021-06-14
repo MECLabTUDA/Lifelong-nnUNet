@@ -8,25 +8,25 @@
 # -- It represents the method proposed in the paper https://arxiv.org/pdf/1612.00796.pdf -- #
 
 #from itertools import tee
-from torch import autograd
+#from torch import autograd
 from nnunet_ext.utilities.load_prev_trainers import get_prev_trainers
 from nnunet_ext.paths import default_plans_identifier
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet.training.loss_functions.dice_loss import DC_and_CE_loss
-from nnunet_ext.training.loss_functions.deep_supervision import MultipleOutputLoss2EWC as EWCLoss
-from nnunet_ext.training.network_training.sequential.nnUNetTrainerSequential import nnUNetTrainerSequential
+from nnunet_ext.training.network_training.nnUNetTrainerMultiHead import nnUNetTrainerMultiHead
+from nnunet_ext.training.loss_functions.deep_supervision import MultipleOutputLossEWC as EWCLoss
 
 
-class nnUNetTrainerEWC(nnUNetTrainerSequential): # Inherit default trainer class for 2D, 3D low resolution and 3D full resolution U-Net 
-    def __init__(self, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
+class nnUNetTrainerEWC(nnUNetTrainerMultiHead): # Inherit default trainer class for 2D, 3D low resolution and 3D full resolution U-Net 
+    def __init__(self, split, task, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None,
                  identifier=default_plans_identifier, extension='ewc', ewc_lambda=0.4, tasks_joined_name=None,
                  trainer_class_name=None):
         r"""Constructor of EWC trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
         """
         # -- Initialize using parent class -- #
-        super().__init__(plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic, fp16,
-                         save_interval, already_trained_on, identifier, extension, tasks_joined_name, trainer_class_name)
+        super().__init__(split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic,
+                         fp16, save_interval, already_trained_on, identifier, extension, tasks_joined_name, trainer_class_name)
 
         # -- Set the importance variable for the EWC Loss calculation during training -- #
         self.ewc_lambda = ewc_lambda
@@ -60,37 +60,59 @@ class nnUNetTrainerEWC(nnUNetTrainerSequential): # Inherit default trainer class
         super().initialize(training, force_load_plans, num_epochs, prev_trainer)
 
         # -- If this trainer is initialized for training, then load the models, else it is just an initialization as a prev_trainer -- #
-        if training:
+        #if training:
             # -- Update the log -- #
-            self.print_to_log_file("Start initializing all previous models so they can be used for the EWC loss calculation.")   
+        #    self.print_to_log_file("Start initializing all previous models so they can be used for the EWC loss calculation.")   
 
             # -- Extract previous tasks -- #
-            previous_tasks = self.already_trained_on[str(self.fold)]['finished_training_on']
+        #    previous_tasks = self.already_trained_on[str(self.fold)]['finished_training_on']
             
             # -- Build fisher and params dictionaries based on previous trained models -- #
-            if len(previous_tasks) != 0:
+        #    if len(previous_tasks) != 0:
                 # -- Load the previous task models -- #
-                prev_models = get_prev_trainers(previous_tasks,
-                                                network_name=self.network_name,
-                                                tasks_joined_name=self.tasks_joined_name,
-                                                already_trained_on=self.already_trained_on,
-                                                fold=self.fold,
-                                                extension=self.extension,
-                                                prev_trainer=prev_trainer)
+        #        prev_models = get_prev_trainers(previous_tasks,
+        #                                        network_name=self.network_name,
+        #                                        tasks_joined_name=self.tasks_joined_name,
+        #                                        already_trained_on=self.already_trained_on,
+        #                                        fold=self.fold,
+        #                                        extension=self.extension,
+        #                                        prev_trainer=prev_trainer)
 
                 # -- Set fisher and params accordingly -- #
-                for idx, model in enumerate(prev_models):
+        #        for idx, model in enumerate(prev_models):
                     # -- Extract the current task --> prev_models are in same order added to the list as the task from the provided list -- #
-                    c_task = self.already_trained_on[str(self.fold)]['finished_training_on'][idx]
+        #            c_task = self.already_trained_on[str(self.fold)]['finished_training_on'][idx]
                     # -- Initialize the task in fisher and params -- #
-                    self.fisher[c_task] = dict()
-                    self.params[c_task] = dict()
+        #            self.fisher[c_task] = dict()
+        #            self.params[c_task] = dict()
                     
                     # -- Loop through the extracted models parameters and calculate fisher and params -- #
-                    for name, param in model.named_parameters():
-                        print(param.grad is None)
-                        self.fisher[c_task][name] = param.grad.data.clone().pow(2)
-                        self.params[c_task][name] = param.data.clone()
+        #            for name, param in model.named_parameters():
+        #                print(param.grad is None)
+        #                self.fisher[c_task][name] = param.grad.data.clone().pow(2)
+                     
+        # -- If this trainer has already trained on other tasks, then extract the fisher and params -- #
+        # -- Set fisher and params accordingly -- #
+        for task in self.mh_model.heads.keys()[:-1]:    # Skip the current task we're currently training on
+            # -- Activate the model accordingly to task -- #
+            self.mh_network._assemble_model(task)
+            # -- Set the network to the assembled model that is then used for prediction -- #
+            self.network = self.mh_network.model
+
+            # -- Initialize the task in fisher and params -- #
+            self.fisher[task] = dict()
+            self.params[task] = dict()
+            
+            # -- Loop through the models parameters and calculate fisher and params -- #
+            for name, param in self.network.named_parameters():
+                print(param.grad is None)
+                self.fisher[task][name] = param.grad.data.clone().pow(2)
+                self.params[task][name] = param.data.clone()
+
+        # -- Reset the network to the current task -- #
+        self.mh_network._assemble_model(self.task)
+        # -- Set the network to the assembled model that is then used for prediction -- #
+        self.network = self.mh_network.model
 
         # -- Reset self.loss from MultipleOutputLoss2 to DC_and_CE_loss so the EWC Loss can be initialized properly -- #
         self.loss = DC_and_CE_loss({'batch_dice': self.batch_dice, 'smooth': 1e-5, 'do_bg': False}, {})
@@ -99,7 +121,8 @@ class nnUNetTrainerEWC(nnUNetTrainerSequential): # Inherit default trainer class
         # -- --> Look into the Loss function to see how the approach is implemented -- #
         # -- Update the network paramaters after each iteration .. -- #
         self.loss = EWCLoss(self.loss, self.ds_loss_weights,
-                            self.already_trained_on[str(self.fold)]['finished_training_on'],
+                            #self.already_trained_on[str(self.fold)]['finished_training_on'],
+                            self.mh_model.heads.keys()[:-1],    # Skip the current task we're currently training on
                             self.ewc_lambda,
                             self.fisher,
                             self.params,

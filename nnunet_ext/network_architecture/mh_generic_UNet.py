@@ -44,16 +44,16 @@ class MH_Generic_UNet(nn.Module):
                  dropout_op=nn.Dropout2d, dropout_op_kwargs=None,
                  nonlin=nn.LeakyReLU, nonlin_kwargs=None, deep_supervision=True, dropout_in_localization=False,
                  final_nonlin=softmax_helper, weightInitializer=InitWeights_He(1e-2), pool_op_kernel_sizes=None,
-                 conv_kernel_sizes=None, use_base=None,
+                 conv_kernel_sizes=None, prev_trainer=None,
                  upscale_logits=False, convolutional_pooling=False, convolutional_upsampling=False,
                  max_num_features=None, basic_block=ConvDropoutNormNonlin,
                  seg_output_use_bias=False):
-        r"""Constructor of the generic nnU-Net for multiple heads. When a Generic_UNet is provided as use_base
+        r"""Constructor of the generic nnU-Net for multiple heads. When a Generic_UNet is provided as prev_trainer
             this class will be initialized using the attributes from this class. The split will then be performed
             on the provided model, but the model will not be touched since a new MH_Generic_UNet class will be created.
-            NOTE: use_base is not necessary but can be used when a pre-trained model should be used as initialization
+            NOTE: prev_trainer is not necessary but can be used when a pre-trained model should be used as initialization
                   and not a complete new initialized nnUNet. Further, all splits that will be added using add_empty_module
-                  use the Module that is extracted due to the split from the use_base model, including its state_dict etc.
+                  use the Module that is extracted due to the split from the prev_trainer model, including its state_dict etc.
                   When providing a new Module to add to the Network using add_module etc. ensure that all layers are there
                   that the Generic_UNet is using during training.
         """
@@ -61,7 +61,7 @@ class MH_Generic_UNet(nn.Module):
         super().__init__()
 
         # -- If no model is provided, initialize one -- #
-        if use_base is None:
+        if prev_trainer is None:
             # -- Initialize a conventional generic nnU-Net -- #
             self.model = Generic_UNet(input_channels, base_num_features, num_classes, num_pool, num_conv_per_stage,
                                       feat_map_mul_on_downscale, conv_op, norm_op, norm_op_kwargs, dropout_op, dropout_op_kwargs,
@@ -74,36 +74,61 @@ class MH_Generic_UNet(nn.Module):
             #                pool_op_kernel_sizes, conv_kernel_sizes, upscale_logits, convolutional_pooling,
             #                convolutional_upsampling, max_num_features, basic_block, seg_output_use_bias)
         else:
-            # -- Ensure that use_base is a Generic_UNet, otherwise this will not work -- #
-            assert isinstance(use_base, Generic_UNet),\
-                "This function transform a Generic_UNet to MH_Generic_UNet, so provide a Generic_UNet and not a {} object.".format(type(use_base))
-            # -- Set the models class to use_base -- #
-            self.model = use_base
+            # -- Ensure that prev_trainer is a Generic_UNet, otherwise this will not work -- #
+            assert isinstance(prev_trainer, Generic_UNet),\
+                "This function transform a Generic_UNet to MH_Generic_UNet, so provide a Generic_UNet and not a {} object.".format(type(prev_trainer))
+            # -- Set the models class to prev_trainer -- #
+            self.model = prev_trainer
 
             """
-            # -- Get all attributes (excluding functions and anything else) the provided use_base --> set the same in self -- #
-            attributes = [a for a in dir(use_base) if not a.startswith('__') and not callable(getattr(use_base, a))]
+            # -- Get all attributes (excluding functions and anything else) the provided prev_trainer --> set the same in self -- #
+            attributes = [a for a in dir(prev_trainer) if not a.startswith('__') and not callable(getattr(prev_trainer, a))]
             # -- Loop through these attributes and set self accordingly -- #
             for attribute in attributes:
                 # -- Set self accordingly -- #
-                # -- NOTE: Since self inherits Generic_UNet and use_base is of the class Generic_UNet -- #
+                # -- NOTE: Since self inherits Generic_UNet and prev_trainer is of the class Generic_UNet -- #
                 # --       the functions from Generic_UNet still work --> just copied the attributes -- #
                 # --       were copied, the functions use self... and thus the right attributes :) -- #
-                setattr(self, attribute, getattr(use_base, attribute))
+                setattr(self, attribute, getattr(prev_trainer, attribute))
             """
 
         # -- Save the split_at, so it can be used throughout the class -- #
+        assert isinstance(split_at, str), "The provided split needs to be a string.."
         self.split = split_at.split('.')
+
+        # -- Change self.split if necessary --> Remove redundant split names to shorten it to bare minimum -- #
+        # -- Check that last element of split does not refer to first element of last splits element -- #
+        # -- since this can be omitted --> If this is the case remove the last split name and print a message -- #
+        simplify = len(self.split) > 1  # Otherwise it makes no sense and the while loop results in an error
+        split = self.split[:]
+        while simplify:
+            first_layer_name, _ = next(attrgetter('.'.join(self.split[:-1]))(self.model).named_children())
+            if self.split[-1] == first_layer_name:
+                # -- Remove the last split element since this leads to an error due to wrong interpretation by user -- #
+                new_split = self.split[:-1]
+                # -- Print a Note -- #
+                print('Note: The split \'{}\' has been transformed to \'{}\' since it specifies the same split.\n'.format('.'.join(self.split), '.'.join(new_split)))
+                # -- Update self.split
+                self.split = new_split
+                del new_split   # Not necessary anymore
+                simplify = len(self.split) > 1
+            else:
+                simplify = False
+
+            # -- Assert if the split is empty -- #
+            assert not(len(self.split) == 1 and simplify), "The provided split \'{}\' is empty after simplification and would split before the first layer..".format('.'.join(split))
+        del split # Not necessary anymore
 
         # -- Define empty ModuleDict for all the heads -- #
         self.heads = nn.ModuleDict()
 
         # -- Define a variable that specifies the active_task -- #
+        assert isinstance(task, str), "The provided task needs to be a string.."
         self.active_task = task
 
         # -- Split self.model based on split_at and store the init_module -- #
-        # -- NOTE: If use_base was used, init_module is now the splitted part from -- #
-        # --       the use_base and not from a new generated nnUNet, ie. this part -- #
+        # -- NOTE: If prev_trainer was used, init_module is now the splitted part from -- #
+        # --       the prev_trainer and not from a new generated nnUNet, ie. this part -- #
         # --       is always used when calling self.add_empty_module --> keep this in mind -- #
         self.body, self.init_module, _ = self._split_model_recursively_into_body_head(layer_id=0, model=self.model) # Start from root with full model
 
@@ -197,7 +222,8 @@ class MH_Generic_UNet(nn.Module):
         # -- Create a new task using a deepcopy of the provided module -- #
         self.heads[task] = copy.deepcopy(module)"""
 
-    def _split_model_recursively_into_body_head(self, layer_id, model, body=nn.Module(), head=nn.Module(), parent=list()):
+    def _split_model_recursively_into_body_head(self, layer_id, model, body=nn.Module(), head=nn.Module(),
+                                                parent=list(), simplify_split=False):
         r"""This function splits a provided model into a base and a single head.
             It returns the body, head and layeron_id on which the split is performed.
             :param layer_id: The current index of the layer, so 0 is root, 1 is child of root, etc.
@@ -205,6 +231,9 @@ class MH_Generic_UNet(nn.Module):
             :param body: Representing the base of the initial model since this is a recursive function
             :param head: Representing the head after the split of the initial model since this is a recursive function
             :param parent: String representing the name of the parent module
+            :param simplify_split: Bool whether the split should be simplified. Use this only if the function is called from outside.
+                                   When it is called from inside, self.split is already simplified, but if it should change throughout
+                                   it should be simplified again, then set this to true (wondering if that's ever the case..).
             :return body, head, layer_id: The splitted model (body and head) with the layer_id where the split is performed
             NOTE: This function is a recursive function, a split should be initialized with self.model and
                   a layer_id of 0. Further, the returned layer_id is for recursion and might not be of interest
@@ -225,29 +254,30 @@ class MH_Generic_UNet(nn.Module):
                 _ = attrgetter('.'.join(self.split))(model)
             except:
                 assert False, "The provided split path \'{}\' does not exist..".format('.'.join(self.split))
-            
-            # -- Change self.split if necessary --> Remove redundant split names to shorten it to bare minimum -- #
+
+            # -- Change self.split if desired --> Remove redundant split names to shorten it to bare minimum -- #
             # -- Check that last element of split does not refer to first element of last splits element -- #
             # -- since this can be omitted --> If this is the case remove the last split name and print a message -- #
-            simplify = len(self.split) > 1  # Otherwise it makes no sense and will the while loop results in an error
-            split = self.split[:]
-            while simplify:
-                first_layer_name, _ = next(attrgetter('.'.join(self.split[:-1]))(model).named_children())
-                if self.split[-1] == first_layer_name:
-                    # -- Remove the last split element since this leads to an error due to wrong interpretation by user -- #
-                    new_split = self.split[:-1]
-                    # -- Print a Note -- #
-                    print('Note: The split \'{}\' has been transformed to \'{}\' since it specifies the same split.\n'.format('.'.join(self.split), '.'.join(new_split)))
-                    # -- Update self.split
-                    self.split = new_split
-                    del new_split   # Not necessary anymore
-                    simplify = len(self.split) > 1
-                else:
-                    simplify = False
+            if simplify_split:
+                simplify = len(self.split) > 1  # Otherwise it makes no sense and the while loop results in an error
+                split = self.split[:]
+                while simplify:
+                    first_layer_name, _ = next(attrgetter('.'.join(self.split[:-1]))(model).named_children())
+                    if self.split[-1] == first_layer_name:
+                        # -- Remove the last split element since this leads to an error due to wrong interpretation by user -- #
+                        new_split = self.split[:-1]
+                        # -- Print a Note -- #
+                        print('Note: The split \'{}\' has been transformed to \'{}\' since it specifies the same split.\n'.format('.'.join(self.split), '.'.join(new_split)))
+                        # -- Update self.split
+                        self.split = new_split
+                        del new_split   # Not necessary anymore
+                        simplify = len(self.split) > 1
+                    else:
+                        simplify = False
 
-                # -- Assert if the split is empty -- #
-                assert not(len(self.split) == 1 and simplify), "The provided split \'{}\' is empty after simplification and would split before the first layer..".format('.'.join(split))
-            del split # Not necessary anymore
+                    # -- Assert if the split is empty -- #
+                    assert not(len(self.split) == 1 and simplify), "The provided split \'{}\' is empty after simplification and would split before the first layer..".format('.'.join(split))
+                del split # Not necessary anymore
 
         # -- Perform splitting: Loop through the models modules -- #
         for idx, (name, n_module) in enumerate(model.named_children()):
@@ -347,8 +377,8 @@ class MH_Generic_UNet(nn.Module):
             return self.model # --> Nothing to do, task already set
 
         # -- Assert if the task does not exist in the ModuleDict -- #
-        #assert task in self.heads.keys(),\
-        #    "The provided task \'{}\' is not a known head, so either initialize the task or provide one that already exists: {}.".format(task, list(self.heads.keys()))
+        assert task in self.heads.keys(),\
+            "The provided task \'{}\' is not a known head, so either initialize the task or provide one that already exists: {}.".format(task, list(self.heads.keys()))
 
         # -- Extract the corresponding head based on the task -- #
         head = self.heads[task]
@@ -361,7 +391,6 @@ class MH_Generic_UNet(nn.Module):
             assembled_model.add_module(name, module)
 
         # -- Loop through corresponding head and add the modulew based on their names to assembled_model -- #
-        #assert self.split_between_module is not None, "Please split the model before trying to join a its body with a head.."
         layer_id = len(self.split)-1
         for _, (name, head_part) in enumerate(head.named_children()):
             # -- At this point no module is split in between itself anymore, so there is no fusion, only concatenation -- #
@@ -376,6 +405,9 @@ class MH_Generic_UNet(nn.Module):
 
         # -- Set the active_task -- #
         self.active_task = task
+
+        # -- Set self.model -- #
+        self.model = assembled_model
 
         # -- Return the assembled model -- #
         return assembled_model
