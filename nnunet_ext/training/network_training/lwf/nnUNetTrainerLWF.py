@@ -18,20 +18,20 @@ from nnunet.training.loss_functions.dice_loss import DC_and_CE_loss
 #from nnunet_ext.utilities.load_prev_trainers import get_prev_trainers
 #from nnunet_ext.utilities.helpful_functions import join_texts_with_char
 #from nnunet_ext.run.default_configuration import get_default_configuration
-from nnunet_ext.training.network_training.nnUNetTrainerMultiHead import nnUNetTrainerMultiHead
 from nnunet_ext.training.loss_functions.deep_supervision import MultipleOutputLossLWF as LWFLoss
+from nnunet_ext.training.network_training.multihead.nnUNetTrainerMultiHead import nnUNetTrainerMultiHead
 
 
 class nnUNetTrainerLWF(nnUNetTrainerMultiHead): # Inherit default trainer class for 2D, 3D low resolution and 3D full resolution U-Net 
     def __init__(self, split, task, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
-                 unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None,
-                 identifier=default_plans_identifier, extension='lwf', lwf_temperature=2.0, tasks_joined_name=None,
+                 unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, data_parallel=True,
+                 identifier=default_plans_identifier, extension='lwf', lwf_temperature=2.0, tasks_list_with_char=None,
                  trainer_class_name=None):
         r"""Constructor of LWF trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
         """
         # -- Initialize using parent class -- #
         super().__init__(split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic,
-                         fp16, save_interval, already_trained_on, identifier, extension, tasks_joined_name, trainer_class_name)
+                         fp16, save_interval, already_trained_on, data_parallel, identifier, extension, tasks_list_with_char, trainer_class_name)
 
         # -- Set the temperature variable for the LWF Loss calculation during training -- #
         self.lwf_temperature = lwf_temperature

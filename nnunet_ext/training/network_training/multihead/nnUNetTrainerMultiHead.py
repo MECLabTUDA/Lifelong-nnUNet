@@ -17,8 +17,8 @@ from nnunet.training.data_augmentation.data_augmentation_moreDA import get_moreD
 
 class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class for 2D, 3D low resolution and 3D full resolution U-Net 
     def __init__(self, split, task, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
-                 unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None,
-                 identifier=default_plans_identifier, extension='multi_head', tasks_joined_name=None, trainer_class_name=None):
+                 unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, data_parallel=True,
+                 identifier=default_plans_identifier, extension='multi_head', tasks_list_with_char=None, trainer_class_name=None):
         r"""Constructor of Multi Head Trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
         """
         # -- Initialize using parent class -- #
@@ -26,6 +26,9 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
 
         # -- Set the provided split -- #
         self.split = split
+
+        # -- Set the flag if the model to train on should be of nn.DataParallel or nn.Module -- #
+        self.data_parallel = data_parallel
 
         # -- Set the name of the head which is referred to as a task name -- #
         self.task = task
@@ -65,8 +68,16 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # -- Set the extension for output file -- #
         self.extension = extension
 
+        # -- Ensure that it is a tuple and that the first element is a list and second element a string -- #
+        assert isinstance(tasks_list_with_char, tuple) and isinstance(tasks_list_with_char[0], list) and isinstance(tasks_list_with_char[1], str),\
+             "tasks_list_with_char should be a tuple consisting of a list of tasks as the first and a string "+\
+             "representing the character that is used to join the tasks as the second element.."
+        
+        # -- Store the tuple consisting of a list with tasks and the character that should be used to join the tasks -- #
+        self.tasks_list_with_char = tasks_list_with_char
+ 
         # -- Set tasks_joined_name for validation dataset building -- #
-        self.tasks_joined_name = tasks_joined_name
+        self.tasks_joined_name = join_texts_with_char(self.tasks_list_with_char[0], self.tasks_list_with_char[1])
 
         # -- Define a dictionary for the metrics for validation after every nth epoch -- #
         self.validation_results = dict()
@@ -89,10 +100,10 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         """
         # -- The Trainer embodies the actual model that will be used as foundation to continue training on -- #
         # -- It should be already initialized since the output_folder will be used. If it is None, the model will be initialized and trained. -- #
-        # -- Further the trainer needs to be of class nnUNetTrainerV2 or nnUNetTrainerSequential for this method, nothing else. -- #
+        # -- Further the trainer needs to be of class nnUNetTrainerV2 or nnUNetTrainerMultiHead for this method, nothing else. -- #
         # -- Set prev_trainer correctly as class instance and not a string -- #
         self.trainer = prev_trainer
-        
+
         # -- Set nr_epochs to provided number -- #
         self.max_num_epochs = num_epochs
 
@@ -104,7 +115,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         if isinstance(trained_on_folds, dict):
             trained_on_tasks = trained_on_folds.get('finished_training_on', list())
 
-        # -- The new_trainer indicates if the model is a new sequential model, -- #
+        # -- The new_trainer indicates if the model is a new multi head model, -- #
         # -- ie. if it has been trained on only one task so far (True) or on more than one (False) -- #
         if len(trained_on_tasks) > 1:
             self.new_trainer = False
@@ -120,9 +131,10 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         if self.trainer is None:
             # -- Initialize from beginning and start training, since no model is provided -- #
             super().initialize_network() # --> This updates the corresponding variables automatically since we inherit this class
-            # -- Create a Multi Head Generic_UNet from the current network using the provided split and task name -- #
-            self.mh_network = MH_Generic_UNet(self.split, self.task, self.num_input_channels, self.base_num_features, self.num_classes,
-                                              len(self.net_num_pool_op_kernel_sizes), self.conv_per_stage, prev_trainer=self.network)
+            # -- Create a Multi Head Generic_UNet from the current network using the provided split and task name. -- #
+            self.mh_network = MH_Generic_UNet(self.split, self.task, self.data_parallel, self.num_input_channels, self.base_num_features,
+                                              self.num_classes, len(self.net_num_pool_op_kernel_sizes), self.conv_per_stage,
+                                              prev_trainer=self.network)
             # -- Add the split to the already_trained_on since it is simplified by now -- #
             self.already_trained_on[str(self.fold)]['used_split'] = self.mh_network.split
             # -- Save the updated dictionary as a json file -- #
@@ -154,9 +166,13 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
 
         # -- Set mh_network -- #
         # -- Make it to Multi Head network if it is not already -- #
+        # -- Use the first task in tasks_joined_name, since this represents the corresponding task name,whereas self.task -- #
+        # -- is the task to train on, which is not equal to the one that will be initialized now using a pre-trained network -- #
+        # -- (prev_trainer). -- #
         if isinstance(self.trainer, nnUNetTrainerV2):
-            self.mh_network = MH_Generic_UNet(self.split, self.task, self.num_input_channels, self.base_num_features, self.num_classes,
-                                              len(self.net_num_pool_op_kernel_sizes), self.conv_per_stage, prev_trainer=self.trainer.networks)
+            self.mh_network = MH_Generic_UNet(self.split, self.tasks_list_with_char[0][0], self.data_parallel, self.num_input_channels,
+                                              self.base_num_features, self.num_classes, len(self.net_num_pool_op_kernel_sizes),
+                                              self.conv_per_stage, prev_trainer=self.trainer.network)
         else: # Already Multi Head type
             self.mh_network = self.trainer#.mh_network
             # -- Ensure that the split that has been previously used and the current one are equal -- #
@@ -167,6 +183,9 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                 "To continue training on the fold {} the same split, ie. \'{}\' needs to be provided, not \'{}\'.".format(self.fold, self.mh_network.split, prev_split)
             # -- Delete the prev_split --> not necessary anymore -- #
             del prev_split
+        
+        # -- Set self.network to the model in mh_network --> otherwise the network is not initialized and not in right type -- #
+        self.network = self.mh_network.model
     
     #------------------------------------------ Partially copied from original implementation ------------------------------------------#
     def finish_online_evaluation_extended(self, task):
@@ -227,15 +246,38 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             NOTE: The calling class needs to set self.network according to the desired task, this is not done in this
                   function but expected by the user.
         """
+        # -- Set the network to the assembled model that is then used for training -- #
+        # -- We can only set the network here to MH network, otherwise the parent class will throw an error because the -- #
+        # -- is not of desired class (SegmentationNetwork, nn.DataParallel) -- #
+        # -- If we do not train on MH Network, the forward function will not be implemented resulting in an error -- #
+        self.network = self.mh_network
+
         # -- Run iteration as usual -- #
         loss = super().run_iteration(data_generator, do_backprop, run_online_evaluation)
+
+        # -- Reset the network so the model representing the Generic_nnU_Net -- #
+        self.mh_network = self.network
+        self.network = self.mh_network.model
+        
+        # -- Return the loss -- #
+        return loss
+
+    def on_epoch_end(self):
+        """Overwrite this function, since we want to perform a validation after every nth epoch on all tasks form
+           from the head.
+           NOTE: If the validation is done during run_iteration(), the validation will be performed for every batch
+                 at every nth epoch which is not what we want. This will further lead into an error because too many
+                 files will be then opened.
+        """
+        # -- Perform everything the parent class makes -- #
+        res = super().on_epoch_end()
 
         # -- If the current epoch can be divided without a rest by self.save_every than its time for a validation -- #
         if self.epoch % self.save_every == (self.save_every - 1):   # Same as checkpoint saving from nnU-Net
             self._perform_validation()
-        
-        # -- Return the loss -- #
-        return loss
+
+        # -- Return the result from the parent class -- #
+        return res
 
     def run_training(self, task):
         r"""Perform training using Multi Head Trainer. Simply executes training method of parent class
@@ -248,12 +290,11 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # -- Register the task if it does not exist in one of the heads -- #
         if task not in self.mh_network.heads.keys():
             # -- Add this task into heads -- #
-            self.mh_network.add_new_task(task)   
-            # -- Activate the model accordingly -- #
-            self.mh_network._assemble_model(task)
-            # -- Set the network to the assembled model that is then used for training -- #
-            self.network = self.mh_network.model
+            self.mh_network.add_new_task(task)
 
+        # -- Activate the model based on task --> self.mh_network.active_task is now set to task -- #
+        self.mh_network._assemble_model(task)
+        
         # -- Run the training from parent class -- #
         ret = super().run_training()
 
@@ -291,8 +332,8 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
 
         # -- Extract all tasks into a list to loop through -- #
         #tasks = trained_on.extend(self.already_trained_on[str(self.fold)]['start_training_on']) # At this point this can not be None
-        tasks = self.mh_network.heads.keys().copy()
-
+        tasks = self.mh_network.heads.keys()
+        
         # -- NOTE: Since the head is an (ordered) ModuleDict, the current task is the last head, so there -- #
         # --       is nothing to restore at the end. -- #
         # -- NOTE: Since the current task the model is training on is always added at the end of the list, -- #

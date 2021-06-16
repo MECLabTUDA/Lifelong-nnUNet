@@ -91,7 +91,7 @@ def _perform_transformation_on_mask_using_mapping(mask, mapping):
     for original_labels_pair, new_label in mapping.items():
         # -- Change the original label to the new label and set everything else to background (= 0) -- #
         # -- Change the old label with the negative new_label, so there are no side effects if new_label is one of old labels -- #
-        img_array[img_array == int(original_labels_pair.split(' --> ')[1])] = -int(new_label)
+        img_array[img_array == int([x.strip() for x in original_labels_pair.split('-->')][1])] = -int(new_label)
 
     # -- Set everything that is greater than 0 to 0 -- #
     img_array[img_array > 0] = 0    # Set all old labels to background
@@ -150,6 +150,7 @@ def main():
     #   {
     #        "Posterior --> 2": 1
     #   }
+    # NOTE: Spaces before or after --> is not mandatory and will be stripped either way.
     # -----------------------------------------------------------------------------------------
 
 
@@ -225,7 +226,7 @@ def main():
         new_labels = {'0': dataset_info['labels']['0']}   # Add the background label to new_labels since this will never change
         for original_labels_pair, new_label in mapping.items():
             # -- Extract the label description and label value of the original label from the mapping -- #
-            old_label_description, old_label = original_labels_pair.split(' --> ')
+            old_label_description, old_label = [x.strip() for x in original_labels_pair.split('-->')]
 
             # -- Check if the labels description is in the dataset_info under the specified label, if not raise error -- #
             assert dataset_info['labels'][old_label] == old_label_description, "The provided mapping of labels can not be "\

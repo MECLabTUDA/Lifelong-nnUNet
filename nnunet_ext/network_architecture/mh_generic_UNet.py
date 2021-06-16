@@ -10,35 +10,13 @@ from nnunet_ext.utilities.helpful_functions import join_texts_with_char
 from nnunet.network_architecture.initialization import InitWeights_He
 from nnunet.network_architecture.generic_UNet import Generic_UNet, ConvDropoutNormNonlin
 
-"""
-import types
-# -- Decorator for logging --> Is used to cast the assembled module from nn.Module to Generic_UNet -- #
-# -- Found from: https://stackoverflow.com/questions/9112300/how-to-cast-object-in-python. -- #
-def logging(func):
-    def wrapper(*args, **kwargs):
-        #print(func.__name__, args, kwargs)
-        res = func(*args, **kwargs)
-        return res
-    return wrapper
-
-def hasmethod(obj, name):
-    return hasattr(obj, name) and type(getattr(obj, name)) == types.MethodType
-
-def loggify(theclass):
-    for x in filter(lambda x: "__" not in x, dir(theclass)):
-        if hasmethod(theclass,x):
-            #print(x)
-            setattr(theclass, x, logging(getattr(theclass, x)))
-    return theclass
-"""
 
 class MH_Generic_UNet(nn.Module):
     r"""This class is used for nnU-Nets that have multiple heads using a shared body.
         The heads are stored in a ModuleDict, whereas the task name is the key to the
         corresponding head/module.
     """
-    
-    def __init__(self, split_at, task, input_channels, base_num_features, num_classes, num_pool, num_conv_per_stage=2,
+    def __init__(self, split_at, task, data_parallel, input_channels, base_num_features, num_classes, num_pool, num_conv_per_stage=2,
                  feat_map_mul_on_downscale=2, conv_op=nn.Conv2d,
                  norm_op=nn.BatchNorm2d, norm_op_kwargs=None,
                  dropout_op=nn.Dropout2d, dropout_op_kwargs=None,
@@ -51,6 +29,10 @@ class MH_Generic_UNet(nn.Module):
         r"""Constructor of the generic nnU-Net for multiple heads. When a Generic_UNet is provided as prev_trainer
             this class will be initialized using the attributes from this class. The split will then be performed
             on the provided model, but the model will not be touched since a new MH_Generic_UNet class will be created.
+            data_parallel is used in order to fuse body and head as nn.DataParallel, if it is set to False, self.model
+            representing the body with the current task is a nn.Module. It should be based on the module the use_base is/
+            the model that will be initialized. The nnU-Net for instance expects either a SegmentationNetwork or DataParallel
+            to perform .forward on the network, so in this case data_parallel should be always True.
             NOTE: prev_trainer is not necessary but can be used when a pre-trained model should be used as initialization
                   and not a complete new initialized nnUNet. Further, all splits that will be added using add_empty_module
                   use the Module that is extracted due to the split from the prev_trainer model, including its state_dict etc.
@@ -94,7 +76,10 @@ class MH_Generic_UNet(nn.Module):
 
         # -- Save the split_at, so it can be used throughout the class -- #
         assert isinstance(split_at, str), "The provided split needs to be a string.."
-        self.split = split_at.split('.')
+        self.split = [x.strip() for x in split_at.split('.')] # --> Never know what users input so strip layer names
+
+        # -- Set flag if DataParallel or Module should be used in self.model -- #
+        self.data_parallel = data_parallel
 
         # -- Change self.split if necessary --> Remove redundant split names to shorten it to bare minimum -- #
         # -- Check that last element of split does not refer to first element of last splits element -- #
@@ -119,11 +104,14 @@ class MH_Generic_UNet(nn.Module):
             assert not(len(self.split) == 1 and simplify), "The provided split \'{}\' is empty after simplification and would split before the first layer..".format('.'.join(split))
         del split # Not necessary anymore
 
+        # -- Set flag if DataParallel or Module should be used in self.model -- #
+        self.data_parallel = data_parallel
+        
         # -- Define empty ModuleDict for all the heads -- #
         self.heads = nn.ModuleDict()
 
         # -- Define a variable that specifies the active_task -- #
-        assert isinstance(task, str), "The provided task needs to be a string.."
+        assert isinstance(task, (str, int)), "The provided task needs to be an integer (ID) or string, not {}..".format(type(task))
         self.active_task = task
 
         # -- Split self.model based on split_at and store the init_module -- #
@@ -135,26 +123,24 @@ class MH_Generic_UNet(nn.Module):
         # -- Register the init_module into self.heads based on self.active_task
         self.add_new_task(self.active_task)
 
-        #self.model = self._assemble_model(task)
+        # -- Assemble the model so it can be used for training -- #
+        self.model = self._assemble_model(task)
         #print(self.replace_layers(self.heads[task], nn.Conv2d, nn.AdaptiveMaxPool2d((6, 6)))) 
 
-    def forward(self, x, task):
-        r"""Forward pass during training --> task needs to be specified so the right head is selected.
+    def forward(self, x):
+        r"""Forward pass during training --> task needs to be specified before calling forward.
             Assemble the model based on self.body and selected task. Then use parent class to perform
             forward pass. Follow with a split of the model after the pass to update the head and the body.
         """
-        # -- Assemble the nnU-Net model to train on -- #
-        try:
-            self.model = self._assemble_model(task)
-        except:
-            assert False, "The assembly of the module given your task did not work --> Check the input: {}.".format(task)
-
         # -- Let the Generic_UNet class do the work since the assembled model is a generic nnU-Net -- #
-        Generic_UNet.forward(self.model, x) # --> Do not use super, since we want to set the correct self object ;)
+        res = Generic_UNet.forward(self.model, x) # --> Do not use super, since we want to set the correct self object ;)
 
         # -- Update the body and corresponding head so these variables are always up to date -- #
         # -- Simply do a splitting again -- #
-        self.body, self.heads[task], _ = self._split_model_recursively_into_body_head(layer_id=0, model=self.model)
+        self.body, self.heads[self.active_task], _ = self._split_model_recursively_into_body_head(layer_id=0, model=self.model)
+
+        # -- Return the forward result generated by Generic_UNet.forward -- #
+        return res
 
     def get_split_path(self):
         r"""This function returns the path to the layer, where the split has been performed.
@@ -384,7 +370,11 @@ class MH_Generic_UNet(nn.Module):
         head = self.heads[task]
 
         # -- Assemble the model based on self.body and head -- #
-        assembled_model = nn.Module()
+        # -- If self.model should be DataParallel, than make it so -- #
+        if self.data_parallel: # Define model as nn.DataParallel
+            assembled_model = nn.DataParallel(nn.Module())  # --> Do not forget to drop this module later on ..
+        else: # Define model as simple nn.Module
+            assembled_model = nn.Module()
         
         # -- Add the full body to assembled_model with respect to its name -- #
         for name, module in self.body.named_children():
@@ -406,7 +396,26 @@ class MH_Generic_UNet(nn.Module):
         # -- Set the active_task -- #
         self.active_task = task
 
-        # -- Set self.model -- #
+        # -- If self.model should be DataParallel, then remove the 'module' attribute that is an empty module -- #
+        if self.data_parallel:
+            # -- The empty module used for initialization has always the name 'module' since it can not be changed -- #
+            delattr(assembled_model, 'module')    # --> Remove it
+
+        # -- Get all attributes (except the ones that start with '__') from the model --> set the same in assembled_model -- #
+        attributes = [a for a in dir(self.model) if not a.startswith('__')]
+        
+        # -- Loop through these attributes and set assembled_model accordingly -- #
+        for attribute in attributes:
+            # -- Set assembled_model accordingly if the attributes do not exist -- #
+            # -- NOTE: Since self.model is a Generic_UNet from the beginning on -- #
+            # --       the functions from Generic_UNet still work --> just the attributes -- #
+            # --       were copied, the functions will use self... and thus the right attributes :) -- #
+            try: # Try to access the attribute
+                getattr(assembled_model, attribute)
+            except: # At this point, the attribute does not exist, so set it
+                setattr(assembled_model, attribute, getattr(self.model, attribute))
+
+        # -- Set self.model as nn.Module -- #
         self.model = assembled_model
 
         # -- Return the assembled model -- #
