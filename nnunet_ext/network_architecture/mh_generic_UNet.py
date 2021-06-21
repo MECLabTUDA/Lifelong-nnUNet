@@ -50,14 +50,16 @@ class MH_Generic_UNet(nn.Module):
                                       nonlin, nonlin_kwargs, deep_supervision, dropout_in_localization, final_nonlin, weightInitializer,
                                       pool_op_kernel_sizes, conv_kernel_sizes, upscale_logits, convolutional_pooling,
                                       convolutional_upsampling, max_num_features, basic_block, seg_output_use_bias)
-            #self.model = Generic_UNet(input_channels, base_num_features, num_classes, num_pool, num_conv_per_stage,
-            #               feat_map_mul_on_downscale, conv_op, norm_op, norm_op_kwargs, dropout_op, dropout_op_kwargs,
-            #                nonlin, nonlin_kwargs, deep_supervision, dropout_in_localization, final_nonlin, weightInitializer,
-            #                pool_op_kernel_sizes, conv_kernel_sizes, upscale_logits, convolutional_pooling,
-            #                convolutional_upsampling, max_num_features, basic_block, seg_output_use_bias)
         else:
+            # -- Define the classes that are allowed given data_parallel -- #
+            if data_parallel:
+                # -- prev_trainer can only be Generic_UNet or nn.DataParallel but nothing else -- #
+                classes_permitted = (Generic_UNet, nn.DataParallel)
+            else:
+                # -- prev_trainer can only be Generic_UNet or nn.Module but nothing else -- #
+                classes_permitted = (Generic_UNet, nn.Module)
             # -- Ensure that prev_trainer is a Generic_UNet, otherwise this will not work -- #
-            assert isinstance(prev_trainer, Generic_UNet),\
+            assert isinstance(prev_trainer, classes_permitted),\
                 "This function transform a Generic_UNet to MH_Generic_UNet, so provide a Generic_UNet and not a {} object.".format(type(prev_trainer))
             # -- Set the models class to prev_trainer -- #
             self.model = prev_trainer
@@ -156,6 +158,21 @@ class MH_Generic_UNet(nn.Module):
         # -- Create a new task in self.heads with the initialized module which is from nnU-Net itself -- #
         self.heads[task] = copy.deepcopy(self.init_module)
     
+    def add_n_tasks_and_activate(self, list_of_tasks, activate_with):
+        r"""Use this function to initialize for each task name in the list a new head. -- > Important when restoring a model,
+            since the heads are not created in this init function and need to be set manually before loading a state_dict
+            that includes n heads. Further self.model will be assembled based on activate_with. In the case of calling
+            this function before restoring, the user needs to provide the correct activate_with, ie. the head that was activated
+            in times of saving the Multi Head Network.
+        """
+        # -- Loop through list of tasks -- #
+        for task in list_of_tasks:
+            # -- Add the task to the head -- #
+            self.add_new_task(task)
+
+        # -- Assemble the model based on activate_with -- #
+        self._assemble_model(activate_with)
+
     def replace_layers(self, model, old, new):
         r"""This function is based on: https://www.kaggle.com/ankursingh12/why-use-setattr-to-replace-pytorch-layers.
             It can be used to replace a desired layer in the provided model with a new Module.
@@ -359,7 +376,7 @@ class MH_Generic_UNet(nn.Module):
             provided task. The assembled model can than be used with self.model. 
         """
         # -- Check if this task is not already activated -- #
-        if self.active_task == task:
+        if self.active_task == task and not isinstance(self.model, Generic_UNet):   # Never want a GenericUNet as self.model --> problems with restoring
             return self.model # --> Nothing to do, task already set
 
         # -- Assert if the task does not exist in the ModuleDict -- #
@@ -382,7 +399,7 @@ class MH_Generic_UNet(nn.Module):
 
         # -- Loop through corresponding head and add the modulew based on their names to assembled_model -- #
         layer_id = len(self.split)-1
-        for _, (name, head_part) in enumerate(head.named_children()):
+        for name, head_part in head.named_children():
             # -- At this point no module is split in between itself anymore, so there is no fusion, only concatenation -- #
             # -- When we are at the top layer, add the head_part directly, no extraction necessary -- #
             if layer_id == 0:
@@ -415,7 +432,7 @@ class MH_Generic_UNet(nn.Module):
             except: # At this point, the attribute does not exist, so set it
                 setattr(assembled_model, attribute, getattr(self.model, attribute))
 
-        # -- Set self.model as nn.Module -- #
+        # -- Set self.model as assembled model -- #
         self.model = assembled_model
 
         # -- Return the assembled model -- #

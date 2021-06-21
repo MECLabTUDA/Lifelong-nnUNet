@@ -3,6 +3,7 @@
 #----------training version. Implementation inspired by original implementation.------------------------#
 #########################################################################################################
 
+import copy
 import numpy as np
 import os, argparse
 from nnunet_ext.paths import default_plans_identifier
@@ -292,7 +293,6 @@ def run_training(extension='sequential'):
         # -- Map the fold to corresponding task in dictoinary -- #
         tasks_for_folds.append(t)
 
-
     # ----------------------------------------------
     # Define dict with arguments for function calls
     # ----------------------------------------------
@@ -300,21 +300,21 @@ def run_training(extension='sequential'):
     char_to_join_tasks = '_'
     tasks_list_with_char = (tasks_for_folds, char_to_join_tasks)
     tasks_joined_name = join_texts_with_char(tasks_for_folds, char_to_join_tasks)
-
+    
     # -- Create all argument dictionaries that are used for function calls to make it more generic -- #
     basic_args = {'unpack_data': decompress_data, 'deterministic': deterministic, 'fp16': run_mixed_precision }          
     basic_exts = {'save_interval': save_interval, 'identifier': init_identifier, 'extension': extension,
-                  'tasks_list_with_char': tasks_list_with_char, **basic_args}
+                  'tasks_list_with_char': copy.deepcopy(tasks_list_with_char), **basic_args}
     reh_args = {'samples_per_ds': samples, 'seed': seed, **basic_exts}
     ewc_args = {'ewc_lambda': ewc_lambda, **basic_exts}
     lwf_args = {'lwf_temperature': lwf_temperature, **basic_exts}
     
     # -- Join the dictionaries into a dictionary with the corresponding class name -- #
     args_f = {'nnUNetTrainerV2': basic_args, 'nnUNetTrainerMultiHead': basic_exts,
-            'nnUNetTrainerSequential': basic_exts, 'nnUNetTrainerRehearsal': reh_args,
-            'nnUNetTrainerEWC': ewc_args, 'nnUNetTrainerLWF': lwf_args}
+              'nnUNetTrainerSequential': basic_exts, 'nnUNetTrainerRehearsal': reh_args,
+              'nnUNetTrainerEWC': ewc_args, 'nnUNetTrainerLWF': lwf_args}
 
-
+    
     # ---------------------------------------------
     # Train for each task for all provided folds
     # ---------------------------------------------
@@ -331,6 +331,9 @@ def run_training(extension='sequential'):
 
         # -- Reset the tasks for each fold so it will be trained on every task -- #
         tasks = tasks_for_folds
+
+        # -- Deepcopy the tasks since in case of -c they are changed which might cause trouble in restoring -- #
+        all_tasks = copy.deepcopy(tasks)
 
         # -- Set began_with -- #
         began_with = tasks[0]
@@ -359,17 +362,26 @@ def run_training(extension='sequential'):
             # -- If began_with is None, the fold has not started training with --> start with the first task as -c would not have been set -- #
             if began_with is None:
                 # -- Check if all tasks have been trained on so far, if so, this fold is finished with training, else it is not -- #
-                all_tasks = tasks
                 run_tasks = running_task_list
 
-                # -- If the sorted lists are equal, continue with the next fold, if not, specify the right task in the following steps -- #
-                if np.array(np.array(all_tasks) == np.array(run_tasks)).all():  # Use numpy because lists return true if at least one match in both lists!
+                # -- If the lists are equal, continue with the next fold, if not, specify the right task in the following steps -- #
+                if np.array(np.array(all_tasks) == np.array(run_tasks)).all()\
+                   and np.array(np.array(all_tasks) == trained_on_folds.get('finished_validation_on', np.array(list()))).all():  # Use numpy because lists return true if at least one match in both lists!
                     # -- Update the user that the current fold is finished with training -- #
                     print("Fold {} has been trained on all tasks --> move on to the next fold..".format(t_fold))
                     # -- Treat the last fold as initialization, so set init_seq to True -- #
                     init_seq = True
                     continue    # Continue with next fold
-                    
+
+                # -- If the validation is not done yet, do only the validation of the last task -- #
+                if np.array(np.array(all_tasks) == np.array(run_tasks)).all():
+                    # -- Update the user that the current fold is finished with training -- #
+                    print("Fold {} has been trained on all tasks however the validation is still missing..".format(t_fold))
+                    # -- Set validation_only to True, so the trainer will be build in the following and only validated -- #
+                    validation_only = True
+                    # -- Remove the last task from the running_task_list because we want to do validation on this task -- #
+                    running_task_list = running_task_list[:-1]
+                
             # -- If this list is empty, the trainer did not train on any task --> Start directly with the first task as -c would not have been set -- #
             if began_with != -1 and len(running_task_list) != 0: # At this point began_with is either a task or -1 but not None
                 # -- Substract the tasks from the tasks list --> Only use the tasks that are in tasks but not in finished_with -- #
@@ -378,13 +390,14 @@ def run_training(extension='sequential'):
                     if task in running_task_list:
                         prev_task = task    # Keep track to insert it at the end again
                         tasks.remove(task)
-                    
-                # -- Insert the previous task to the beginning of the list to ensure that the model will be initialized the right way -- #
-                tasks.insert(0, prev_task)
-
-                # -- Remove the prev_task in running_task_list, since this is now the first in tasks --> otherwise this is redundandent and raises error -- #
-                running_task_list.remove(prev_task)
                 
+                # -- Only when we want to train change tasks and running_task_list -- #
+                if not validation_only:
+                    # -- Insert the previous task to the beginning of the list to ensure that the model will be initialized the right way -- #
+                    tasks.insert(0, prev_task) 
+                    # -- Remove the prev_task in running_task_list, since this is now the first in tasks --> otherwise this is redundandent and raises error -- #
+                    running_task_list.remove(prev_task)
+                    
                 # -- Treat the last fold as initialization, so set init_seq to True by keeping continue_learning to True  -- #
                 init_seq = True
                 
@@ -415,7 +428,7 @@ def run_training(extension='sequential'):
             
                 # -- Update the user that the fold for training has been found -- #
                 print("Fold {} has not been trained on all tasks --> continue the training with task {}..".format(t_fold, began_with))
-
+            
             # -- began_with == -1 or no tasks to train --> nothing to restore -- #
             else:   # Start with new fold, use init_seq that is provided from argument parser
                 # -- Treat the last fold as initialization as provided by user -- #
@@ -474,13 +487,17 @@ def run_training(extension='sequential'):
             # -- Load trainer from last task and initialize new trainer if continue training is wrong -- #
             if idx == 0 and init_seq:# and not continue_training:
                 # -- Initialize the prev_trainer if it is not None. If it is None, the trainer will be initialized in the parent class -- #
-                # -- Further check that all necessary information is provided, otheriwse exit with error message -- #
+                # -- Further check that all necessary information is provided, otherwise exit with error message -- #
                 assert isinstance(t, str) and prev_trainer is not None and init_identifier is not None and isinstance(t_fold, int),\
-                    "The informations for building the initial trainer to use for sequential training is not fully provided, check the arguments.."
+                    "The informations for building the initial trainer to use for training are not fully provided, check the arguments.."
                 
                 # -- Get default configuration for nnunet/nnunet_ext model (finished training) -- #
+                # -- --> Extension is used, always use the first task as this is the base and other tasks -- #
+                # -- will result in other network structures (structure based on plans_file) -- #
+                # -- Current task t might not be equal to all_tasks[0], since tasks might be changed in the -- #
+                # -- preparation for -c. -- #
                 plans_file, init_output_folder, dataset_directory, batch_dice, stage, \
-                trainer_class = get_default_configuration(network, t, running_task, prev_trainer, tasks_joined_name,\
+                trainer_class = get_default_configuration(network, all_tasks[0], running_task, prev_trainer, tasks_joined_name,\
                                                           init_identifier, extension_type=extension)
                 
                 # -- Ensure that trainer_class is not None -- #
@@ -491,66 +508,31 @@ def run_training(extension='sequential'):
                 if trainer_class.__name__ == str(nnUNetTrainerV2).split('.')[-1][:-2]:  # --> Initialization with nnUNetTrainerV2
                     prev_trainer = trainer_class(plans_file, t_fold, output_folder=init_output_folder, dataset_directory=dataset_directory,\
                                                  batch_dice=batch_dice, stage=stage, **(args_f[trainer_class.__name__]))
-                else: # --> Extension is used
-                    prev_trainer = trainer_class(plans_file, t_fold, output_folder=init_output_folder, dataset_directory=dataset_directory,\
+                else:
+                    prev_trainer = trainer_class(split, t, plans_file, t_fold, output_folder=init_output_folder, dataset_directory=dataset_directory,\
                                                  batch_dice=batch_dice, stage=stage, trainer_class_name=trainer_class.__name__,\
                                                  already_trained_on=already_trained_on, **(args_f[trainer_class.__name__]))
-                """
-                if trainer_class.__name__ == str(nnUNetTrainerV2).split('.')[-1][:-2]:  # --> Initialization with nnUNetTrainerV2
-                    prev_trainer = trainer_class(plans_file, t_fold, output_folder=init_output_folder, dataset_directory=dataset_directory,
-                                                 batch_dice=batch_dice, stage=stage, unpack_data=decompress_data,
-                                                 deterministic=deterministic, fp16=run_mixed_precision)
-                elif trainer_class.__name__ == str(nnUNetTrainerMultiHead).split('.')[-1][:-2]:  # --> Initialization with nnUNetTrainerMultiHead
-                    prev_trainer = trainer_class(split, t, plans_file, t_fold, output_folder=output_folder_name, dataset_directory=dataset_directory,
-                                                 batch_dice=batch_dice, stage=stage, unpack_data=decompress_data,
-                                                 deterministic=deterministic, fp16=run_mixed_precision, save_interval=save_interval,
-                                                 already_trained_on=already_trained_on, identifier=init_identifier, extension=extension,
-                                                 tasks_list_with_char=tasks_list_with_char, trainer_class_name=trainer_class.__name__)
-                elif trainer_class.__name__ == str(nnUNetTrainerSequential).split('.')[-1][:-2]:  # --> Initialization with nnUNetTrainerSequential
-                    prev_trainer = trainer_class(split, t, plans_file, t_fold, output_folder=output_folder_name, dataset_directory=dataset_directory,
-                                                 batch_dice=batch_dice, stage=stage, unpack_data=decompress_data,
-                                                 deterministic=deterministic, fp16=run_mixed_precision, save_interval=save_interval,
-                                                 already_trained_on=already_trained_on, identifier=init_identifier, extension=extension,
-                                                 tasks_list_with_char=tasks_list_with_char, trainer_class_name=trainer_class.__name__)
-                elif trainer_class.__name__ == str(nnUNetTrainerRehearsal).split('.')[-1][:-2]:  # --> Initialization with nnUNetTrainerRehearsal
-                    prev_trainer = trainer_class(split, t, plans_file, t_fold, output_folder=output_folder_name, dataset_directory=dataset_directory,
-                                                 batch_dice=batch_dice, stage=stage, unpack_data=decompress_data,
-                                                 deterministic=deterministic, fp16=run_mixed_precision, save_interval=save_interval,
-                                                 already_trained_on=already_trained_on, identifier=init_identifier, extension=extension,
-                                                 tasks_list_with_char=tasks_list_with_char, samples_per_ds=samples, seed=seed,
-                                                 trainer_class_name=trainer_class.__name__)
-                elif trainer_class.__name__ == str(nnUNetTrainerEWC).split('.')[-1][:-2]:  # --> Initialization with nnUNetTrainerEWC
-                    prev_trainer = trainer_class(split, t, plans_file, t_fold, output_folder=output_folder_name, dataset_directory=dataset_directory,
-                                                 batch_dice=batch_dice, stage=stage, unpack_data=decompress_data,
-                                                 deterministic=deterministic, fp16=run_mixed_precision, save_interval=save_interval,
-                                                 already_trained_on=already_trained_on, identifier=init_identifier, extension=extension,
-                                                 tasks_list_with_char=tasks_list_with_char, ewc_lambda=ewc_lambda,
-                                                 trainer_class_name=trainer_class.__name__)
-                elif trainer_class.__name__ == str(nnUNetTrainerLWF).split('.')[-1][:-2]:  # --> Initialization with nnUNetTrainerEWC
-                    prev_trainer = trainer_class(split, t, plans_file, t_fold, output_folder=output_folder_name, dataset_directory=dataset_directory,
-                                                 batch_dice=batch_dice, stage=stage, unpack_data=decompress_data,
-                                                 deterministic=deterministic, fp16=run_mixed_precision, save_interval=save_interval,
-                                                 already_trained_on=already_trained_on, identifier=init_identifier, extension=extension,
-                                                 tasks_list_with_char=tasks_list_with_char, lwf_temperature=lwf_temperature,
-                                                 trainer_class_name=trainer_class.__name__)
-                """
                 
                 # -- Create already trained on for this task we are going to skip -- #
                 if already_trained_on is None:
                     already_trained_on = { str(t_fold): {'finished_training_on': [t], 'prev_trainer': [prev_trainer.__class__.__name__],
                                                          'finished_validation_on': [t], 'start_training_on': None,
-                                                         'used_identifier': init_identifier, 'val_metrics_should_exist': False}
+                                                         'used_identifier': init_identifier, 'val_metrics_should_exist': False,
+                                                         'checkpoint_should_exist' : False, 'tasks_at_time_of_checkpoint': list(), # --> Can only be the case when init_seq
+                                                         'active_task_at_time_of_checkpoint': None}
                                          }  # --> Do not set the split, since it needs to be simplified first and then checked if it matches
 
                 # -- Ensure that prev_trainer and already trained on is not none, since it should be everything from last loop -- #
                 assert prev_trainer is not None and already_trained_on is not None and len(already_trained_on) != 0,\
-                    "The information that is necessary for training on the previous model is not provided as it should be.."
+                    "The information that is necessary for training on the previous model are not provided as it should be.."
                     
                 # -- Initialize prev_trainer -- #
                 prev_trainer.initialize(training=False)
-                
-                # -- Continue with next element, since the previous trainer is restored, otherwise it will be trained as well -- #
-                continue
+
+                # -- Only if we do not want to do a validation we continue with the next element in the loop -- #
+                if not validation_only:
+                    # -- Continue with next element, since the previous trainer is restored, otherwise it will be trained as well -- #
+                    continue
             
             # -- Restore previous trained trainer as prev_trainer for the task that will be trained in this loop -- #
             #elif idx == 1 and init_seq:# and not continue_training:
@@ -563,40 +545,14 @@ def run_training(extension='sequential'):
 
             # -- Set the correct trainer, but only for very first task (with or without prev_trainer) -- #
             if idx == 0 or idx == 1 and init_seq:
+                # -- To initialize a new trainer, always use the first task since this shapes the network structure. -- #
+                # -- During training the tasks will be updated, so this should cause no problems -- #
                 # -- Set the trainer with corresponding arguments --> can only be an extension from here on -- #
-                trainer = trainer_class(split, t, plans_file, t_fold, output_folder=output_folder_name, dataset_directory=dataset_directory,\
+                trainer = trainer_class(split, all_tasks[0], plans_file, t_fold, output_folder=output_folder_name, dataset_directory=dataset_directory,\
                                         batch_dice=batch_dice, stage=stage, trainer_class_name=trainer_class.__name__,\
                                         already_trained_on=already_trained_on, **(args_f[trainer_class.__name__]))
-                """
-                # -- Extract trainer and set saving indicating variables to False if desired -- #
-                if extension == 'multihead' or 'sequential':
-                    trainer = trainer_class(split, t, plans_file, t_fold, output_folder=output_folder_name, dataset_directory=dataset_directory,
-                                            batch_dice=batch_dice, stage=stage, unpack_data=decompress_data,
-                                            deterministic=deterministic, fp16=run_mixed_precision, save_interval=save_interval,
-                                            already_trained_on=already_trained_on, identifier=init_identifier, extension=extension,
-                                            tasks_list_with_char=tasks_list_with_char, trainer_class_name=trainer_class.__name__)
-                elif extension == 'rehearsal':
-                    trainer = trainer_class(split, t, plans_file, t_fold, output_folder=output_folder_name, dataset_directory=dataset_directory,
-                                            batch_dice=batch_dice, stage=stage, unpack_data=decompress_data,
-                                            deterministic=deterministic, fp16=run_mixed_precision, save_interval=save_interval,
-                                            already_trained_on=already_trained_on, identifier=init_identifier, extension=extension,
-                                            tasks_list_with_char=tasks_list_with_char, samples_per_ds=samples, seed=seed,
-                                            trainer_class_name=trainer_class.__name__)
-                elif extension == 'ewc':
-                    trainer = trainer_class(split, t, plans_file, t_fold, output_folder=output_folder_name, dataset_directory=dataset_directory,
-                                            batch_dice=batch_dice, stage=stage, unpack_data=decompress_data,
-                                            deterministic=deterministic, fp16=run_mixed_precision, save_interval=save_interval,
-                                            already_trained_on=already_trained_on, identifier=init_identifier, extension=extension,
-                                            tasks_list_with_char=tasks_list_with_char, ewc_lambda=ewc_lambda, trainer_class_name=trainer_class.__name__)
-                elif extension == 'lwf':
-                    trainer = trainer_class(split, t, plans_file, t_fold, output_folder=output_folder_name, dataset_directory=dataset_directory,
-                                            batch_dice=batch_dice, stage=stage, unpack_data=decompress_data,
-                                            deterministic=deterministic, fp16=run_mixed_precision, save_interval=save_interval,
-                                            already_trained_on=already_trained_on, identifier=init_identifier, extension=extension,
-                                            tasks_list_with_char=tasks_list_with_char, lwf_temperature=lwf_temperature, trainer_class_name=trainer_class.__name__)
-                """
 
-                # -- Initialize the trainer since it is newly created every time because of the new dataset, task, fold, optimizer, etc. -- #
+                # -- Initialize the trainer with the dataset, task, fold, optimizer, etc. -- #
                 trainer.initialize(not validation_only, num_epochs=num_epochs, prev_trainer=prev_trainer)
 
             # -- Nothing needs to be done with the trainer, since it makes everything by itself, for instance -- #
@@ -619,7 +575,7 @@ def run_training(extension='sequential'):
             # -- Find a matchting lr given the provided num_epochs -- #
             if find_lr:
                 trainer.find_lr(num_iters=num_epochs)
-            else:
+            else:      
                 if not validation_only:
                     if continue_training:
                         # -- User wants to continue previous training while ignoring pretrained weights -- #
@@ -637,7 +593,6 @@ def run_training(extension='sequential'):
                     # -- Start to train the trainer --> if task is not registered, the trainer will do this automatically -- #
                     trainer.run_training(task=t)
                 else:
-                    # -- Load best or finale checkpoint based on valbest -- #
                     if valbest:
                         trainer.load_best_checkpoint(train=False)
                     else:
@@ -669,6 +624,9 @@ def run_training(extension='sequential'):
             
             # -- Update the already_trained_on file, so it is up to date and can be used for next iteration -- #
             #already_trained_on = trainer.already_trained_on
+
+            # -- Reset validation_only in case it has been set during -c in the beginning -- #
+            validation_only = args.validation_only
 
         
         # -- If the models for each sequence should not be stored, move the content of the final saved model to the parent folder -- #

@@ -13,7 +13,7 @@ from nnunet.configuration import default_num_threads
 from nnunet.experiment_planning.utils import split_4d
 from nnunet_ext.utilities.helpful_functions import delete_dir_con
 from batchgenerators.utilities.file_and_folder_operations import *
-from nnunet_ext.paths import preprocessing_output_dir, nnUNet_raw_data
+from nnunet_ext.paths import preprocessing_output_dir, nnUNet_raw_data, nnUNet_cropped_data
 from nnunet.experiment_planning.nnUNet_convert_decathlon_task import crawl_and_remove_hidden_from_decathlon
 
 def _extract_desired_channels(path, task_name, channels):
@@ -186,6 +186,18 @@ def main():
     # ------------------------------------------------
     # -- Loop through the input tasks and transform the label masks -- #
     for idx, in_task in enumerate(tasks_in):
+        # -- Extract task name --> copied from nnUNet split4d function (nnunet/experiment_planning/utils.py) -- #
+        full_task_name = in_task.split("/")[-1]
+        task_name = full_task_name[7:]
+        mod_in_task = in_task
+
+        # -- Before doing anything further, check that the tasks are unique -- #
+        out_task = task_out[idx]
+        assert ("Task%03.0d_" % out_task + task_name not in os.listdir(preprocessing_output_dir)\
+                and "Task%03.0d_" % out_task + task_name not in os.listdir(nnUNet_raw_data)\
+                and "Task%03.0d_" % out_task + task_name not in os.listdir(nnUNet_cropped_data)),\
+                    "The task is not unique, use another one or delete all tasks in preprocessing_output_dir, nnUNet_raw_data and nnUNet_cropped_data.."
+        
         # -- Load the corresponding mapping -- #
         mapping = load_json(mappings[idx])
 
@@ -193,22 +205,41 @@ def main():
         print("Checking if the provided dataset has a Decathlon-like structure..")
         crawl_and_remove_hidden_from_decathlon(in_task)
 
-        # -- Extract task name --> copied from nnUNet split4d function (nnunet/experiment_planning/utils.py) -- #
-        full_task_name = in_task.split("/")[-1]
-        task_name = full_task_name[7:]
-        mod_in_task = in_task
-
         # -- Select the desired channels from the dataset if not all are desired -- #
         if channels != 'all':
             print("Extracting only the desired channels from the scans..")
             mod_in_task = _extract_desired_channels(in_task, full_task_name, channels)
 
+        # -- Load dataset.json that includes informations about the dataset, for instance the different labels that need to be changed -- #
+        dataset_info = load_json(join(in_task, 'dataset.json'))
+
+        # -- Rename the original dataset.json file -- #
+        os.rename(join(in_task, 'dataset.json'), join(in_task, 'tmp_dataset.json'))
+
+        # -- Updating modalities in dataset file if channels have been selected -- #
+        if channels != 'all':
+            # -- Copy the dict keys, otherwise an error will pop up while looping through dict and deleting in parallel -- #
+            modalities = list(dataset_info['modality'].keys())
+            # -- Loop through the modality keys and delete them if they were not selected -- #
+            for key in modalities:
+                if int(key) not in channels: # If it is not in the desired selection delete the entry
+                    # -- Delete the modality entry -- #
+                    del dataset_info['modality'][key]
+                    # -- Delete from quantitative as well ? -- # 
+                    dataset_info['quantitative'].remove(int(key))
+        
+        # -- Save the transformed dataset as a file that is then used for planning etc. -- #
+        save_json(dataset_info, join(in_task, 'dataset.json'))
+        
         # -- Use nnUNet provided split_4d function that is used for Decathlon data but check before if task is unique! -- #
-        out_task = task_out[idx]
-        assert ("Task%03.0d_" % out_task + task_name not in os.listdir(preprocessing_output_dir)\
-                and "Task%03.0d_" % out_task + task_name not in os.listdir(nnUNet_raw_data)), "The task is not unique, use another one.."
         print("Perform 4D split..")
         split_4d(mod_in_task, args.p, out_task)
+
+        # -- Delete the copied and modified dataset.json file -- #
+        os.remove(join(in_task, 'dataset.json'))
+
+        # -- Rename the original dataset.json file  back to original name -- #
+        os.rename(join(in_task, 'tmp_dataset.json'), join(in_task, 'dataset.json'))
 
         # -- Define the base for correct loading and saving -- #
         base = join(nnUNet_raw_data, "Task%03.0d_" % out_task + task_name)
@@ -216,9 +247,6 @@ def main():
         # -- Do not to forget to change the name from the new generated task by split_4d -- #
         if '_mod' in mod_in_task: # Modified task name because the generated folder is being used (correctly) after channel selection
             os.rename(base+'_mod', base)
-
-        # -- Load dataset.json that includes informations about the dataset, for instance the different labels that need to be changed -- #
-        dataset_info = load_json(join(base, 'dataset.json'))
 
         # -- Check if the provided mapping matches the dataset_info. A mapping key consist of pairs of the old label description and the corresponding label -- #
         # -- whereas the values represent the new label. All labels that are not listed in the mapping are classified as background! -- #
@@ -263,7 +291,6 @@ def main():
             print("Performing planning and preprocessing of task {}..".format("Task%03.0d_" % out_task + task_name))
             # -- Execute the nnUNet_plan_and_preprocess command -- #
             os.system('nnUNet_plan_and_preprocess -t ' + str(out_task))
-
 
 
 if __name__ == "__main__":
