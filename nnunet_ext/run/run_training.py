@@ -20,18 +20,18 @@ from nnunet_ext.training.network_training.ewc.nnUNetTrainerEWC import nnUNetTrai
 from nnunet_ext.training.network_training.lwf.nnUNetTrainerLWF import nnUNetTrainerLWF # Own implemented class
 from nnunet_ext.training.network_training.multihead.nnUNetTrainerMultiHead import nnUNetTrainerMultiHead # Own implemented class
 from nnunet_ext.training.network_training.rehearsal.nnUNetTrainerRehearsal import nnUNetTrainerRehearsal # Own implemented class
-from nnunet_ext.training.network_training.sequential.nnUNetTrainerSequential import nnUNetTrainerSequential # Own implemented class
+#from nnunet_ext.training.network_training.sequential.nnUNetTrainerSequential import nnUNetTrainerSequential # Own implemented class
 
 
 #------------------------------------------- Inspired by original implementation -------------------------------------------#
-def run_training(extension='sequential'):
+def run_training(extension='multihead'):
     # -----------------------
     # Build argument parser
     # -----------------------
     # -- Create argument parser and add standard arguments -- #
     parser = argparse.ArgumentParser()
     parser.add_argument("network")
-    parser.add_argument("network_trainer")  # Can only be a multi head, sequential, rehearsal, ewc, lwf or tbd one
+    parser.add_argument("network_trainer")  # Can only be a multi head, sequential, rehearsal, ewc or lwf
     
     # -- nnUNet arguments untouched --> Should not intervene with sequential code, everything should work -- #
     parser.add_argument("-val", "--validation_only", help="Use this if you want to only run the validation. This will validate each model "
@@ -84,7 +84,7 @@ def run_training(extension='sequential'):
                              'file, for example model_final_checkpoint.model). Will only be used when actually training. '
                              'Optional. Beta. Use with caution.')
 
-    # -- Additional arguments specific for sequential training -- #
+    # -- Additional arguments specific for multi head training -- #
     parser.add_argument("-t", "--task_ids", nargs="+", help="Specify a list of task ids to train on (ids or names). Each of these "
                                                             "ids must, have a matching folder 'TaskXXX_' in the raw "
                                                             "data folder", required=True)
@@ -150,7 +150,7 @@ def run_training(extension='sequential'):
     # -- Build mapping for extension to corresponding class -- #
     ext_map = {'standard': nnUNetTrainerV2, 'nnUNetTrainerV2': nnUNetTrainerV2,
                'multihead': nnUNetTrainerMultiHead, 'nnUNetTrainerMultiHead': nnUNetTrainerMultiHead,
-               'sequential': nnUNetTrainerSequential, 'nnUNetTrainerSequential': nnUNetTrainerSequential,
+               #'sequential': nnUNetTrainerSequential, 'nnUNetTrainerSequential': nnUNetTrainerSequential,
                'rehearsal': nnUNetTrainerRehearsal, 'nnUNetTrainerRehearsal': nnUNetTrainerRehearsal,
                'ewc': nnUNetTrainerEWC, 'nnUNetTrainerEWC': nnUNetTrainerEWC,
                'lwf': nnUNetTrainerLWF, 'nnUNetTrainerLWF': nnUNetTrainerLWF}
@@ -240,7 +240,7 @@ def run_training(extension='sequential'):
             samples = samples[0]
 
         # -- Check that samples is between 0 and 1 and really greater than 0 -- #
-        assert samples != 0, "Instead of setting samples_in_perc to 0 use the provided Sequential (multiple tasks) or Multi Head (single task) Trainer."
+        assert samples != 0, "Instead of setting samples_in_perc to 0 use the provided Multi Head (single task) Trainer."
         assert samples > 0 and samples <= 1, "Your provided samples_in_perc is not in the specified range of (0, 1]."
 
         # -- Notify the user that the seed should not have been changed if -c is activated -- #
@@ -311,7 +311,8 @@ def run_training(extension='sequential'):
     
     # -- Join the dictionaries into a dictionary with the corresponding class name -- #
     args_f = {'nnUNetTrainerV2': basic_args, 'nnUNetTrainerMultiHead': basic_exts,
-              'nnUNetTrainerSequential': basic_exts, 'nnUNetTrainerRehearsal': reh_args,
+              #'nnUNetTrainerSequential': basic_exts,
+              'nnUNetTrainerRehearsal': reh_args,
               'nnUNetTrainerEWC': ewc_args, 'nnUNetTrainerLWF': lwf_args}
 
     
@@ -459,7 +460,7 @@ def run_training(extension='sequential'):
 
             # -- Extract the configurations and check that trainer_class is not None -- #
             # -- NOTE: Each task will be saved as new folder using the running_task that are all previous and current task joined together. -- #
-            # -- NOTE: Perform preprocessing and planning before !s -- #
+            # -- NOTE: Perform preprocessing and planning before ! -- #
             plans_file, output_folder_name, dataset_directory, batch_dice, stage, \
             trainer_class = get_default_configuration(network, t, running_task, network_trainer, tasks_joined_name,\
                                                       plans_identifier, extension_type=extension)
@@ -591,7 +592,7 @@ def run_training(extension='sequential'):
                         pass
 
                     # -- Start to train the trainer --> if task is not registered, the trainer will do this automatically -- #
-                    trainer.run_training(task=t)
+                    trainer.run_training(task=t, output_folder=output_folder_name)
                 else:
                     if valbest:
                         trainer.load_best_checkpoint(train=False)
@@ -611,7 +612,7 @@ def run_training(extension='sequential'):
                     # -- At this stage, the initial trainer has been used as a base, and the trainer folder will be removed from the directory -- #
                     del_folder = join(network_training_output_dir, network, tasks_joined_name, t, prev_trainer.__class__.__name__ + "__" + init_identifier)
                     delete_dir_con(del_folder)
-                    # -- Now, in the folder ../network_training_output_dir/network/tasks_joined_name are only identifier and results for sequential training -- #
+                    # -- Now, in the folder ../network_training_output_dir/network/tasks_joined_name are only identifier and results for extension training -- #
             
             # -- If the models for each sequence should not be stored, delete the last model and only keep the current finished ones -- #
             if disable_saving and prev_trainer_path is not None:

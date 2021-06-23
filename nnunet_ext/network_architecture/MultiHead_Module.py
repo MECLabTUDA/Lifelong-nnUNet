@@ -1,87 +1,63 @@
 #########################################################################################################
-#-------------------This class represents the generic nnU-Net enabling multiple heads.------------------#
+#----------This class represents a Generic Module enabling multiple heads for any network.--------------#
 #########################################################################################################
 
 import copy
 from torch import nn
+from typing import Type
 from operator import attrgetter
-from nnunet.utilities.nd_softmax import softmax_helper
-from nnunet_ext.utilities.helpful_functions import join_texts_with_char
-from nnunet.network_architecture.initialization import InitWeights_He
-from nnunet.network_architecture.generic_UNet import Generic_UNet, ConvDropoutNormNonlin
 
-
-class MH_Generic_UNet(nn.Module):
-    r"""This class is used for nnU-Nets that have multiple heads using a shared body.
-        The heads are stored in a ModuleDict, whereas the task name is the key to the
-        corresponding head/module.
+class MultiHead_Module(nn.Module):
+    r"""This class is a Module that can be used for any task where multiple heads using a shared body
+        are necessary. The heads are stored in a ModuleDict, whereas the task name is the key to the
+        corresponding head/module. This class can be used for any network, since the network class object
+        needs to be provided as well.
     """
-    def __init__(self, split_at, task, data_parallel, input_channels, base_num_features, num_classes, num_pool, num_conv_per_stage=2,
-                 feat_map_mul_on_downscale=2, conv_op=nn.Conv2d,
-                 norm_op=nn.BatchNorm2d, norm_op_kwargs=None,
-                 dropout_op=nn.Dropout2d, dropout_op_kwargs=None,
-                 nonlin=nn.LeakyReLU, nonlin_kwargs=None, deep_supervision=True, dropout_in_localization=False,
-                 final_nonlin=softmax_helper, weightInitializer=InitWeights_He(1e-2), pool_op_kernel_sizes=None,
-                 conv_kernel_sizes=None, prev_trainer=None,
-                 upscale_logits=False, convolutional_pooling=False, convolutional_upsampling=False,
-                 max_num_features=None, basic_block=ConvDropoutNormNonlin,
-                 seg_output_use_bias=False):
-        r"""Constructor of the generic nnU-Net for multiple heads. When a Generic_UNet is provided as prev_trainer
-            this class will be initialized using the attributes from this class. The split will then be performed
-            on the provided model, but the model will not be touched since a new MH_Generic_UNet class will be created.
-            data_parallel is used in order to fuse body and head as nn.DataParallel, if it is set to False, self.model
-            representing the body with the current task is a nn.Module. It should be based on the module the use_base is/
-            the model that will be initialized. The nnU-Net for instance expects either a SegmentationNetwork or DataParallel
-            to perform .forward on the network, so in this case data_parallel should be always True.
-            NOTE: prev_trainer is not necessary but can be used when a pre-trained model should be used as initialization
-                  and not a complete new initialized nnUNet. Further, all splits that will be added using add_empty_module
-                  use the Module that is extracted due to the split from the prev_trainer model, including its state_dict etc.
-                  When providing a new Module to add to the Network using add_module etc. ensure that all layers are there
-                  that the Generic_UNet is using during training.
+    def __init__(self, class_object: Type[nn.Module], split_at, task, prev_trainer=None, *args, **kwargs):
+        r"""Constructor of the Module for multiple heads. 
+            :param class_object: This is the class (network) that should be used, ie. that will be split. This needs to
+                                 be a class inheriting nn.Module, where the .forward() method is implemented, since this
+                                 will be used as well.
+            :param split_at: The path in the network where the split should be performed. Use the dot notation ('.') to
+                             specify the path to a desired split point.
+            :param task: The name of the first head. Since this function will perform a split, the splitted part needs to
+                         have a name, this specifies it.
+            :param prev_trainer: If the split should be performed on previously trained model, than this can be provided
+                                 with this variable. Note: The type should be equal to the class_object.
+            :param *args, **kwargs: Provide all further positional and keyword arguments that are necessary by the class_object
+                                    class when performing an initialization. Note: This needs to be done correctly, since
+                                    if it is not, class_object has missing/too much positional arguemnts and will fail during
+                                    runtime in initialization.
+            NOTE: The model that can be accessed using self.model represents the running model, and is of the same type as 
+                  class_object. self btw. is a MultiHead_Module consisting of a nody (self.body), heads (self.heads) and
+                  the running model (self.model) based on the activated task (self.active_task). When training on a new task
+                  is desired, the useer needs to actiavte this task before calling .forward() in such a way that the running
+                  model has the right parameters and structure loaded etc. Tasks are actiavted using self.assemble_model(..).
+                  As mentione before, prev_trainer is not necessary but can be used when a pre-trained model should be used
+                  as initialization and not a complete new initialized class_object. Further, all splits that will be added
+                  using self.add_new_task(..) use the Module that is extracted due to the split from the prev_trainer model,
+                  including its state_dict etc.
         """
         # -- Initialize using super -- #
         super().__init__()
 
+        # -- Store the class_object -- #
+        self.class_object = class_object
+
         # -- If no model is provided, initialize one -- #
         if prev_trainer is None:
-            # -- Initialize a conventional generic nnU-Net -- #
-            self.model = Generic_UNet(input_channels, base_num_features, num_classes, num_pool, num_conv_per_stage,
-                                      feat_map_mul_on_downscale, conv_op, norm_op, norm_op_kwargs, dropout_op, dropout_op_kwargs,
-                                      nonlin, nonlin_kwargs, deep_supervision, dropout_in_localization, final_nonlin, weightInitializer,
-                                      pool_op_kernel_sizes, conv_kernel_sizes, upscale_logits, convolutional_pooling,
-                                      convolutional_upsampling, max_num_features, basic_block, seg_output_use_bias)
+            # -- Initialize a conventional network using the provided class_object -- #
+            self.model = self.class_object(*args, **kwargs)
         else:
-            # -- Define the classes that are allowed given data_parallel -- #
-            if data_parallel:
-                # -- prev_trainer can only be Generic_UNet or nn.DataParallel but nothing else -- #
-                classes_permitted = (Generic_UNet, nn.DataParallel)
-            else:
-                # -- prev_trainer can only be Generic_UNet or nn.Module but nothing else -- #
-                classes_permitted = (Generic_UNet, nn.Module)
             # -- Ensure that prev_trainer is a Generic_UNet, otherwise this will not work -- #
-            assert isinstance(prev_trainer, classes_permitted),\
+            assert isinstance(prev_trainer, self.class_object),\
                 "This function transform a Generic_UNet to MH_Generic_UNet, so provide a Generic_UNet and not a {} object.".format(type(prev_trainer))
             # -- Set the models class to prev_trainer -- #
             self.model = prev_trainer
 
-            """
-            # -- Get all attributes (excluding functions and anything else) the provided prev_trainer --> set the same in self -- #
-            attributes = [a for a in dir(prev_trainer) if not a.startswith('__') and not callable(getattr(prev_trainer, a))]
-            # -- Loop through these attributes and set self accordingly -- #
-            for attribute in attributes:
-                # -- Set self accordingly -- #
-                # -- NOTE: Since self inherits Generic_UNet and prev_trainer is of the class Generic_UNet -- #
-                # --       the functions from Generic_UNet still work --> just copied the attributes -- #
-                # --       were copied, the functions use self... and thus the right attributes :) -- #
-                setattr(self, attribute, getattr(prev_trainer, attribute))
-            """
-
         # -- Save the split_at, so it can be used throughout the class -- #
         assert isinstance(split_at, str), "The provided split needs to be a string.."
         self.split = [x.strip() for x in split_at.split('.')] # --> Never know what users input so strip layer names
-
-        # -- Set flag if DataParallel or Module should be used in self.model -- #
-        self.data_parallel = data_parallel
 
         # -- Change self.split if necessary --> Remove redundant split names to shorten it to bare minimum -- #
         # -- Check that last element of split does not refer to first element of last splits element -- #
@@ -105,9 +81,6 @@ class MH_Generic_UNet(nn.Module):
             # -- Assert if the split is empty -- #
             assert not(len(self.split) == 1 and simplify), "The provided split \'{}\' is empty after simplification and would split before the first layer..".format('.'.join(split))
         del split # Not necessary anymore
-
-        # -- Set flag if DataParallel or Module should be used in self.model -- #
-        self.data_parallel = data_parallel
         
         # -- Define empty ModuleDict for all the heads -- #
         self.heads = nn.ModuleDict()
@@ -118,15 +91,15 @@ class MH_Generic_UNet(nn.Module):
 
         # -- Split self.model based on split_at and store the init_module -- #
         # -- NOTE: If prev_trainer was used, init_module is now the splitted part from -- #
-        # --       the prev_trainer and not from a new generated nnUNet, ie. this part -- #
-        # --       is always used when calling self.add_empty_module --> keep this in mind -- #
+        # --       the prev_trainer and not from a new generated class_object, ie. this part -- #
+        # --       is always used when calling self.add_new_task --> keep this in mind -- #
         self.body, self.init_module, _ = self._split_model_recursively_into_body_head(layer_id=0, model=self.model) # Start from root with full model
 
         # -- Register the init_module into self.heads based on self.active_task
         self.add_new_task(self.active_task)
 
         # -- Assemble the model so it can be used for training -- #
-        self.model = self._assemble_model(task)
+        self.assemble_model(task)
         #print(self.replace_layers(self.heads[task], nn.Conv2d, nn.AdaptiveMaxPool2d((6, 6)))) 
 
     def forward(self, x):
@@ -134,8 +107,8 @@ class MH_Generic_UNet(nn.Module):
             Assemble the model based on self.body and selected task. Then use parent class to perform
             forward pass. Follow with a split of the model after the pass to update the head and the body.
         """
-        # -- Let the Generic_UNet class do the work since the assembled model is a generic nnU-Net -- #
-        res = Generic_UNet.forward(self.model, x) # --> Do not use super, since we want to set the correct self object ;)
+        # -- Let the class_object do the work since the assembled model is an object of this class -- #
+        res = self.class_object.forward(self.model, x) # --> Do not use super, since we want to set the correct self object ;)
 
         # -- Update the body and corresponding head so these variables are always up to date -- #
         # -- Simply do a splitting again -- #
@@ -143,88 +116,7 @@ class MH_Generic_UNet(nn.Module):
 
         # -- Return the forward result generated by Generic_UNet.forward -- #
         return res
-
-    def get_split_path(self):
-        r"""This function returns the path to the layer, where the split has been performed.
-        """
-        # -- Return the split path -- #
-        return join_texts_with_char(self.split, '.')
-
-    def add_new_task(self, task):
-        r"""Use this function to add the initial (empty) module from nnU-Net based on the split.
-            Specify the task name with which it will be registered in the ModuleDict.
-            NOTE: If the task already exists, it will be overwritten.
-        """
-        # -- Create a new task in self.heads with the initialized module which is from nnU-Net itself -- #
-        self.heads[task] = copy.deepcopy(self.init_module)
     
-    def add_n_tasks_and_activate(self, list_of_tasks, activate_with):
-        r"""Use this function to initialize for each task name in the list a new head. -- > Important when restoring a model,
-            since the heads are not created in this init function and need to be set manually before loading a state_dict
-            that includes n heads. Further self.model will be assembled based on activate_with. In the case of calling
-            this function before restoring, the user needs to provide the correct activate_with, ie. the head that was activated
-            in times of saving the Multi Head Network.
-        """
-        # -- Loop through list of tasks -- #
-        for task in list_of_tasks:
-            # -- Add the task to the head -- #
-            self.add_new_task(task)
-
-        # -- Assemble the model based on activate_with -- #
-        self._assemble_model(activate_with)
-
-    def replace_layers(self, model, old, new):
-        r"""This function is based on: https://www.kaggle.com/ankursingh12/why-use-setattr-to-replace-pytorch-layers.
-            It can be used to replace a desired layer in the provided model with a new Module.
-            :param model: nn.Module in which the layer (old) should be replaced (with new)
-            :param old: nn.Module representing a specific layer, like nn.Conv2d, nn.ReLU, etc.
-            :param new: nn.Module representing a specific layer, like nn.Conv2d, nn.ReLU, etc. which will replace old
-            :return: Function returns the updated module.
-            NOTE: This function can be used for instance to replace e.g. a desired layer in the body/head. It does
-                  not have to be Module directly from torch.nn, it can also be any Module that inherits nn.Module.
-                  For instance we could replace a nnU-Net seg_outputs layer in a specified head with a new desired layer.
-                  For this, the model would be the desired head (nn.Module) not a ModuleDict.
-        """
-        # -- Check that the types are as desired -- # 
-        assert model is not None and new is not None and old is not None, "To replace a Module, the layers need to be Modules as well as the model.."
-        
-        # -- Loop through model children -- #
-        for name, module in model.named_children():
-            # -- If there are still children left, go recursive -- #
-            if len(list(module.children())) > 0:
-                # -- Go one layer deeper -- #
-                self.replace_layers(module, old, new)
-
-            # -- If the module is an instance of old, replace it with new -- #
-            if isinstance(module, old):
-                # -- Replace -- #
-                setattr(model, name, new)
-
-        # -- Return the updated module -- #
-        return model
-
-    """ Do not include since this makes the module vulnerable when user does not know what he is doing..
-    def add_module(self, module, task):
-        rUse this function to add a module specified to the heads given a task name.
-            NOTE: If the task exists, it will be overwritten.
-        
-        # -- Check that the provided module is a Module -- #
-        assert isinstance(module, nn.Module), "Module is not an nn.Module"
-
-        # -- Create a new task using the provided module -- #
-        self.heads[task] = module
-
-    def add_module_copy(self, module, task):
-        rUse this function to add the copy of a model to the heads given a task name,
-            but not the model directly.
-            NOTE: If the task exists, it will be overwritten.
-        
-        # -- Check that the provided module is a Module -- #
-        assert isinstance(module, nn.Module), "Module is not an nn.Module"
-
-        # -- Create a new task using a deepcopy of the provided module -- #
-        self.heads[task] = copy.deepcopy(module)"""
-
     def _split_model_recursively_into_body_head(self, layer_id, model, body=nn.Module(), head=nn.Module(),
                                                 parent=list(), simplify_split=False):
         r"""This function splits a provided model into a base and a single head.
@@ -248,7 +140,7 @@ class MH_Generic_UNet(nn.Module):
             assert len(self.split) != 0, "The provided split is empty.."
 
             first_layer = next(model.named_children()) # Extract the first layer in the model
-            # -- Assert if the user tries to split at very first layer --> makes no sense, use original nnU-Net instead -- #
+            # -- Assert if the user tries to split at very first layer --> makes no sense no split necessary, use class_object -- #
             assert not(layer_id == 0 and self.split[layer_id] == first_layer[0] and len(self.split) == 1),\
                 "You tried to split before the first layer, so the body would be empty --> body can never be empty.."
             # -- Test if the provided path even exists -- #
@@ -371,12 +263,13 @@ class MH_Generic_UNet(nn.Module):
         # -- Once it is finished, return body and head -- #
         return body, head, layer_id
 
-    def _assemble_model(self, task):
-        r"""This function assembles a Generic U-Net based on self.body and corresponding head based
-            provided task. The assembled model can than be used with self.model. 
+    def assemble_model(self, task):
+        r"""This function assembles a desired model structure based on self.body and corresponding head based
+            on the provided task. The parameters of the self.model are updated using the assembled_model composing
+            of self.body and specified head.
         """
         # -- Check if this task is not already activated -- #
-        if self.active_task == task and not isinstance(self.model, Generic_UNet):   # Never want a GenericUNet as self.model --> problems with restoring
+        if self.active_task == task:
             return self.model # --> Nothing to do, task already set
 
         # -- Assert if the task does not exist in the ModuleDict -- #
@@ -386,12 +279,8 @@ class MH_Generic_UNet(nn.Module):
         # -- Extract the corresponding head based on the task -- #
         head = self.heads[task]
 
-        # -- Assemble the model based on self.body and head -- #
-        # -- If self.model should be DataParallel, than make it so -- #
-        if self.data_parallel: # Define model as nn.DataParallel
-            assembled_model = nn.DataParallel(nn.Module())  # --> Do not forget to drop this module later on ..
-        else: # Define model as simple nn.Module
-            assembled_model = nn.Module()
+        # -- Assemble the model based on self.body and head to update self.model afterwards -- #
+        assembled_model = nn.Module()
         
         # -- Add the full body to assembled_model with respect to its name -- #
         for name, module in self.body.named_children():
@@ -413,45 +302,49 @@ class MH_Generic_UNet(nn.Module):
         # -- Set the active_task -- #
         self.active_task = task
 
-        # -- If self.model should be DataParallel, then remove the 'module' attribute that is an empty module -- #
-        if self.data_parallel:
-            # -- The empty module used for initialization has always the name 'module' since it can not be changed -- #
-            delattr(assembled_model, 'module')    # --> Remove it
+        # -- Update the assembled_model attributes -- #
+        self._update_model_modules(assembled_model)
 
-        # -- Get all attributes (except the ones that start with '__') from the model --> set the same in assembled_model -- #
-        attributes = [a for a in dir(self.model) if not a.startswith('__')]
-        
-        # -- Loop through these attributes and set assembled_model accordingly -- #
-        for attribute in attributes:
-            # -- Set assembled_model accordingly if the attributes do not exist -- #
-            # -- NOTE: Since self.model is a Generic_UNet from the beginning on -- #
-            # --       the functions from Generic_UNet still work --> just the attributes -- #
-            # --       were copied, the functions will use self... and thus the right attributes :) -- #
-            try: # Try to access the attribute
-                getattr(assembled_model, attribute)
-            except: # At this point, the attribute does not exist, so set it
-                setattr(assembled_model, attribute, getattr(self.model, attribute))
+        # -- Return the updated model since it might be used in a calling function (inheritance) -- #
+        return self.model
 
-        # -- Set self.model as assembled model -- #
-        self.model = assembled_model
+    def _update_model_modules(self, model):
+        r"""Monkey-patch the self.model in such a way, that the state dicts are correct
+            and the functions do properly work using the provided model.
+        """
+        # -- Loop through the provided model and set (monkey-path) the module in the GenericUNet -- #
+        for name, module in model.named_children():
+            setattr(self.model, name, module)
+    
+    def add_n_tasks_and_activate(self, list_of_tasks, activate_with):
+        r"""Use this function to initialize for each task name in the list a new head. --> Important when restoring a model,
+            since the heads are not created in this init function and need to be set manually before loading a state_dict
+            that includes n heads. Further self.model will be assembled based on activate_with. In the case of calling
+            this function before restoring, the user needs to provide the correct activate_with, ie. the head that was activated
+            in times of saving the Multi Head Network.
+        """
+        # -- Loop through list of tasks -- #
+        for task in list_of_tasks:
+            # -- Add the task to the head -- #
+            self.add_new_task(task)
 
-        # -- Return the assembled model -- #
-        return assembled_model
+        # -- Assemble the model based on activate_with -- #
+        self.assemble_model(activate_with)
 
     # -- Getter and Setters -- #
-    def _get_heads(self):
+    def get_heads(self):
         r"""This function returns the ModuleDict with the multiple heads.
         """
         # -- Return the ModuleDict -- #
         return self.heads
 
-    def _get_body(self):
+    def get_body(self):
         r"""This function returns the Module representing the body of the model. 
         """
         # -- Return the Module representing the body for all tasks -- #
         return self.body
 
-    def _set_heads(self, heads):
+    def set_heads(self, heads):
         r"""This function updates the ModuleDict with the multiple heads.
         """
         # -- Check that heads are of desired instance -- #
@@ -460,7 +353,7 @@ class MH_Generic_UNet(nn.Module):
         # -- Update the heads -- #
         self.heads = heads
 
-    def _set_body(self, body):
+    def set_body(self, body):
         r"""This function updates the Module representing the body of the model. 
         """
         # -- Check that body is of desired instance -- #
@@ -468,3 +361,54 @@ class MH_Generic_UNet(nn.Module):
 
         # -- Update the body -- #
         self.body = body
+
+    def get_class_object_name(self):
+        r"""This function is used to return the name of the class that is used to create the
+            split on etc.
+        """
+        # -- Return the class objects name -- #
+        return self.class_object.__name__
+
+    def get_split_path(self):
+        r"""This function returns the path to the layer, where the split has been performed.
+        """
+        # -- Return the split path -- #
+        return '.'.join(self.split)
+
+    def add_new_task(self, task):
+        r"""Use this function to add the initial module from on the first split.
+            Specify the task name with which it will be registered in the ModuleDict.
+            NOTE: If the task already exists, it will be overwritten.
+        """
+        # -- Create a new task in self.heads with the module from the first split -- #
+        self.heads[task] = copy.deepcopy(self.init_module)
+
+    def replace_layers(self, model, old, new):
+        r"""This function is based on: https://www.kaggle.com/ankursingh12/why-use-setattr-to-replace-pytorch-layers.
+            It can be used to replace a desired layer in the provided model with a new Module.
+            :param model: nn.Module in which the layer (old) should be replaced (with new)
+            :param old: nn.Module representing a specific layer, like nn.Conv2d, nn.ReLU, etc.
+            :param new: nn.Module representing a specific layer, like nn.Conv2d, nn.ReLU, etc. which will replace old
+            :return: Function returns the updated module.
+            NOTE: This function can be used for instance to replace e.g. a desired layer in the body/head. It does
+                  not have to be Module directly from torch.nn, it can also be any Module that inherits nn.Module.
+                  For instance we could replace a nnU-Net seg_outputs layer in a specified head with a new desired layer.
+                  For this, the model would be the desired head (nn.Module) not a ModuleDict.
+        """
+        # -- Check that the types are as desired -- # 
+        assert model is not None and new is not None and old is not None, "To replace a Module, the layers need to be Modules as well as the model.."
+        
+        # -- Loop through model children -- #
+        for name, module in model.named_children():
+            # -- If there are still children left, go recursive -- #
+            if len(list(module.children())) > 0:
+                # -- Go one layer deeper -- #
+                self.replace_layers(module, old, new)
+
+            # -- If the module is an instance of old, replace it with new -- #
+            if isinstance(module, old):
+                # -- Replace -- #
+                setattr(model, name, new)
+
+        # -- Return the updated module -- #
+        return model

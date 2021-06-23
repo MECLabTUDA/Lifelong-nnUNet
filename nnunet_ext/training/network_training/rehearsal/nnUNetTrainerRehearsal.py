@@ -14,14 +14,14 @@ from nnunet_ext.training.network_training.multihead.nnUNetTrainerMultiHead impor
 
 class nnUNetTrainerRehearsal(nnUNetTrainerMultiHead): # Inherit default trainer class for 2D, 3D low resolution and 3D full resolution U-Net 
     def __init__(self, split, task, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
-                 unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, data_parallel=True,
+                 unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
                  identifier=default_plans_identifier, extension='rehearsal', tasks_list_with_char=None, samples_per_ds=0.25,
                  seed=3299, trainer_class_name=None):
         r"""Constructor of Rehearsal trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
         """
         # -- Initialize using parent class -- #
         super().__init__(split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic,
-                         fp16, save_interval, already_trained_on, data_parallel, identifier, extension, tasks_list_with_char, trainer_class_name)
+                         fp16, save_interval, already_trained_on, use_progress, identifier, extension, tasks_list_with_char, trainer_class_name)
 
         # -- Set samples based on samples_per_ds -- #
         self.samples = samples_per_ds
@@ -76,7 +76,7 @@ class nnUNetTrainerRehearsal(nnUNetTrainerMultiHead): # Inherit default trainer 
 
             # -- Load random samples from the previous tasks -- #
             running_task_list = list()
-            for idx, task in enumerate(trained_on_folds['finished_training_on']):
+            for idx, task in enumerate(self.mh_network.heads.keys()[:-1]):
                 # -- Update the log -- #
                 self.print_to_log_file("Adding task \'{}\' to fused dataset for rehearsal training.".format(task))
 
