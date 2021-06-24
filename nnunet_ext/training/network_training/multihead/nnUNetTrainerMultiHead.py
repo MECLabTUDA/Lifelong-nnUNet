@@ -259,8 +259,6 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             NOTE: The calling class needs to set self.network according to the desired task, this is not done in this
                   function but expected by the user.
         """
-        self.print_to_log_file("DEBUG TRAINING: Split, Body, Heads and Model:\n{}\n{}\n{}\n{}".format(self.mh_network.split, self.mh_network.body, self.mh_network.heads, self.mh_network.model))
-        
         # -- Set the network to the assembled model that is then used for training -- #
         # -- We can only set the network here to MH network, otherwise the parent class will use its own forward function. -- #
         # -- If we do not train on MH Network, the forward function will not be implemented resulting in an error -- #
@@ -307,8 +305,6 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # -- since this trainer is not yet a prev_trainer.. --> Remove the trainer again after the loop -- #
         # -- because this creates only a view and changes self.already_trained_on as well which we do not want to -- #
         trained_on_folds['prev_trainer'].append(self.trainer_class_name)
-        
-        self.print_to_log_file("DEBUG ON VAL: Split, Body, Heads and Model:\n{}\n{}\n{}\n{}".format(self.mh_network.split, self.mh_network.body, self.mh_network.heads, self.mh_network.model))
         
         # -- NOTE: Since the head is an (ordered) ModuleDict, the current task is the last head, so there -- #
         # --       is nothing to restore at the end. -- #
@@ -420,7 +416,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                                "exact.)")
 
         # -- Add the results to self.validation_results based on task and epoch -- #
-        if self.validation_results.get(self.epoch, None) is None:
+        if self.validation_results.get('epoch_'+str(self.epoch), None) is None:
             self.validation_results['epoch_'+str(self.epoch)] = { task: {
                                                                             'IoU': iou,
                                                                             'Dice': dice
