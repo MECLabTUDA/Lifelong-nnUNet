@@ -93,7 +93,7 @@ class nnUNetTrainerEWC(nnUNetTrainerMultiHead): # Inherit default trainer class 
                      
         # -- If this trainer has already trained on other tasks, then extract the fisher and params -- #
         # -- Set fisher and params accordingly -- #
-        for task in self.mh_model.heads.keys()[:-1]:    # Skip the current task we're currently training on
+        for task in self.mh_network.heads.keys()[:-1]:    # Skip the current task we're currently training on
             # -- Activate the model accordingly to task -- #
             self.mh_network.assemble_model(task)
             # -- Set the network to the assembled model that is then used for prediction -- #

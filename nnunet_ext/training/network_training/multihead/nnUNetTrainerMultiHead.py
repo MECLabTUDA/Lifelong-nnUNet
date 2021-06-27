@@ -99,6 +99,9 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # -- Set use_prograss_bar if desired so a progress will be shown in the terminal -- #
         self.use_progress_bar = use_progress
 
+        # -- Define the empty Multi Head Network which might be used before intialization, so there is no error thrown (rehearsal) -- #
+        self.mh_network = None
+
     def initialize(self, training=True, force_load_plans=False, num_epochs=500, prev_trainer=None):
         r"""Overwrite parent function, since we want to include a prev_trainer that is used as a base for the Multi Head Trainer.
             Further the num_epochs should be set by the user if desired.

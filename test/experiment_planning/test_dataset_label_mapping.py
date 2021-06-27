@@ -28,9 +28,9 @@ def test_dataset_label_mapping():
     # -- Transform mask into SimpleITK image -- #
     mask = sitk.GetImageFromArray(mask)
 
-    # -------------------------#
+    # ------------------------ #
     # ------ First test ------ #
-    # -------------------------#
+    # ------------------------ #
     # -- Define the mapping that should be performed -- #
     mapping = {
                     "_ --> 0": 8,
@@ -69,9 +69,9 @@ def test_dataset_label_mapping():
     assert (expectation == sitk.GetArrayFromImage(new_mask)).all(), "The mask transformation function using a mapping file does as expected."
 
 
-    # -------------------------#
+    # ------------------------ #
     # ------ Second test ----- #
-    # -------------------------#
+    # ------------------------ #
 
     # -- Define the mapping that should be performed -- #
     mapping = { }

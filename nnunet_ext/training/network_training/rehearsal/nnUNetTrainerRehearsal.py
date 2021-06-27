@@ -44,6 +44,7 @@ class nnUNetTrainerRehearsal(nnUNetTrainerMultiHead): # Inherit default trainer 
     def get_basic_generators(self):
         r"""Calculate the joined dataset for the rehearsal training task.
         """
+        
         # -- Set the random seed based on self.seed -- #
         random.seed(self.seed)
 
@@ -60,9 +61,14 @@ class nnUNetTrainerRehearsal(nnUNetTrainerMultiHead): # Inherit default trainer 
         # -- Get the data regarding the current fold  -- #
         trained_on_folds = self.already_trained_on[str(self.fold)]
 
+        # -- Extract the existing heads -- #
+        try:
+            tasks_in_head = list(self.mh_network.heads.keys())[:-1]
+        except: # Not even trained on one task, ie. self.mh_network does not exist yet
+            tasks_in_head = list()
+
         # -- Check if the model already finished on some tasks before trying to load something -- #
-        #if len(trained_on_folds['finished_training_on']) != 0:
-        if len(self.mh_network.heads.keys()[:-1]) != 0: # Exclude the task we're currently training on --> Note that heads is an ordered ModuleDict
+        if len(tasks_in_head) != 0: # Exclude the task we're currently training on --> Note that heads is an ordered ModuleDict
             # -- Create backup for restoring the data of the current task after the previous data has been loaded etc. -- #
             dataset_tr_backup = self.dataset_tr.copy()
             dataset_val_backup = self.dataset_val.copy()
@@ -76,7 +82,7 @@ class nnUNetTrainerRehearsal(nnUNetTrainerMultiHead): # Inherit default trainer 
 
             # -- Load random samples from the previous tasks -- #
             running_task_list = list()
-            for idx, task in enumerate(self.mh_network.heads.keys()[:-1]):
+            for idx, task in enumerate(tasks_in_head):
                 # -- Update the log -- #
                 self.print_to_log_file("Adding task \'{}\' to fused dataset for rehearsal training.".format(task))
 

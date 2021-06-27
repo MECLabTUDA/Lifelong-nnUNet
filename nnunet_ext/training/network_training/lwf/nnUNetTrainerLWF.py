@@ -85,9 +85,9 @@ class nnUNetTrainerLWF(nnUNetTrainerMultiHead): # Inherit default trainer class 
         prev_task_models_res = list()
 
         # -- Loop through tasks and load the corresponding model to make predictions -- #
-        for task in self.mh_model.heads.keys()[:-1]:    # Skip the current task we're currently training on
+        for task in list(self.mh_network.heads.keys())[:-1]:    # Skip the current task we're currently training on
             # -- Activate the model accordingly to task -- #
-            self.network = self.mh_network._assemble_model(task)
+            self.network = self.mh_network.assemble_model(task)
 
             # -- Set network to eval -- #
             self.network.eval()
@@ -116,7 +116,7 @@ class nnUNetTrainerLWF(nnUNetTrainerMultiHead): # Inherit default trainer class 
         self.loss.update_prev_trainer_predictions(prev_task_models_res)
 
         # -- Reset the network to the current task -- #
-        self.network = self.mh_network._assemble_model(self.task)
+        self.network = self.mh_network.assemble_model(self.task)
         
         # -- Put model into train mode -- #
         self.network.train()
