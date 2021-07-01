@@ -3,8 +3,6 @@
 # are done. Follow these links to get a token and chat-id
 # - https://www.christian-luetgens.de/homematic/telegram/botfather/Chat-Bot.htm
 # - https://stackoverflow.com/questions/32423837/telegram-bot-how-to-get-a-group-chat-id
-# Then, place these strings in a telegram_login.json file in this directory. 
-# That file is ignored by git.
 # ------------------------------------------------------------------------------
 
 import telegram as tel
