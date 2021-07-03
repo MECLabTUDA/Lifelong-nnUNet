@@ -11,7 +11,10 @@
 #    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
-
+#
+# Taken from commit specified in requirements.txt from https://github.com/MIC-DKFZ/nnUNet.
+# Changes include:
+# - Using the internal nnunet.network_architecture.neural_network file
 
 from copy import deepcopy
 from nnunet.utilities.nd_softmax import softmax_helper
@@ -19,7 +22,7 @@ from torch import nn
 import torch
 import numpy as np
 from nnunet.network_architecture.initialization import InitWeights_He
-from nnunet.network_architecture.neural_network import SegmentationNetwork
+from nnunet_ext.nnunet.network_architecture.neural_network import SegmentationNetwork
 import torch.nn.functional
 
 
