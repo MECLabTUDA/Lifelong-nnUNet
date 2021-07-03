@@ -96,6 +96,11 @@ def save_segmentation_nifti_from_softmax(segmentation_softmax: Union[str, np.nda
             else:
                 lowres_axis = None
 
+        if lowres_axis is not None and len(lowres_axis) != 1:
+            # this happens for spacings like (0.24, 1.25, 1.25) for example. In that case we do not want to resample
+            # separately in the out of plane axis
+            do_separate_z = False
+
         if verbose: print("separate z:", do_separate_z, "lowres axis", lowres_axis)
         seg_old_spacing = resample_data_or_seg(segmentation_softmax, shape_original_after_cropping, is_seg=False,
                                                axis=lowres_axis, order=order, do_separate_z=do_separate_z, cval=0,
@@ -113,6 +118,7 @@ def save_segmentation_nifti_from_softmax(segmentation_softmax: Union[str, np.nda
         save_pickle(properties_dict, resampled_npz_fname[:-4] + ".pkl")
 
     if not output_probabilities:
+        # Original code from nnUNet
         if region_class_order is None:
             seg_old_spacing = seg_old_spacing.argmax(0)
         else:
@@ -123,7 +129,7 @@ def save_segmentation_nifti_from_softmax(segmentation_softmax: Union[str, np.nda
 
         save_single(seg_old_spacing, shape_original_before_cropping, seg_postprogess_fn, properties_dict, non_postprocessed_fname, out_fname, seg_postprocess_args, output_probabilities)
     else:
-        #print("seg_old_spacing min: {}, max: {}".format(np.min(seg_old_spacing), np.max(seg_old_spacing)))
+        # Save diferent parts
         # TODO NOW
         if True:
             for i in [1]:
