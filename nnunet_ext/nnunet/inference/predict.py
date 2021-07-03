@@ -24,7 +24,7 @@ from typing import Tuple, Union, List
 
 import numpy as np
 from batchgenerators.augmentations.utils import resize_segmentation
-from nnunet.inference.segmentation_export import save_segmentation_nifti_from_softmax, save_segmentation_nifti
+from nnunet_ext.nnunet.inference.segmentation_export import save_segmentation_nifti_from_softmax, save_segmentation_nifti
 from batchgenerators.utilities.file_and_folder_operations import *
 from multiprocessing import Process, Queue
 import torch

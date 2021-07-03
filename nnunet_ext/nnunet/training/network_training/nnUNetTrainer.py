@@ -30,7 +30,7 @@ import torch
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet.configuration import default_num_threads
 from nnunet.evaluation.evaluator import aggregate_scores
-from nnunet.inference.segmentation_export import save_segmentation_nifti_from_softmax
+from nnunet_ext.nnunet.inference.segmentation_export import save_segmentation_nifti_from_softmax
 from nnunet.network_architecture.generic_UNet import Generic_UNet
 from nnunet.network_architecture.initialization import InitWeights_He
 from nnunet.network_architecture.neural_network import SegmentationNetwork
@@ -48,7 +48,7 @@ from torch.optim import lr_scheduler
 
 matplotlib.use("agg")
 
-import sys
+
 class nnUNetTrainer(NetworkTrainer):
     def __init__(self, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
                  unpack_data=True, deterministic=True, fp16=False):
@@ -179,16 +179,14 @@ class nnUNetTrainer(NetworkTrainer):
                                                              self.data_aug_params['rotation_z'],
                                                              self.data_aug_params['scale_range'])
             self.basic_generator_patch_size = np.array([self.patch_size[0]] + list(self.basic_generator_patch_size))
-            patch_size_for_spatialtransform = self.patch_size[1:]
         else:
             self.basic_generator_patch_size = get_patch_size(self.patch_size, self.data_aug_params['rotation_x'],
                                                              self.data_aug_params['rotation_y'],
                                                              self.data_aug_params['rotation_z'],
                                                              self.data_aug_params['scale_range'])
-            patch_size_for_spatialtransform = self.patch_size
 
         self.data_aug_params['selected_seg_channels'] = [0]
-        self.data_aug_params['patch_size_for_spatialtransform'] = patch_size_for_spatialtransform
+        self.data_aug_params['patch_size_for_spatialtransform'] = self.patch_size
 
     def initialize(self, training=True, force_load_plans=False, mcdo=-1):
         """
@@ -296,7 +294,6 @@ class nnUNetTrainer(NetworkTrainer):
             g.save(join(self.output_folder, "network_architecture.pdf"))
             del g
         except Exception as e:
-            sys.exit()
             self.print_to_log_file("Unable to plot network architecture:")
             self.print_to_log_file(e)
 
@@ -307,7 +304,8 @@ class nnUNetTrainer(NetworkTrainer):
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
-    def run_training(self):
+    def save_debug_information(self):
+        # saving some debug information
         dct = OrderedDict()
         for k in self.__dir__():
             if not k.startswith("__"):
@@ -324,6 +322,8 @@ class nnUNetTrainer(NetworkTrainer):
 
         shutil.copy(self.plans_file, join(self.output_folder_base, "plans.pkl"))
 
+    def run_training(self):
+        self.save_debug_information()
         super(nnUNetTrainer, self).run_training()
 
     def load_plans_file(self):
@@ -724,7 +724,7 @@ class nnUNetTrainer(NetworkTrainer):
                                if not np.isnan(i)]
         self.all_val_eval_metrics.append(np.mean(global_dc_per_class))
 
-        self.print_to_log_file("Average global foreground Dice:", str(global_dc_per_class))
+        self.print_to_log_file("Average global foreground Dice:", [np.round(i, 4) for i in global_dc_per_class])
         self.print_to_log_file("(interpret this as an estimate for the Dice of the different classes. This is not "
                                "exact.)")
 
@@ -742,7 +742,6 @@ class nnUNetTrainer(NetworkTrainer):
         info['plans'] = self.plans
 
         write_pickle(info, fname + ".pkl")
-
 
     def save_features(self, data: np.ndarray, do_mirroring: bool = True,
         mirror_axes: Tuple[int] = None,
