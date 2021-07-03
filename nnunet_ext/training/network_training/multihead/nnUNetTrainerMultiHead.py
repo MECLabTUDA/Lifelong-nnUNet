@@ -8,7 +8,7 @@ import copy
 import torch
 import numpy as np
 from nnunet_ext.paths import default_plans_identifier
-from nnunet.network_architecture.generic_UNet import Generic_UNet
+from nnunet_ext.nnunet.network_architecture.generic_UNet import Generic_UNet
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet.training.dataloading.dataset_loading import load_dataset
 from nnunet_ext.utilities.helpful_functions import join_texts_with_char

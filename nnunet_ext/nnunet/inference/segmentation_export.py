@@ -11,6 +11,10 @@
 #    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
+#
+# Taken from commit specified in requirements.txt from https://github.com/MIC-DKFZ/nnUNet.
+# Changes include:
+# - Saving outputs directly, with a "part" identifier
 
 
 import sys
@@ -130,21 +134,12 @@ def save_segmentation_nifti_from_softmax(segmentation_softmax: Union[str, np.nda
         save_single(seg_old_spacing, shape_original_before_cropping, seg_postprogess_fn, properties_dict, non_postprocessed_fname, out_fname, seg_postprocess_args, output_probabilities)
     else:
         # Save diferent parts
-        # TODO NOW
-        if True:
-            for i in [1]:
-                if part != -1:
-                    name = out_fname[:-7] + "_" + str(i) + "_part_" + str(part) + ".nii.gz"
-                else:
-                    name = out_fname[:-7] + "_" + str(i) + ".nii.gz"
-                save_single(seg_old_spacing[i], shape_original_before_cropping, seg_postprogess_fn, properties_dict, non_postprocessed_fname, name, seg_postprocess_args, output_probabilities)
-        else:
-            for i in range(len(seg_old_spacing)):
-                if part != -1:
-                    name = out_fname[:-7] + "_" + str(i) + "_part_" + str(part) + ".nii.gz"
-                else:
-                    name = out_fname[:-7] + "_" + str(i) + ".nii.gz"
-                save_single(seg_old_spacing[i], shape_original_before_cropping, seg_postprogess_fn, properties_dict, non_postprocessed_fname, name, seg_postprocess_args, output_probabilities)
+        for i in range(len(seg_old_spacing)):
+            if part != -1:
+                name = out_fname[:-7] + "_" + str(i) + "_part_" + str(part) + ".nii.gz"
+            else:
+                name = out_fname[:-7] + "_" + str(i) + ".nii.gz"
+            save_single(seg_old_spacing[i], shape_original_before_cropping, seg_postprogess_fn, properties_dict, non_postprocessed_fname, name, seg_postprocess_args, output_probabilities)
 
 def save_single(seg_old_spacing, shape_original_before_cropping, seg_postprogess_fn, properties_dict, non_postprocessed_fname, out_fname, seg_postprocess_args, output_probabilities):
     bbox = properties_dict.get('crop_bbox')

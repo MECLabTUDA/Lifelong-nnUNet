@@ -8,7 +8,7 @@ from typing import Tuple
 import os, sys, copy, importlib
 from operator import attrgetter
 from nnunet_ext.network_architecture import MultiHead_Module
-from nnunet.network_architecture.generic_UNet import Generic_UNet
+from nnunet_ext.nnunet.network_architecture.generic_UNet import Generic_UNet
 
 # -- Start testing --> This suite only tests the Multi Head Network, whereas no training will be performed -- #
 def test_multihead_network():
