@@ -14,7 +14,8 @@
 #
 # Taken from commit specified in requirements.txt from https://github.com/MIC-DKFZ/nnUNet.
 # Changes include:
-# - 
+# - Support for extracting outputs with MC Dropout
+# - Support for extracting network features
 
 from collections import OrderedDict
 from typing import Tuple
@@ -55,7 +56,7 @@ class nnUNetTrainerV2(nnUNetTrainer):
 
         self.pin_memory = True
 
-    def initialize(self, training=True, force_load_plans=False):
+    def initialize(self, training=True, force_load_plans=False, mcdo=-1):
         """
         - replaced get_default_augmentation with get_moreDA_augmentation
         - enforce to only run this code once
@@ -121,7 +122,7 @@ class nnUNetTrainerV2(nnUNetTrainer):
             else:
                 pass
 
-            self.initialize_network()
+            self.initialize_network(mcdo)
             self.initialize_optimizer_and_scheduler()
 
             assert isinstance(self.network, (SegmentationNetwork, nn.DataParallel))
@@ -129,7 +130,7 @@ class nnUNetTrainerV2(nnUNetTrainer):
             self.print_to_log_file('self.was_initialized is True, not running self.initialize again')
         self.was_initialized = True
 
-    def initialize_network(self):
+    def initialize_network(self, mcdo=-1):
         """
         - momentum 0.99
         - SGD instead of Adam
@@ -151,7 +152,13 @@ class nnUNetTrainerV2(nnUNetTrainer):
             norm_op = nn.InstanceNorm2d
 
         norm_op_kwargs = {'eps': 1e-5, 'affine': True}
-        dropout_op_kwargs = {'p': 0, 'inplace': True}
+        if mcdo != -1:
+            print("Dropout activated ############################################")
+            dropout_p = 0.5
+        else:
+            print("Dropout NOT activated ############################################")
+            dropout_p = 0.0
+        dropout_op_kwargs = {'p': dropout_p, 'inplace': True}
         net_nonlin = nn.LeakyReLU
         net_nonlin_kwargs = {'negative_slope': 1e-2, 'inplace': True}
         self.network = Generic_UNet(self.num_input_channels, self.base_num_features, self.num_classes,
@@ -205,7 +212,7 @@ class nnUNetTrainerV2(nnUNetTrainer):
                                                          use_sliding_window: bool = True, step_size: float = 0.5,
                                                          use_gaussian: bool = True, pad_border_mode: str = 'constant',
                                                          pad_kwargs: dict = None, all_in_gpu: bool = False,
-                                                         verbose: bool = True, mixed_precision=True) -> Tuple[np.ndarray, np.ndarray]:
+                                                         verbose: bool = True, mixed_precision=True, tta: int = -1, mcdo: int = -1) -> Tuple[np.ndarray, np.ndarray]:
         """
         We need to wrap this because we need to enforce self.network.do_ds = False for prediction
         """
@@ -219,7 +226,7 @@ class nnUNetTrainerV2(nnUNetTrainer):
                                                                        pad_border_mode=pad_border_mode,
                                                                        pad_kwargs=pad_kwargs, all_in_gpu=all_in_gpu,
                                                                        verbose=verbose,
-                                                                       mixed_precision=mixed_precision)
+                                                                       mixed_precision=mixed_precision, tta=tta, mcdo=mcdo)
         self.network.do_ds = ds
         return ret
 
@@ -441,5 +448,29 @@ class nnUNetTrainerV2(nnUNetTrainer):
         ds = self.network.do_ds
         self.network.do_ds = True
         ret = super().run_training()
+        self.network.do_ds = ds
+        return ret
+
+    def save_features(self, data: np.ndarray, do_mirroring: bool = True,
+            mirror_axes: Tuple[int] = None,
+            use_sliding_window: bool = True, step_size: float = 0.5,
+            use_gaussian: bool = True, pad_border_mode: str = 'constant',
+            pad_kwargs: dict = None, all_in_gpu: bool = False,
+            verbose: bool = True, mixed_precision=True, tta: int = -1, mcdo: int = -1, features_dir=None) -> Tuple[np.ndarray, np.ndarray]:
+        r"""
+        Basically a copy of predict_preprocessed_data_return_seg_and_softmax, but stores features instead of making
+        predictions.
+        """
+        ds = self.network.do_ds
+        self.network.do_ds = False
+        ret = super().save_features(data,
+            do_mirroring=do_mirroring,
+            mirror_axes=mirror_axes,
+            use_sliding_window=use_sliding_window,
+            step_size=step_size, use_gaussian=use_gaussian,
+            pad_border_mode=pad_border_mode,
+            pad_kwargs=pad_kwargs, all_in_gpu=all_in_gpu,
+            verbose=verbose,
+            mixed_precision=mixed_precision, tta=tta, mcdo=mcdo, features_dir=features_dir)
         self.network.do_ds = ds
         return ret
