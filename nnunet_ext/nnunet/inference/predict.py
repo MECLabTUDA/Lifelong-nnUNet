@@ -133,7 +133,7 @@ def preprocess_multithreaded(trainer, list_of_lists, output_files, num_processes
 
 
 def predict_cases(model, list_of_lists, output_filenames, folds, save_npz, num_threads_preprocessing,
-                  num_threads_nifti_save, segs_from_prev_stage=None, do_tta=True, mixed_precision=True,
+                  num_threads_nifti_save, segs_from_prev_stage=None, do_tta=True, mixed_precision=True, 
                   overwrite_existing=False,
                   all_in_gpu=False, step_size=0.5, checkpoint_name="model_final_checkpoint",
                   segmentation_export_kwargs: dict = None, disable_postprocessing: bool = False,
@@ -187,7 +187,7 @@ def predict_cases(model, list_of_lists, output_filenames, folds, save_npz, num_t
 
     print("loading parameters for folds,", folds)
     trainer, params = load_model_and_checkpoint_files(model, folds, mixed_precision=mixed_precision,
-                                                      checkpoint_name=checkpoint_name)
+                                                      checkpoint_name=checkpoint_name, mcdo=mcdo)
 
     if segmentation_export_kwargs is None:
         if 'segmentation_export_params' in trainer.plans.keys():
@@ -231,6 +231,7 @@ def predict_cases(model, list_of_lists, output_filenames, folds, save_npz, num_t
         else:
             out_fname = out_fname[:-7] + "_" + str(0) + ".nii.gz"
 
+        # This has changes somewhat from the original nnUNet_uncertainty code due to changes in the nnUNet code
         if os.path.isfile(out_fname):
             print('File found, not predicting')
         else:
@@ -256,13 +257,13 @@ def predict_cases(model, list_of_lists, output_filenames, folds, save_npz, num_t
                 transpose_backward = trainer.plans.get('transpose_backward')
                 softmax = softmax.transpose([0] + [i + 1 for i in transpose_backward])
 
-            if save_npz:
+            if save_npz:  # No
                 npz_file = output_filename[:-7] + ".npz"
             else:
                 npz_file = None
 
             if hasattr(trainer, 'regions_class_order'):
-                region_class_order = trainer.regions_class_order
+                region_class_order = trainer.regions_class_order  # Is None
             else:
                 region_class_order = None
 
@@ -281,6 +282,16 @@ def predict_cases(model, list_of_lists, output_filenames, folds, save_npz, num_t
                     "This output is too large for python process-process communication. Saving output temporarily to disk")
                 np.save(output_filename[:-7] + ".npy", softmax)
                 softmax = output_filename[:-7] + ".npy"
+
+            # TODO: is this necessary to repeat?
+            if output_probabilities and tta != -1:
+                part = tta
+            elif output_probabilities and mcdo != -1:
+                part = mcdo
+            elif output_probabilities:
+                part = folds[0]
+            else:
+                part = -1
 
             results.append(pool.starmap_async(save_segmentation_nifti_from_softmax,
                                             ((softmax, output_filename, dct, interpolation_order, region_class_order,
