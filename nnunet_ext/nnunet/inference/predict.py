@@ -33,7 +33,7 @@ import shutil
 from multiprocessing import Pool
 from nnunet.postprocessing.connected_components import load_remove_save, load_postprocessing
 from nnunet.training.model_restore import load_model_and_checkpoint_files
-from nnunet.training.network_training.nnUNetTrainer import nnUNetTrainer
+from nnunet_ext.nnunet.training.network_training.nnUNetTrainer import nnUNetTrainer
 from nnunet.utilities.one_hot_encoding import to_one_hot
 
 def preprocess_save_to_queue(preprocess_fn, q, list_of_lists, output_files, segs_from_prev_stage, classes,

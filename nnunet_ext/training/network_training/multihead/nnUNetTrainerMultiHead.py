@@ -13,7 +13,7 @@ from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet.training.dataloading.dataset_loading import load_dataset
 from nnunet_ext.utilities.helpful_functions import join_texts_with_char
 from nnunet_ext.run.default_configuration import get_default_configuration
-from nnunet.training.network_training.nnUNetTrainerV2 import nnUNetTrainerV2
+from nnunet_ext.nnunet.training.network_training.nnUNetTrainerV2 import nnUNetTrainerV2
 from nnunet_ext.network_architecture.MultiHead_Module import MultiHead_Module
 from nnunet.training.data_augmentation.data_augmentation_moreDA import get_moreDA_augmentation
 

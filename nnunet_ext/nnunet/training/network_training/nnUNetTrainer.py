@@ -48,7 +48,7 @@ from torch.optim import lr_scheduler
 
 matplotlib.use("agg")
 
-
+import sys
 class nnUNetTrainer(NetworkTrainer):
     def __init__(self, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
                  unpack_data=True, deterministic=True, fp16=False):
@@ -179,16 +179,18 @@ class nnUNetTrainer(NetworkTrainer):
                                                              self.data_aug_params['rotation_z'],
                                                              self.data_aug_params['scale_range'])
             self.basic_generator_patch_size = np.array([self.patch_size[0]] + list(self.basic_generator_patch_size))
+            patch_size_for_spatialtransform = self.patch_size[1:]
         else:
             self.basic_generator_patch_size = get_patch_size(self.patch_size, self.data_aug_params['rotation_x'],
                                                              self.data_aug_params['rotation_y'],
                                                              self.data_aug_params['rotation_z'],
                                                              self.data_aug_params['scale_range'])
+            patch_size_for_spatialtransform = self.patch_size
 
         self.data_aug_params['selected_seg_channels'] = [0]
-        self.data_aug_params['patch_size_for_spatialtransform'] = self.patch_size
+        self.data_aug_params['patch_size_for_spatialtransform'] = patch_size_for_spatialtransform
 
-    def initialize(self, training=True, force_load_plans=False):
+    def initialize(self, training=True, force_load_plans=False, mcdo=-1):
         """
         For prediction of test cases just set training=False, this will prevent loading of training data and
         training batchgenerator initialization
@@ -228,12 +230,12 @@ class nnUNetTrainer(NetworkTrainer):
                                    also_print_to_console=False)
         else:
             pass
-        self.initialize_network()
+        self.initialize_network(mcdo)
         self.initialize_optimizer_and_scheduler()
         # assert isinstance(self.network, (SegmentationNetwork, nn.DataParallel))
         self.was_initialized = True
 
-    def initialize_network(self):
+    def initialize_network(self, mcdo=-1):
         """
         This is specific to the U-Net and must be adapted for other network architectures
         :return:
@@ -253,7 +255,13 @@ class nnUNetTrainer(NetworkTrainer):
             norm_op = nn.InstanceNorm2d
 
         norm_op_kwargs = {'eps': 1e-5, 'affine': True}
-        dropout_op_kwargs = {'p': 0, 'inplace': True}
+        if mcdo != -1:
+            print("Dropout activated ############################################")
+            dropout_p = 0.5
+        else:
+            print("Dropout NOT activated ############################################")
+            dropout_p = 0.0
+        dropout_op_kwargs = {'p': dropout_p, 'inplace': True}
         net_nonlin = nn.LeakyReLU
         net_nonlin_kwargs = {'negative_slope': 1e-2, 'inplace': True}
         self.network = Generic_UNet(self.num_input_channels, self.base_num_features, self.num_classes, net_numpool,
@@ -288,6 +296,7 @@ class nnUNetTrainer(NetworkTrainer):
             g.save(join(self.output_folder, "network_architecture.pdf"))
             del g
         except Exception as e:
+            sys.exit()
             self.print_to_log_file("Unable to plot network architecture:")
             self.print_to_log_file(e)
 
@@ -298,8 +307,7 @@ class nnUNetTrainer(NetworkTrainer):
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
-    def save_debug_information(self):
-        # saving some debug information
+    def run_training(self):
         dct = OrderedDict()
         for k in self.__dir__():
             if not k.startswith("__"):
@@ -316,8 +324,6 @@ class nnUNetTrainer(NetworkTrainer):
 
         shutil.copy(self.plans_file, join(self.output_folder_base, "plans.pkl"))
 
-    def run_training(self):
-        self.save_debug_information()
         super(nnUNetTrainer, self).run_training()
 
     def load_plans_file(self):
@@ -489,7 +495,7 @@ class nnUNetTrainer(NetworkTrainer):
                                                          use_sliding_window: bool = True, step_size: float = 0.5,
                                                          use_gaussian: bool = True, pad_border_mode: str = 'constant',
                                                          pad_kwargs: dict = None, all_in_gpu: bool = False,
-                                                         verbose: bool = True, mixed_precision: bool = True) -> Tuple[np.ndarray, np.ndarray]:
+                                                         verbose: bool = True, mixed_precision: bool = True, tta: int = -1, mcdo: int = -1) -> Tuple[np.ndarray, np.ndarray]:
         """
         :param data:
         :param do_mirroring:
@@ -523,7 +529,7 @@ class nnUNetTrainer(NetworkTrainer):
                                       patch_size=self.patch_size, regions_class_order=self.regions_class_order,
                                       use_gaussian=use_gaussian, pad_border_mode=pad_border_mode,
                                       pad_kwargs=pad_kwargs, all_in_gpu=all_in_gpu, verbose=verbose,
-                                      mixed_precision=mixed_precision)
+                                      mixed_precision=mixed_precision, tta=tta, mcdo=mcdo)
         self.network.train(current_mode)
         return ret
 
@@ -718,7 +724,7 @@ class nnUNetTrainer(NetworkTrainer):
                                if not np.isnan(i)]
         self.all_val_eval_metrics.append(np.mean(global_dc_per_class))
 
-        self.print_to_log_file("Average global foreground Dice:", [np.round(i, 4) for i in global_dc_per_class])
+        self.print_to_log_file("Average global foreground Dice:", str(global_dc_per_class))
         self.print_to_log_file("(interpret this as an estimate for the Dice of the different classes. This is not "
                                "exact.)")
 
@@ -736,3 +742,39 @@ class nnUNetTrainer(NetworkTrainer):
         info['plans'] = self.plans
 
         write_pickle(info, fname + ".pkl")
+
+
+    def save_features(self, data: np.ndarray, do_mirroring: bool = True,
+        mirror_axes: Tuple[int] = None,
+        use_sliding_window: bool = True, step_size: float = 0.5,
+        use_gaussian: bool = True, pad_border_mode: str = 'constant',
+        pad_kwargs: dict = None, all_in_gpu: bool = False,
+        verbose: bool = True, mixed_precision: bool = True, tta: int = -1, mcdo: int = -1, features_dir=None) -> Tuple[np.ndarray, np.ndarray]:
+        r"""
+        Basically a copy of predict_preprocessed_data_return_seg_and_softmax, but stores features instead of making
+        predictions.
+        """
+        if pad_border_mode == 'constant' and pad_kwargs is None:
+            pad_kwargs = {'constant_values': 0}
+
+        if do_mirroring and mirror_axes is None:
+            mirror_axes = self.data_aug_params['mirror_axes']
+
+        if do_mirroring:
+            assert self.data_aug_params["do_mirror"], "Cannot do mirroring as test time augmentation when training " \
+                                                      "was done without mirroring"
+
+        valid = list((SegmentationNetwork, nn.DataParallel))
+        assert isinstance(self.network, tuple(valid))
+
+        current_mode = self.network.training
+        self.network.eval()
+        patch_size = self.patch_size
+        ret = self.network.predict_3D(data, do_mirroring=do_mirroring, mirror_axes=mirror_axes,
+                                      use_sliding_window=use_sliding_window, step_size=step_size,
+                                      patch_size=patch_size, regions_class_order=self.regions_class_order,
+                                      use_gaussian=use_gaussian, pad_border_mode=pad_border_mode,
+                                      pad_kwargs=pad_kwargs, all_in_gpu=all_in_gpu, verbose=verbose,
+                                      mixed_precision=mixed_precision, tta=tta, mcdo=mcdo, features_dir=features_dir)
+        self.network.train(current_mode)
+        return ret
