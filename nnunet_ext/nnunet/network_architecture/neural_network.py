@@ -12,7 +12,7 @@
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
 
-
+import pickle
 import numpy as np
 from batchgenerators.augmentations.utils import pad_nd_image
 from nnunet.utilities.random_stuff import no_op
@@ -21,8 +21,10 @@ from torch import nn
 import torch
 from scipy.ndimage.filters import gaussian_filter
 from typing import Union, Tuple, List
+from tqdm import tqdm
 
 from torch.cuda.amp import autocast
+from nnunet_ext.calibration.mahalanobis.get_model_activations import get_act_seeker, extract_small_np_features
 
 
 class NeuralNetwork(nn.Module):
@@ -75,7 +77,7 @@ class SegmentationNetwork(NeuralNetwork):
                    step_size: float = 0.5, patch_size: Tuple[int, ...] = None, regions_class_order: Tuple[int, ...] = None,
                    use_gaussian: bool = False, pad_border_mode: str = "constant",
                    pad_kwargs: dict = None, all_in_gpu: bool = False,
-                   verbose: bool = True, mixed_precision: bool = True) -> Tuple[np.ndarray, np.ndarray]:
+                   verbose: bool = True, mixed_precision: bool = True, tta: int = -1, mcdo: int = -1, features_dir=None) -> Tuple[np.ndarray, np.ndarray]:
         """
         Use this function to predict a 3D image. It does not matter whether the network is a 2D or 3D U-Net, it will
         detect that automatically and run the appropriate code.
@@ -131,6 +133,18 @@ class SegmentationNetwork(NeuralNetwork):
         if self.training:
             print('WARNING! Network is in train mode during inference. This may be intended, or not...')
 
+        if mcdo != -1:
+            def enable_dropout1(m):
+                for each_module in m.modules():
+                    if each_module.__class__.__name__.startswith('Dropout'):
+                        each_module.train()
+
+            def enable_dropout2(m):
+                if "dropout" in m.__class__.__name__ or "Dropout" in m.__class__.__name__:
+                    m.train()
+            #enable_dropout1(self)
+            self.apply(enable_dropout2)
+
         assert len(x.shape) == 4, "data must have shape (c,x,y,z)"
 
         if mixed_precision:
@@ -145,10 +159,10 @@ class SegmentationNetwork(NeuralNetwork):
                         res = self._internal_predict_3D_3Dconv_tiled(x, step_size, do_mirroring, mirror_axes, patch_size,
                                                                      regions_class_order, use_gaussian, pad_border_mode,
                                                                      pad_kwargs=pad_kwargs, all_in_gpu=all_in_gpu,
-                                                                     verbose=verbose)
+                                                                     verbose=verbose, tta=tta, features_dir=features_dir)
                     else:
                         res = self._internal_predict_3D_3Dconv(x, patch_size, do_mirroring, mirror_axes, regions_class_order,
-                                                               pad_border_mode, pad_kwargs=pad_kwargs, verbose=verbose)
+                                                               pad_border_mode, pad_kwargs=pad_kwargs, verbose=verbose, tta=tta)
                 elif self.conv_op == nn.Conv2d:
                     if use_sliding_window:
                         res = self._internal_predict_3D_2Dconv_tiled(x, patch_size, do_mirroring, mirror_axes, step_size,
@@ -287,7 +301,9 @@ class SegmentationNetwork(NeuralNetwork):
     def _internal_predict_3D_3Dconv_tiled(self, x: np.ndarray, step_size: float, do_mirroring: bool, mirror_axes: tuple,
                                           patch_size: tuple, regions_class_order: tuple, use_gaussian: bool,
                                           pad_border_mode: str, pad_kwargs: dict, all_in_gpu: bool,
-                                          verbose: bool) -> Tuple[np.ndarray, np.ndarray]:
+                                          verbose: bool, tta: int = -1, features_dir=None) -> Tuple[np.ndarray, np.ndarray]:
+        # TODO
+        extract_distance_mask = True
         # better safe than sorry
         assert len(x.shape) == 4, "x must be (c, x, y, z)"
 
@@ -357,11 +373,11 @@ class SegmentationNetwork(NeuralNetwork):
 
             if verbose: print("moving data to GPU")
             data = torch.from_numpy(data).cuda(self.get_device(), non_blocking=True)
-            
+
             if verbose: print("initializing result_numsamples (on GPU)")
             aggregated_nb_of_predictions = torch.zeros([self.num_classes] + list(data.shape[1:]), dtype=torch.half,
                                                        device=self.get_device())
-            
+
         else:
             if use_gaussian and num_tiles > 1:
                 add_for_nb_of_preds = self._gaussian_3d
@@ -369,8 +385,16 @@ class SegmentationNetwork(NeuralNetwork):
                 add_for_nb_of_preds = np.ones(data.shape[1:], dtype=np.float32)
             aggregated_results = np.zeros([self.num_classes] + list(data.shape[1:]), dtype=np.float32)
             aggregated_nb_of_predictions = np.zeros([self.num_classes] + list(data.shape[1:]), dtype=np.float32)
-
-        for x in steps[0]:
+        
+        if features_dir and extract_distance_mask:
+            distances_full_path = features_dir+'_distances.pkl'
+            feature_distances = pickle.load(open(distances_full_path, 'rb'))
+        elif features_dir:
+            act_seeker = get_act_seeker(self)
+            features_save_full_path = features_dir+'.pkl'
+            features = dict()
+        
+        for x in tqdm(steps[0]):
             lb_x = x
             ub_x = x + patch_size[0]
             for y in steps[1]:
@@ -380,19 +404,39 @@ class SegmentationNetwork(NeuralNetwork):
                     lb_z = z
                     ub_z = z + patch_size[2]
 
-                    predicted_patch = self._internal_maybe_mirror_and_pred_3D(
-                        data[None, :, lb_x:ub_x, lb_y:ub_y, lb_z:ub_z], mirror_axes, do_mirroring,
-                        gaussian_importance_map)[0]
-
-                    if all_in_gpu:
-                        predicted_patch = predicted_patch.half()
+                    if features_dir and extract_distance_mask:
+                        feature_key = 'conv_blocks_context.4.blocks.1.conv'
+                        distance = feature_distances[str((ub_x, ub_y, ub_z))][feature_key]
+                        distance_patch = np.full((2, 28, 256, 256), float(distance))
+                        distance_patch *= gaussian_importance_map.cpu().numpy()
+                        predicted_patch = distance_patch
+                        #print('Shape of distance patch {}'.format(predicted_patch.shape))
                     else:
-                        predicted_patch = predicted_patch.cpu().numpy()
+                        predicted_patch = self._internal_maybe_mirror_and_pred_3D(
+                            data[None, :, lb_x:ub_x, lb_y:ub_y, lb_z:ub_z], mirror_axes, do_mirroring,
+                            gaussian_importance_map, tta=tta)[0]
+
+                        # Add the indexes to the feature path to get back to it
+                        if features_dir:
+                            features[str((ub_x, ub_y, ub_z))] = extract_small_np_features(act_seeker)
+
+                        if all_in_gpu:
+                            predicted_patch = predicted_patch.half()
+                        else:
+                            predicted_patch = predicted_patch.cpu().numpy()  # HERE
+                        #print('Shape of predicted patch {}'.format(predicted_patch.shape))
 
                     aggregated_results[:, lb_x:ub_x, lb_y:ub_y, lb_z:ub_z] += predicted_patch
                     aggregated_nb_of_predictions[:, lb_x:ub_x, lb_y:ub_y, lb_z:ub_z] += add_for_nb_of_preds
 
+        
+        if features_dir and not extract_distance_mask:
+            act_seeker.remove_handles()
+            pickle.dump(features, open(features_save_full_path, 'wb'))
+
+
         # we reverse the padding here (remeber that we padded the input to be at least as large as the patch size
+        # In our case, this does not do anything
         slicer = tuple(
             [slice(0, aggregated_results.shape[i]) for i in
              range(len(aggregated_results.shape) - (len(slicer) - 1))] + slicer[1:])
@@ -463,10 +507,11 @@ class SegmentationNetwork(NeuralNetwork):
     def _internal_predict_3D_3Dconv(self, x: np.ndarray, min_size: Tuple[int, ...], do_mirroring: bool,
                                     mirror_axes: tuple = (0, 1, 2), regions_class_order: tuple = None,
                                     pad_border_mode: str = "constant", pad_kwargs: dict = None,
-                                    verbose: bool = True) -> Tuple[np.ndarray, np.ndarray]:
+                                    verbose: bool = True, tta: int = -1) -> Tuple[np.ndarray, np.ndarray]:
         """
         This one does fully convolutional inference. No sliding window
         """
+        verbose = False
         assert len(x.shape) == 4, "x must be (c, x, y, z)"
 
         assert self.input_shape_must_be_divisible_by is not None, 'input_shape_must_be_divisible_by must be set to ' \
@@ -477,7 +522,7 @@ class SegmentationNetwork(NeuralNetwork):
                                     self.input_shape_must_be_divisible_by)
 
         predicted_probabilities = self._internal_maybe_mirror_and_pred_3D(data[None], mirror_axes, do_mirroring,
-                                                                          None)[0]
+                                                                          None, tta=tta)[0]
 
         slicer = tuple(
             [slice(0, predicted_probabilities.shape[i]) for i in range(len(predicted_probabilities.shape) -
@@ -498,7 +543,7 @@ class SegmentationNetwork(NeuralNetwork):
 
     def _internal_maybe_mirror_and_pred_3D(self, x: Union[np.ndarray, torch.tensor], mirror_axes: tuple,
                                            do_mirroring: bool = True,
-                                           mult: np.ndarray or torch.tensor = None) -> torch.tensor:
+                                           mult: np.ndarray or torch.tensor = None, tta: int = -1) -> torch.tensor:
         assert len(x.shape) == 5, 'x must be (b, c, x, y, z)'
 
         # if cuda available:
@@ -524,44 +569,60 @@ class SegmentationNetwork(NeuralNetwork):
         else:
             mirror_idx = 1
             num_results = 1
-
+        if tta != -1 and do_mirroring:
+            num_results = 1
         for m in range(mirror_idx):
-            if m == 0:
+            if m == 0 and (tta == 0 or tta == -1):
                 pred = self.inference_apply_nonlin(self(x))
                 result_torch += 1 / num_results * pred
-
-            if m == 1 and (2 in mirror_axes):
+            if m == 1 and (2 in mirror_axes) and (tta == 1 or tta == -1):
                 pred = self.inference_apply_nonlin(self(torch.flip(x, (4, ))))
                 result_torch += 1 / num_results * torch.flip(pred, (4,))
 
-            if m == 2 and (1 in mirror_axes):
+            if m == 2 and (1 in mirror_axes) and (tta == 2 or tta == -1):
                 pred = self.inference_apply_nonlin(self(torch.flip(x, (3, ))))
                 result_torch += 1 / num_results * torch.flip(pred, (3,))
 
-            if m == 3 and (2 in mirror_axes) and (1 in mirror_axes):
+            if m == 3 and (2 in mirror_axes) and (1 in mirror_axes) and (tta == 3 or tta == -1):
                 pred = self.inference_apply_nonlin(self(torch.flip(x, (4, 3))))
                 result_torch += 1 / num_results * torch.flip(pred, (4, 3))
 
-            if m == 4 and (0 in mirror_axes):
+            if m == 4 and (0 in mirror_axes) and (tta == 4 or tta == -1):
                 pred = self.inference_apply_nonlin(self(torch.flip(x, (2, ))))
                 result_torch += 1 / num_results * torch.flip(pred, (2,))
 
-            if m == 5 and (0 in mirror_axes) and (2 in mirror_axes):
+            if m == 5 and (0 in mirror_axes) and (2 in mirror_axes) and (tta == 5 or tta == -1):
                 pred = self.inference_apply_nonlin(self(torch.flip(x, (4, 2))))
                 result_torch += 1 / num_results * torch.flip(pred, (4, 2))
 
-            if m == 6 and (0 in mirror_axes) and (1 in mirror_axes):
+            if m == 6 and (0 in mirror_axes) and (1 in mirror_axes) and (tta == 6 or tta == -1):
                 pred = self.inference_apply_nonlin(self(torch.flip(x, (3, 2))))
                 result_torch += 1 / num_results * torch.flip(pred, (3, 2))
 
-            if m == 7 and (0 in mirror_axes) and (1 in mirror_axes) and (2 in mirror_axes):
+            if m == 7 and (0 in mirror_axes) and (1 in mirror_axes) and (2 in mirror_axes) and (tta == 7 or tta == -1):
                 pred = self.inference_apply_nonlin(self(torch.flip(x, (4, 3, 2))))
                 result_torch += 1 / num_results * torch.flip(pred, (4, 3, 2))
 
         if mult is not None:
             result_torch[:, :] *= mult
 
+        # if tta:
+        #     result_torch = self._comp_uncertainty(result_torch)
+
         return result_torch
+
+    def _comp_uncertainty(self, predictions):
+        #predictive_posterior_mean = torch.stack(predictions)
+        #print("before min: {}, max: {} ################################".format(torch.min(predictions), torch.max(predictions)))
+        #print("predictions shape: ", predictions.shape)
+        predictive_posterior_mean = torch.mean(predictions, dim=0)
+        uncertainty = torch.zeros([1, self.num_classes] + list(predictions[0].shape[2:]), dtype=torch.float).cuda(self.get_device(), non_blocking=True)
+        for prediction in predictions:
+            uncertainty += (prediction - predictive_posterior_mean) ** 2
+        uncertainty /= len(predictions)
+        #uncertainty = torch.nan_to_num(uncertainty)
+        #print("after min: {}, max: {}".format(torch.min(uncertainty), torch.max(uncertainty)))
+        return uncertainty
 
     def _internal_maybe_mirror_and_pred_2D(self, x: Union[np.ndarray, torch.tensor], mirror_axes: tuple,
                                            do_mirroring: bool = True,
@@ -569,7 +630,7 @@ class SegmentationNetwork(NeuralNetwork):
         # if cuda available:
         #   everything in here takes place on the GPU. If x and mult are not yet on GPU this will be taken care of here
         #   we now return a cuda tensor! Not numpy array!
-        
+
         assert len(x.shape) == 4, 'x must be (b, c, x, y)'
 
         x = maybe_to_torch(x)
