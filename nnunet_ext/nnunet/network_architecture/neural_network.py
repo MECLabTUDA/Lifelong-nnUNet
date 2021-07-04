@@ -11,6 +11,11 @@
 #    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
+#
+# Taken from commit specified in requirements.txt from https://github.com/MIC-DKFZ/nnUNet.
+# Changes include:
+# - Extracting features
+# - Support for MCDO and TTA
 
 import pickle
 import numpy as np
@@ -45,7 +50,6 @@ class NeuralNetwork(nn.Module):
 
     def forward(self, x):
         raise NotImplementedError
-
 
 class SegmentationNetwork(NeuralNetwork):
     def __init__(self):

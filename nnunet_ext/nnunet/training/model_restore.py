@@ -11,14 +11,18 @@
 #    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
+#
+# Taken from commit specified in requirements.txt from https://github.com/MIC-DKFZ/nnUNet.
+# Changes include:
+# - Pass on MCDO
+# - Change where to look for a trainer so that the nnunet_ext trainr is initialized
 
-import nnunet
+import nnunet_ext
 import torch
 from batchgenerators.utilities.file_and_folder_operations import *
 import importlib
 import pkgutil
 from nnunet_ext.nnunet.training.network_training.nnUNetTrainer import nnUNetTrainer
-
 
 def recursive_find_python_class(folder, trainer_name, current_module):
     tr = None
@@ -56,9 +60,9 @@ def restore_model(pkl_file, checkpoint=None, train=False, fp16=None):
     info = load_pickle(pkl_file)
     init = info['init']
     name = info['name']
-    search_in = join(nnunet.__path__[0], "training", "network_training")
-    tr = recursive_find_python_class([search_in], name, current_module="nnunet.training.network_training")
-
+    #search_in = join(nnunet.__path__[0], "training", "network_training")
+    search_in = join(nnunet_ext.__path__[0], "nnunet", "training", "network_training")
+    tr = recursive_find_python_class([search_in], name, current_module="nnunet_ext.nnunet.training.network_training")
     if tr is None:
         """
         Fabian only. This will trigger searching for trainer classes in other repositories as well

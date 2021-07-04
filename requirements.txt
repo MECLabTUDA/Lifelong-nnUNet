@@ -2,4 +2,7 @@ pytest
 git+https://github.com/MIC-DKFZ/nnUNet.git@77bc485ee025a61feb91cb0a0ed1c61a32a0f39f
 git+https://github.com/FabianIsensee/hiddenlayer.git@more_plotted_details#egg=hiddenlayer
 python-telegram-bot==12.8
+seaborn==0.11.1
+natsort==7.1.1
+nilearn==0.7.0
 -e.
