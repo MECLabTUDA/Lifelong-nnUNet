@@ -29,7 +29,7 @@ def softmax_uncertainty(outputs_path, base_name, nr_labels=2, part=0,
     return uncertainty
 
 def dropout_uncertainty(MC_outputs_path, base_name, label=1, norm=False,
-    store_npy=False, store_mask=False):
+    store_npy=True, store_mask=False):
     r"""Considers the standard deviation between outputs as the uncertainty for 
     each voxel.
     """
@@ -61,7 +61,7 @@ def _kl_div_from_uniform(p, smoothing=0.0001):
     return sum(p[i] * log2(p[i]/q[i]) for i in range(len(p)))
 
 def kl_uncertainty(outputs_path, base_name, nr_labels=2, part=0, norm=False,
-    invert=False, store_mask=False):
+    store_npy=True, invert=False, store_mask=False):
     r"""Considers the KL divergence from an uniform distribution as the 
     confidence for each voxel.
     """
@@ -81,7 +81,8 @@ def kl_uncertainty(outputs_path, base_name, nr_labels=2, part=0, norm=False,
             kl[ix] = _kl_div_from_uniform([x[ix] for x in label_outputs])
         if norm:
             kl = utils.normalize(kl)
-        np.save(full_path, kl)
+        if store_npy:
+            np.save(full_path, kl)
         return kl
 
 def temp_scaled_uncertainty(non_softmaxed_outputs_path, base_name, temp=1000, 
@@ -120,7 +121,7 @@ def _get_gaussian(patch_size, sigma_scale=1. / 8) -> np.ndarray:
 
     return gaussian_importance_map
 
-def spatial_mahalanobis(features_path, base_name, feature_key, 
+def mahalanobis_uncertainty(features_path, base_name, feature_key, 
     patch_size=[28, 256, 256], use_gaussian=False, norm=False):
     distances_full_path = os.path.join(features_path, base_name + '_distances.pkl')
     feature_distances = pickle.load(open(distances_full_path, 'rb'))

@@ -6,10 +6,6 @@ import torch
 import pickle
 from nnunet_ext.calibration.mahalanobis.ActivationSeeker import ActivationSeeker
 
-hook_paths = dict()
-hook_paths['generic_UNet'] = []  # TODO desired feature names
-hook_paths['generic_UNet'] = {x: x for x in hook_paths['generic_UNet']}
-
 pooling_mod_2d = torch.nn.AvgPool2d((5, 5), stride=(3, 3))
 pooling_mod_3d = torch.nn.AvgPool3d((2, 2, 2), stride=(2, 2, 2))
 def apply_pooling(act):
@@ -20,9 +16,9 @@ def apply_pooling(act):
     else:
         raise Exception
 
-def get_act_seeker(model, hook_paths_key='generic_UNet'):
+def get_act_seeker(model, hook_paths=[]):
     act_seeker = ActivationSeeker()
-    hook_name_paths_dict = hook_paths[hook_paths_key]
+    hook_name_paths_dict = {x: x for x in hook_paths}
     act_seeker.attach_hooks(model, hook_name_paths_dict)
     return act_seeker
 

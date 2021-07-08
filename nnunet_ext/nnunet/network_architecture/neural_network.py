@@ -81,7 +81,8 @@ class SegmentationNetwork(NeuralNetwork):
                    step_size: float = 0.5, patch_size: Tuple[int, ...] = None, regions_class_order: Tuple[int, ...] = None,
                    use_gaussian: bool = False, pad_border_mode: str = "constant",
                    pad_kwargs: dict = None, all_in_gpu: bool = False,
-                   verbose: bool = True, mixed_precision: bool = True, tta: int = -1, mcdo: int = -1, features_dir=None) -> Tuple[np.ndarray, np.ndarray]:
+                   verbose: bool = True, mixed_precision: bool = True, tta: int = -1, mcdo: int = -1, 
+                   features_dir=None, feature_paths=None) -> Tuple[np.ndarray, np.ndarray]:
         """
         Use this function to predict a 3D image. It does not matter whether the network is a 2D or 3D U-Net, it will
         detect that automatically and run the appropriate code.
@@ -163,7 +164,8 @@ class SegmentationNetwork(NeuralNetwork):
                         res = self._internal_predict_3D_3Dconv_tiled(x, step_size, do_mirroring, mirror_axes, patch_size,
                                                                      regions_class_order, use_gaussian, pad_border_mode,
                                                                      pad_kwargs=pad_kwargs, all_in_gpu=all_in_gpu,
-                                                                     verbose=verbose, tta=tta, features_dir=features_dir)
+                                                                     verbose=verbose, tta=tta, 
+                                                                     features_dir=features_dir, feature_paths=feature_paths)
                     else:
                         res = self._internal_predict_3D_3Dconv(x, patch_size, do_mirroring, mirror_axes, regions_class_order,
                                                                pad_border_mode, pad_kwargs=pad_kwargs, verbose=verbose, tta=tta)
@@ -305,9 +307,9 @@ class SegmentationNetwork(NeuralNetwork):
     def _internal_predict_3D_3Dconv_tiled(self, x: np.ndarray, step_size: float, do_mirroring: bool, mirror_axes: tuple,
                                           patch_size: tuple, regions_class_order: tuple, use_gaussian: bool,
                                           pad_border_mode: str, pad_kwargs: dict, all_in_gpu: bool,
-                                          verbose: bool, tta: int = -1, features_dir=None) -> Tuple[np.ndarray, np.ndarray]:
-        # TODO
-        extract_distance_mask = True
+                                          verbose: bool, tta: int = -1, 
+                                          features_dir=None, feature_paths=None) -> Tuple[np.ndarray, np.ndarray]:
+
         # better safe than sorry
         assert len(x.shape) == 4, "x must be (c, x, y, z)"
 
@@ -390,11 +392,8 @@ class SegmentationNetwork(NeuralNetwork):
             aggregated_results = np.zeros([self.num_classes] + list(data.shape[1:]), dtype=np.float32)
             aggregated_nb_of_predictions = np.zeros([self.num_classes] + list(data.shape[1:]), dtype=np.float32)
         
-        if features_dir and extract_distance_mask:
-            distances_full_path = features_dir+'_distances.pkl'
-            feature_distances = pickle.load(open(distances_full_path, 'rb'))
-        elif features_dir:
-            act_seeker = get_act_seeker(self)
+        if features_dir:
+            act_seeker = get_act_seeker(self, hook_paths=feature_paths)
             features_save_full_path = features_dir+'.pkl'
             features = dict()
         
@@ -408,37 +407,24 @@ class SegmentationNetwork(NeuralNetwork):
                     lb_z = z
                     ub_z = z + patch_size[2]
 
-                    if features_dir and extract_distance_mask:
-                        feature_key = 'conv_blocks_context.4.blocks.1.conv'
-                        distance = feature_distances[str((ub_x, ub_y, ub_z))][feature_key]
-                        distance_patch = np.full((2, 28, 256, 256), float(distance))
-                        distance_patch *= gaussian_importance_map.cpu().numpy()
-                        predicted_patch = distance_patch
-                        #print('Shape of distance patch {}'.format(predicted_patch.shape))
+                    predicted_patch = self._internal_maybe_mirror_and_pred_3D(
+                        data[None, :, lb_x:ub_x, lb_y:ub_y, lb_z:ub_z], mirror_axes, do_mirroring,
+                        gaussian_importance_map, tta=tta)[0]
+
+                    # Add the indexes to the feature path to get back to it
+                    if features_dir:
+                        features[str((ub_x, ub_y, ub_z))] = extract_small_np_features(act_seeker)
+
+                    if all_in_gpu:
+                        predicted_patch = predicted_patch.half()
                     else:
-                        predicted_patch = self._internal_maybe_mirror_and_pred_3D(
-                            data[None, :, lb_x:ub_x, lb_y:ub_y, lb_z:ub_z], mirror_axes, do_mirroring,
-                            gaussian_importance_map, tta=tta)[0]
-
-                        # Add the indexes to the feature path to get back to it
-                        if features_dir:
-                            features[str((ub_x, ub_y, ub_z))] = extract_small_np_features(act_seeker)
-
-                        if all_in_gpu:
-                            predicted_patch = predicted_patch.half()
-                        else:
-                            predicted_patch = predicted_patch.cpu().numpy()  # HERE
-                        #print('Shape of predicted patch {}'.format(predicted_patch.shape))
+                        predicted_patch = predicted_patch.cpu().numpy()
 
                     aggregated_results[:, lb_x:ub_x, lb_y:ub_y, lb_z:ub_z] += predicted_patch
                     aggregated_nb_of_predictions[:, lb_x:ub_x, lb_y:ub_y, lb_z:ub_z] += add_for_nb_of_preds
-
-        
-        if features_dir and not extract_distance_mask:
+        if features_dir:
             act_seeker.remove_handles()
             pickle.dump(features, open(features_save_full_path, 'wb'))
-
-
         # we reverse the padding here (remeber that we padded the input to be at least as large as the patch size
         # In our case, this does not do anything
         slicer = tuple(
@@ -446,7 +432,6 @@ class SegmentationNetwork(NeuralNetwork):
              range(len(aggregated_results.shape) - (len(slicer) - 1))] + slicer[1:])
         aggregated_results = aggregated_results[slicer]
         aggregated_nb_of_predictions = aggregated_nb_of_predictions[slicer]
-
         # computing the class_probabilities by dividing the aggregated result with result_numsamples
         class_probabilities = aggregated_results / aggregated_nb_of_predictions
 
@@ -460,7 +445,6 @@ class SegmentationNetwork(NeuralNetwork):
             predicted_segmentation = np.zeros(class_probabilities_here.shape[1:], dtype=np.float32)
             for i, c in enumerate(regions_class_order):
                 predicted_segmentation[class_probabilities_here[i] > 0.5] = c
-
         if all_in_gpu:
             if verbose: print("copying results to CPU")
 
@@ -468,7 +452,6 @@ class SegmentationNetwork(NeuralNetwork):
                 predicted_segmentation = predicted_segmentation.detach().cpu().numpy()
 
             class_probabilities = class_probabilities.detach().cpu().numpy()
-
         if verbose: print("prediction done")
         return predicted_segmentation, class_probabilities
 

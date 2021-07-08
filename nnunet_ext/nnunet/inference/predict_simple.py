@@ -17,6 +17,7 @@
 # - Exporting network outputs before applying the softmax operation (--output_probabilities)
 # - Applying Dropout during inference (-mcdo)
 # - Applying TTA for extracting uncertainties (-uncertainty_tta)
+# - Turning off the softmax operation with --no_softmax
 
 import argparse
 import torch
@@ -25,7 +26,6 @@ from nnunet_ext.nnunet.inference.predict import predict_from_folder
 from nnunet.paths import default_plans_identifier, network_training_output_dir, default_cascade_trainer, default_trainer
 from batchgenerators.utilities.file_and_folder_operations import join, isdir
 from nnunet.utilities.task_name_id_conversion import convert_id_to_task_name
-
 
 def main():
     parser = argparse.ArgumentParser()
@@ -127,8 +127,11 @@ def main():
                              'the required vram. If you want to disable mixed precision you can set this flag. Note '
                              'that yhis is not recommended (mixed precision is ~2x faster!)')
     parser.add_argument("--output_probabilities", required=False, default=False, action='store_true')
+    parser.add_argument("--no_softmax", required=False, default=False, action='store_true')
     parser.add_argument("-uncertainty_tta", required=False, default=-1)
     parser.add_argument("-mcdo", required=False, default=-1)
+    parser.add_argument('-of', required=False, default=None, help="Folder for saving features.")
+    parser.add_argument('-feature_paths', required=False, default=None, nargs='+', help="Paths to network features.")
 
     args = parser.parse_args()
     input_folder = args.input_folder
@@ -154,6 +157,9 @@ def main():
     output_probabilities = args.output_probabilities
     uncertainty_tta = int(args.uncertainty_tta)
     mcdo = int(args.mcdo)
+    no_softmax = args.no_softmax
+    features_folder = args.of
+    feature_paths = args.feature_paths
 
     task_name = args.task_name
 
@@ -210,7 +216,9 @@ def main():
                             num_threads_preprocessing, num_threads_nifti_save, None, part_id, num_parts, not disable_tta,
                             overwrite_existing=overwrite_existing, mode=mode, overwrite_all_in_gpu=all_in_gpu,
                             mixed_precision=not args.disable_mixed_precision,
-                            step_size=step_size)
+                            step_size=step_size, output_probabilities=output_probabilities, 
+                        uncertainty_tta=uncertainty_tta, mcdo=mcdo, no_softmax=no_softmax,
+                        features_folder=features_folder, feature_paths=feature_paths)
         lowres_segmentations = lowres_output_folder
         torch.cuda.empty_cache()
         print("3d_lowres done")
@@ -230,7 +238,9 @@ def main():
                         overwrite_existing=overwrite_existing, mode=mode, overwrite_all_in_gpu=all_in_gpu,
                         mixed_precision=not args.disable_mixed_precision,
                         step_size=step_size, checkpoint_name=args.chk,
-                        output_probabilities=output_probabilities, uncertainty_tta=uncertainty_tta, mcdo=mcdo)
+                        output_probabilities=output_probabilities, 
+                        uncertainty_tta=uncertainty_tta, mcdo=mcdo, no_softmax=no_softmax,
+                        features_folder=features_folder, feature_paths=feature_paths)
 
 if __name__ == "__main__":
     main()

@@ -137,7 +137,8 @@ def predict_cases(model, list_of_lists, output_filenames, folds, save_npz, num_t
                   overwrite_existing=False,
                   all_in_gpu=False, step_size=0.5, checkpoint_name="model_final_checkpoint",
                   segmentation_export_kwargs: dict = None, disable_postprocessing: bool = False,
-                  output_probabilities: bool = False, tta: int = -1, mcdo: int = -1):
+                  output_probabilities: bool = False, tta: int = -1, mcdo: int = -1, no_softmax=False,
+                  features_dirs=None, feature_paths=None):
     """
     :param segmentation_export_kwargs:
     :param model: folder where the model is saved, must contain fold_x subfolders
@@ -188,6 +189,10 @@ def predict_cases(model, list_of_lists, output_filenames, folds, save_npz, num_t
     print("loading parameters for folds,", folds)
     trainer, params = load_model_and_checkpoint_files(model, folds, mixed_precision=mixed_precision,
                                                       checkpoint_name=checkpoint_name, mcdo=mcdo)
+    # If required, disable 'self.network.inference_apply_nonlin = softmax_helper',
+    # set during the trainer initialization
+    if no_softmax:
+        trainer.network.inference_apply_nonlin = lambda x: x
 
     if segmentation_export_kwargs is None:
         if 'segmentation_export_params' in trainer.plans.keys():
@@ -215,75 +220,23 @@ def predict_cases(model, list_of_lists, output_filenames, folds, save_npz, num_t
             data = np.load(d)
             os.remove(d)
             d = data
-
-        # If file exists, do not export
-        out_fname = output_filename
-        if output_probabilities and tta != -1:
-            part = tta
-        elif output_probabilities and mcdo != -1:
-            part = mcdo
-        elif output_probabilities:
-            part = folds[0]
-        else:
-            part = -1
-        if part != -1:
-            out_fname = out_fname[:-7] + "_" + str(0) + "_part_" + str(part) + ".nii.gz"
-        else:
-            out_fname = out_fname[:-7] + "_" + str(0) + ".nii.gz"
-
-        # This has changes somewhat from the original nnUNet_uncertainty code due to changes in the nnUNet code
-        if os.path.isfile(out_fname):
-            print('File found, not predicting')
-        else:
-            print("predicting", output_filename)
-            trainer.load_checkpoint_ram(params[0], False)
-            softmax = trainer.predict_preprocessed_data_return_seg_and_softmax(
-                d, do_mirroring=do_tta, mirror_axes=trainer.data_aug_params['mirror_axes'], use_sliding_window=True,
-                step_size=step_size, use_gaussian=True, all_in_gpu=all_in_gpu,
-                mixed_precision=mixed_precision, tta=tta, mcdo=mcdo)[1]  # Added tta=tta, mcdo=mcdo
-
-            for p in params[1:]:
+        
+        if features_dirs:  # Feature extraction
+            _, filename = os.path.split(output_filename)
+            filename = filename.split('.')[0]
+            features_dir = [d for d in features_dirs if filename in os.path.split(d)[1]]
+            assert len(features_dir) == 1
+            features_dir = features_dir[0]
+            for p in params:
                 trainer.load_checkpoint_ram(p, False)
-                softmax += trainer.predict_preprocessed_data_return_seg_and_softmax(
+                trainer.save_features(
                     d, do_mirroring=do_tta, mirror_axes=trainer.data_aug_params['mirror_axes'], use_sliding_window=True,
                     step_size=step_size, use_gaussian=True, all_in_gpu=all_in_gpu,
-                    mixed_precision=mixed_precision, tta=tta, mcdo=mcdo)[1]  # Added tta=tta, mcdo=mcdo
-
-            if len(params) > 1:
-                softmax /= len(params)
-
-            transpose_forward = trainer.plans.get('transpose_forward')
-            if transpose_forward is not None:
-                transpose_backward = trainer.plans.get('transpose_backward')
-                softmax = softmax.transpose([0] + [i + 1 for i in transpose_backward])
-
-            if save_npz:  # No
-                npz_file = output_filename[:-7] + ".npz"
-            else:
-                npz_file = None
-
-            if hasattr(trainer, 'regions_class_order'):
-                region_class_order = trainer.regions_class_order  # Is None
-            else:
-                region_class_order = None
-
-            """There is a problem with python process communication that prevents us from communicating obejcts 
-            larger than 2 GB between processes (basically when the length of the pickle string that will be sent is 
-            communicated by the multiprocessing.Pipe object then the placeholder (\%i I think) does not allow for long 
-            enough strings (lol). This could be fixed by changing i to l (for long) but that would require manually 
-            patching system python code. We circumvent that problem here by saving softmax_pred to a npy file that will 
-            then be read (and finally deleted) by the Process. save_segmentation_nifti_from_softmax can take either 
-            filename or np.ndarray and will handle this automatically"""
-            bytes_per_voxel = 4
-            if all_in_gpu:
-                bytes_per_voxel = 2  # if all_in_gpu then the return value is half (float16)
-            if np.prod(softmax.shape) > (2e9 / bytes_per_voxel * 0.85):  # * 0.85 just to be save
-                print(
-                    "This output is too large for python process-process communication. Saving output temporarily to disk")
-                np.save(output_filename[:-7] + ".npy", softmax)
-                softmax = output_filename[:-7] + ".npy"
-
-            # TODO: is this necessary to repeat?
+                    mixed_precision=mixed_precision, tta=tta, mcdo=mcdo, 
+                    features_dir=features_dir, feature_paths=feature_paths)[1][None]
+        else:  # Save predictions or network outputs
+            # If file exists, do not export
+            out_fname = output_filename
             if output_probabilities and tta != -1:
                 part = tta
             elif output_probabilities and mcdo != -1:
@@ -292,35 +245,101 @@ def predict_cases(model, list_of_lists, output_filenames, folds, save_npz, num_t
                 part = folds[0]
             else:
                 part = -1
-
-            results.append(pool.starmap_async(save_segmentation_nifti_from_softmax,
-                                            ((softmax, output_filename, dct, interpolation_order, region_class_order,
-                                                None, None,
-                                                npz_file, None, force_separate_z, interpolation_order_z, True, output_probabilities, part),)
-                                            )) # Added True, output_probabilities, part
-
-        print("inference done. Now waiting for the segmentation export to finish...")
-        _ = [i.get() for i in results]
-        # now apply postprocessing
-        # first load the postprocessing properties if they are present. Else raise a well visible warning
-        if not disable_postprocessing:
-            results = []
-            pp_file = join(model, "postprocessing.json")
-            if isfile(pp_file):
-                print("postprocessing...")
-                shutil.copy(pp_file, os.path.abspath(os.path.dirname(output_filenames[0])))
-                # for_which_classes stores for which of the classes everything but the largest connected component needs to be
-                # removed
-                for_which_classes, min_valid_obj_size = load_postprocessing(pp_file)
-                results.append(pool.starmap_async(load_remove_save,
-                                                zip(output_filenames, output_filenames,
-                                                    [for_which_classes] * len(output_filenames),
-                                                    [min_valid_obj_size] * len(output_filenames))))
-                _ = [i.get() for i in results]
+            if part != -1:
+                out_fname = out_fname[:-7] + "_" + str(0) + "_part_" + str(part) + ".nii.gz"
             else:
-                print("WARNING! Cannot run postprocessing because the postprocessing file is missing. Make sure to run "
-                    "consolidate_folds in the output folder of the model first!\nThe folder you need to run this in is "
-                    "%s" % model)
+                out_fname = out_fname[:-7] + "_" + str(0) + ".nii.gz"
+
+            # This has changed somewhat from the original nnUNet_uncertainty code due to changes in the nnUNet code
+            if os.path.isfile(out_fname):
+                print('File found, not predicting')
+            else:
+                print("predicting", output_filename)
+                trainer.load_checkpoint_ram(params[0], False)
+                softmax = trainer.predict_preprocessed_data_return_seg_and_softmax(
+                    d, do_mirroring=do_tta, mirror_axes=trainer.data_aug_params['mirror_axes'], use_sliding_window=True,
+                    step_size=step_size, use_gaussian=True, all_in_gpu=all_in_gpu,
+                    mixed_precision=mixed_precision, tta=tta, mcdo=mcdo)[1]  # Added tta=tta, mcdo=mcdo
+
+                for p in params[1:]:
+                    trainer.load_checkpoint_ram(p, False)
+                    softmax += trainer.predict_preprocessed_data_return_seg_and_softmax(
+                        d, do_mirroring=do_tta, mirror_axes=trainer.data_aug_params['mirror_axes'], use_sliding_window=True,
+                        step_size=step_size, use_gaussian=True, all_in_gpu=all_in_gpu,
+                        mixed_precision=mixed_precision, tta=tta, mcdo=mcdo)[1]  # Added tta=tta, mcdo=mcdo
+
+                if len(params) > 1:
+                    softmax /= len(params)
+
+                transpose_forward = trainer.plans.get('transpose_forward')
+                if transpose_forward is not None:
+                    transpose_backward = trainer.plans.get('transpose_backward')
+                    softmax = softmax.transpose([0] + [i + 1 for i in transpose_backward])
+
+                if save_npz:  # No
+                    npz_file = output_filename[:-7] + ".npz"
+                else:
+                    npz_file = None
+
+                if hasattr(trainer, 'regions_class_order'):
+                    region_class_order = trainer.regions_class_order  # Is None
+                else:
+                    region_class_order = None
+
+                """There is a problem with python process communication that prevents us from communicating obejcts 
+                larger than 2 GB between processes (basically when the length of the pickle string that will be sent is 
+                communicated by the multiprocessing.Pipe object then the placeholder (\%i I think) does not allow for long 
+                enough strings (lol). This could be fixed by changing i to l (for long) but that would require manually 
+                patching system python code. We circumvent that problem here by saving softmax_pred to a npy file that will 
+                then be read (and finally deleted) by the Process. save_segmentation_nifti_from_softmax can take either 
+                filename or np.ndarray and will handle this automatically"""
+                bytes_per_voxel = 4
+                if all_in_gpu:
+                    bytes_per_voxel = 2  # if all_in_gpu then the return value is half (float16)
+                if np.prod(softmax.shape) > (2e9 / bytes_per_voxel * 0.85):  # * 0.85 just to be save
+                    print(
+                        "This output is too large for python process-process communication. Saving output temporarily to disk")
+                    np.save(output_filename[:-7] + ".npy", softmax)
+                    softmax = output_filename[:-7] + ".npy"
+
+                # TODO: is this necessary to repeat?
+                if output_probabilities and tta != -1:
+                    part = tta
+                elif output_probabilities and mcdo != -1:
+                    part = mcdo
+                elif output_probabilities:
+                    part = folds[0]
+                else:
+                    part = -1
+
+                results.append(pool.starmap_async(save_segmentation_nifti_from_softmax,
+                                                ((softmax, output_filename, dct, interpolation_order, region_class_order,
+                                                    None, None,
+                                                    npz_file, None, force_separate_z, interpolation_order_z, True, output_probabilities, part),)
+                                                )) # Added True, output_probabilities, part
+
+            print("inference done. Now waiting for the segmentation export to finish...")
+            _ = [i.get() for i in results]
+            # now apply postprocessing
+            # first load the postprocessing properties if they are present. Else raise a well visible warning
+            if not disable_postprocessing:
+                results = []
+                pp_file = join(model, "postprocessing.json")
+                if isfile(pp_file):
+                    print("postprocessing...")
+                    shutil.copy(pp_file, os.path.abspath(os.path.dirname(output_filenames[0])))
+                    # for_which_classes stores for which of the classes everything but the largest connected component needs to be
+                    # removed
+                    for_which_classes, min_valid_obj_size = load_postprocessing(pp_file)
+                    results.append(pool.starmap_async(load_remove_save,
+                                                    zip(output_filenames, output_filenames,
+                                                        [for_which_classes] * len(output_filenames),
+                                                        [min_valid_obj_size] * len(output_filenames))))
+                    _ = [i.get() for i in results]
+                else:
+                    print("WARNING! Cannot run postprocessing because the postprocessing file is missing. Make sure to run "
+                        "consolidate_folds in the output folder of the model first!\nThe folder you need to run this in is "
+                        "%s" % model)
 
     pool.close()
     pool.join()
@@ -369,7 +388,8 @@ def predict_from_folder(model: str, input_folder: str, output_folder: str, folds
                         overwrite_existing: bool = True, mode: str = 'normal', overwrite_all_in_gpu: bool = None,
                         step_size: float = 0.5, checkpoint_name: str = "model_final_checkpoint",
                         segmentation_export_kwargs: dict = None, disable_postprocessing: bool = False,
-                        output_probabilities: bool = False, uncertainty_tta: int = -1, mcdo: int = -1):
+                        output_probabilities: bool = False, uncertainty_tta: int = -1, mcdo: int = -1, no_softmax = False,
+                        features_folder=None, feature_paths=None):
     """
         here we use the standard naming scheme to generate list_of_lists and output_files needed by predict_cases
 
@@ -411,11 +431,20 @@ def predict_from_folder(model: str, input_folder: str, output_folder: str, folds
     else:
         lowres_segmentations = None
 
+    if features_folder is not None:
+        if not os.path.isdir(features_folder):
+            os.makedirs(features_folder)
+        features_dirs = [join(features_folder, i) for i in case_ids]
+        features_dirs = features_dirs[part_id::num_parts]
+    else:
+        features_dirs = None
+
     if mode == "normal":
         if overwrite_all_in_gpu is None:
             all_in_gpu = False
         else:
             all_in_gpu = overwrite_all_in_gpu
+
 
         return predict_cases(model, list_of_lists[part_id::num_parts], output_files[part_id::num_parts], folds,
                              save_npz, num_threads_preprocessing, num_threads_nifti_save, lowres_segmentations, tta,
@@ -424,6 +453,7 @@ def predict_from_folder(model: str, input_folder: str, output_folder: str, folds
                              step_size=step_size, checkpoint_name=checkpoint_name,
                              segmentation_export_kwargs=segmentation_export_kwargs,
                              disable_postprocessing=disable_postprocessing,
-                             output_probabilities=output_probabilities, tta=uncertainty_tta, mcdo=mcdo)
+                             output_probabilities=output_probabilities, tta=uncertainty_tta, mcdo=mcdo, no_softmax=no_softmax,
+                             features_dirs=features_dirs, feature_paths=feature_paths)
     else:
         raise ValueError("unrecognized mode. Must be normal.")

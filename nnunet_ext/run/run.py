@@ -34,7 +34,7 @@ def nnUNet_plan_and_preprocess(args=None, task_id=None, verify_dataset_integrity
 
 def nnUNet_predict(args=None, input_path=None, output_path=None, task_id=None,
     model_type='3d_fullres', checkpoint='model_final_checkpoint', fold_ix=0, disable_tta=True,
-    extract_outputs=False, mcdo=-1, softmaxed=True):
+    extract_outputs=False, mcdo=-1, softmaxed=True, output_features_path=None, feature_paths=None):
     if args is None:
         args = ['']
         args += ['-i', input_path]
@@ -46,9 +46,12 @@ def nnUNet_predict(args=None, input_path=None, output_path=None, task_id=None,
             # Instead of predictions, outputs are extracted
             args += ['--output_probabilities']
         if not softmaxed:
-            args += ['--no_softmax']  #TODO
+            args += ['--no_softmax']
         # If mcdo > -1, Dropout is activated and output ix "mcdo" is extracted
         args += ['-mcdo', str(mcdo)]
+        if output_features_path and feature_paths:
+            args += ['-of', output_features_path]
+            args += ['-feature_paths'] + feature_paths
     sys.argv = args
     predict_simple.main()
 
