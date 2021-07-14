@@ -29,7 +29,7 @@ def softmax_uncertainty(outputs_path, base_name, nr_labels=2, part=0,
     return uncertainty
 
 def dropout_uncertainty(MC_outputs_path, base_name, label=1, norm=False,
-    store_npy=True, store_mask=False):
+    store_npy=False, store_mask=False):
     r"""Considers the standard deviation between outputs as the uncertainty for 
     each voxel.
     """
@@ -61,7 +61,7 @@ def _kl_div_from_uniform(p, smoothing=0.0001):
     return sum(p[i] * log2(p[i]/q[i]) for i in range(len(p)))
 
 def kl_uncertainty(outputs_path, base_name, nr_labels=2, part=0, norm=False,
-    store_npy=True, invert=False, store_mask=False):
+    store_npy=False, invert=False, store_mask=False):
     r"""Considers the KL divergence from an uniform distribution as the 
     confidence for each voxel.
     """

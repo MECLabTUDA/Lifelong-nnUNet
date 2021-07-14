@@ -2,7 +2,7 @@
 
 This repository aims to extend the popular [nnUNet](https://github.com/MIC-DKFZ/nnUNet) framework with methods that allow for a safer on-the-wild use. This includes functionality for continual learning, out-of-distribution detection and self-supervision. 
 
-Currently, each of these functionalities is found under a specific branch, so please make sure to `checkout` the desired branch before continuing. Each branch may, for instance, require setting specific environment variables.
+Currently, each of these functionalities is found under a specific branch, such as the `ood_detection` brach you are currently at.
 
 The supported nnUNet version is specified in the `requirements.txt` file. Please note that, at times, files are replicated from this version and adapted as needed. If you wish to use a newer nnUNet version, please make sure that all adapted files are consistent with that version.
 
@@ -18,8 +18,22 @@ The supported nnUNet version is specified in the `requirements.txt` file. Please
 
 ## Introduction
 
-You are currently at the `main` branch. Please `checkout` one of the other branches, `continual_learning`, `ood_detection` or `self_supervision`, for specific functionality. Within this repository, you will also find useful modules to train multi-headed UNets and map existing datasets into a new label structure. Please note that the project is under construction at the time, so only limited functionality has been implemented and tested until this date.
+This branch currently includes the functionality needed to perform the experiments in [**Detecting when pre-trained nnU-Net models fail silently for Covid-19 lung lesion segmentation**](https://arxiv.org/pdf/2107.05975.pdf), which will be presented at MICCAI 2021 in September.
 
+This currently includes the following methods for detecting OOD samples:
+* Maximum softmax value
+* Temperature scaling
+* KL from uniform
+* Monte Carlo Dropout
+* Mahalanobis distance to training features
+
+For instructions on how to run these please see [here](documentation/ood_detection.md).
+
+If you use the code, please cite (to be updated):
+
+    Gonzalez, C., Gotkowski, K., Bucher, A., Fischbach, R., Kaltenborn, I., & Mukhopadhyay, A. (2021) Detecting when pre-trained nnU-Net models fail silently for Covid-19 lung lesion segmentation. arXiv preprint arXiv:2107.05975.
+
+As well as, of course, the publications of the corresponding methods (see [here](documentation/ood_detection.md)) as well as [the publication specified by the nnUNet authors](https://github.com/MIC-DKFZ/nnUNet).
 
 ## Installation
 

@@ -182,9 +182,11 @@ def calibration_error(items, metric='Dice', nr_bins=10):
     return ece
 
 def evaluate_uncertainty_method(eval_storage_path, results_name='results', 
-    methods=['MaxSoftmax'], id_test=[], ood=[]):
+    methods=None, id_test=[], ood=[]):
     r"""Returns a number of measures to assess OOD detection and calibration quality.
     """
+    if methods is None:
+        methods=['MaxSoftmax', 'MCDropout', 'KL', 'Mahalanobis'] + ['TempScaling_{}'.format(t) for t in [10, 100, 1000]]
     df_data = []
     for method in methods:
         items = load_results(eval_storage_path=eval_storage_path, method=method, 
