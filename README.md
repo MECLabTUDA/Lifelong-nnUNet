@@ -26,8 +26,8 @@ You are currently at the `main` branch. Please `checkout` one of the other branc
 The simplest way to install all dependencies is by using [Anaconda](https://conda.io/projects/conda/en/latest/index.html):
 
 1. Create a Python 3.9 environment as `conda create -n <your_conda_env> python=3.9` and activate it as `conda activate  <your_conda_env>`.
-2. Install CUDA and PyTorch through conda with the command specified by https://pytorch.org/. The command for Linux was at the time `conda install pytorch torchvision cudatoolkit=10.2 -c pytorch`. At least PyTorch version 1.6 is required, and the code was last tested with version 1.9. Pytorch and TorchVision versions can be specified during the installation as `conda install pytorch==<X.X.X> torchvision==<X.X.X> cudatoolkit=<X.X> -c pytorch`
-3. Navigate to the project root (where `setup.py` lives)
+2. Install CUDA and PyTorch through conda with the command specified by https://pytorch.org/. The command for Linux was at the time `conda install pytorch torchvision cudatoolkit=10.2 -c pytorch`. At least PyTorch version 1.6 is required, and the code was last tested with version 1.9. Pytorch and TorchVision versions can be specified during the installation as `conda install pytorch==<X.X.X> torchvision==<X.X.X> cudatoolkit=<X.X> -c pytorch`.
+3. Navigate to the project root (where `setup.py` lives).
 4. Execute `pip install -r requirements.txt` to install all required packages. With this step, the [original nnUNet](https://github.com/MIC-DKFZ/nnUNet) will be installed as well, so all commands described there will work. Please note that the nnUNet commit to install is specified in requirements.txt, the code may not work for other versions of the nnUNet.
 5. Set your paths as described [here](documentation/setting_up_paths.md). You should set [these](#required-paths) paths.
 6. Execute `pytest` to ensure that everything is working. All tests should work, however one test specifically tests if at least one GPU is present, so this one might fail if no GPU is installed.
