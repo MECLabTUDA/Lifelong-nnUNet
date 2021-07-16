@@ -1,3 +1,9 @@
+# Ignore the following directories and files:
+/nnunet_ext/ignored/*
+/storage/*
+/.vscode/*
+/.pytest_cache/*
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
