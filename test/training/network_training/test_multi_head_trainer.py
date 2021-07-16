@@ -20,7 +20,7 @@ from nnunet_ext.experiment_planning.dataset_label_mapping import main as dataset
 from nnunet_ext.utilities.helpful_functions import delete_dir_con, join_texts_with_char, move_dir
 from nnunet_ext.paths import network_training_output_dir_base as old_network_training_output_dir_base
 from nnunet.run.default_configuration import get_default_configuration as nn_get_default_configuration
-from nnunet_ext.training.network_training.multihead.nnUNetTrainerMultiHead import nnUNetTrainerMultiHead# Own implemented class
+from nnunet_ext.training.network_training.multihead.nnUNetTrainerMultiHead import nnUNetTrainerMultiHead # Own implemented class
 from batchgenerators.utilities.file_and_folder_operations import maybe_mkdir_p, join, load_json, save_json
 
 #-------------------------- Copied from nnU-Net implementation but changed -----------------------------------#

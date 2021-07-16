@@ -2,7 +2,8 @@
 #------This module contains useful functions that are used throughout the nnUNet_extensions project.-----#
 ##########################################################################################################
 
-import sys, os, shutil
+from types import ModuleType
+import sys, os, shutil, importlib
 from batchgenerators.utilities.file_and_folder_operations import join
 from nnunet_ext.paths import nnUNet_raw_data, nnUNet_cropped_data, preprocessing_output_dir
 
@@ -91,14 +92,31 @@ def delete_task(task_id):
     except Exception as e:
         print(e)
 
-def refresh_mod_imports(mod):
+def refresh_mod_imports(mod, reload=False):
     r"""This function can be used especially during generic testing, when a specific import
-        needs to be refreshed, ie. resetted.
-        :param mod: String specifying module name or distinct string (stem like nnunet) that is
-                    included in a bunch of modules that should all be refreshed.
+        needs to be refreshed, ie. resetted or reloaded.
+        :param mod: String specifying module name or distinct string (stem like 'nnunet') that is
+                    included in a bunch of modules that should all be refreshed/removed from sys modules.
+                    If reload is True than mod needs to be a module otherwise the reload fails.
+        :param reload: Boolean specifying if using importlib to reload a module.
         Example: All imported modules during a test that are connnected to nnUNet or Lifelong-nnUNet
                  need to be refreshed, then simply provide mod = 'nnunet'.
+                 If a specific module needs to be reloaded like MultiHead_Module, then mod = MultiHead_Module
+                 and reload = True. Note that mod needs to be of type Module for this to work.
     """
-    for key in list(sys.modules.keys()):
-        if mod in key:
-            del sys.modules[key]
+    # -- When the user wants to reload a Module, then use importlib -- #
+    if reload == True:
+        # -- Check that mod is a Module, otherwise importlib will throw an error -- #
+        assert isinstance(mod, ModuleType), "When trying to reload a module, then please provide a module."
+        # -- Reload/Reimport mod -- #
+        importlib.reload(mod)
+    # -- User does not want to use importlib, ie. the modules that contain mod in their name are removed from the sys modules -- #
+    else:
+        # -- Check that mod is of type string in this case -- #
+        assert isinstance(mod, str), "When removing all modules based on a mapping string, than mod should be a string."
+        # -- loop through all present modules in sys -- #
+        for key in list(sys.modules.keys()):
+            # -- If mod is part of the key name in any shape or form -- #
+            if mod in key:
+                # -- Remove it from the sys modules -- #
+                del sys.modules[key]

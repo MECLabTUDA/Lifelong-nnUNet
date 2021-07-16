@@ -118,7 +118,6 @@ class MultiHead_Module(nn.Module):
 
         # -- Assemble the model so it can be used for training -- #
         self.assemble_model(task)
-        #print(self.replace_layers(self.heads[task], nn.Conv2d, nn.AdaptiveMaxPool2d((6, 6)))) 
 
     def forward(self, x):
         r"""Forward pass during training --> task needs to be specified before calling forward.
@@ -336,27 +335,47 @@ class MultiHead_Module(nn.Module):
         for name, module in self.body.named_children():
             assembled_model.add_module(name, module)
 
-        # -- Loop through corresponding head and add the modulew based on their names to assembled_model -- #
-        layer_id = len(self.split)-1
-        for name, head_part in head.named_children():
-            # -- At this point no module is split in between itself anymore, so there is no fusion, only concatenation -- #
-            # -- When we are at the top layer, add the head_part directly, no extraction necessary -- #
-            if layer_id == 0:
-                assembled_model.add_module(name, head_part)
-            else:
-                # -- Add the head_part based on the current layer_id -- #
-                attrgetter('.'.join(self.split[:layer_id]))(assembled_model).add_module(name, head_part) 
-                # -- Reduce layer_id so the following modules will be added to the right level -- #
-                layer_id -= 1
+        # -- Add all modules from the head based on their names to assembled_model -- #
+        assembled_model, _ = self._join_body_head_recursively(assembled_model, head, list())
 
         # -- Set the active_task -- #
         self.active_task = task
-
+        
         # -- Load the state_dict from the assembled model into self.model for updating the running model -- #
         self.model.load_state_dict(assembled_model.state_dict())
 
         # -- Return the updated model since it might be used in a calling function (inheritance) -- #
         return self.model
+
+    def _join_body_head_recursively(self, body, head, parents=list()):
+        r"""This function is used to join a body with a head in a recursive manner. This function
+            is only used internally when assembling a model given a specific task.
+        """
+        # -- Loop through the modules in the head -- #
+        for name, module in head.named_children():
+            # -- If there are still children left, go recursive -- #
+            if len(list(module.children())) > 0:
+                # -- Try to access the module in the body -- #
+                try:
+                    # -- If it does exist, than move on as used to -- #
+                    _ = attrgetter('.'.join([*parents, name]))(body)
+                except:
+                    # -- NOTE: The modules from the head do not exist in body so simply set the modules at the right position -- #
+                    if len(parents) > 0:
+                        # -- We are in a deeper layer so use the tracked path to add the module at correct position -- #
+                        setattr(attrgetter('.'.join(parents))(body), name, module)
+                    else:
+                        # -- No parent exist, ie. first layer, than just add the module -- #
+                        setattr(body, name, module)
+
+                # -- Add the current name into parents to keep track of the path -- #
+                parents.append(name)
+
+                # -- Go one layer deeper -- #
+                body, parents = self._join_body_head_recursively(body, module, parents)
+
+        # -- Return the updated body, head and parent without the current node -- #
+        return body, parents[:-1]
     
     def add_new_task(self, task, model=None):
         r"""Use this function to add the initial module from on the first split.

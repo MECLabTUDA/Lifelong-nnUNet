@@ -4,11 +4,12 @@
 
 import numpy as np
 from torch import nn
+import os, sys, copy
 from typing import Tuple
-import os, sys, copy, importlib
 from operator import attrgetter
 from nnunet_ext.network_architecture import MultiHead_Module
 from nnunet.network_architecture.generic_UNet import Generic_UNet
+from nnunet_ext.utilities.helpful_functions import refresh_mod_imports as refresh_imports
 
 # -- Start testing --> This suite only tests the Multi Head Network, whereas no training will be performed -- #
 def test_multihead_network():
@@ -28,11 +29,11 @@ def test_multihead_network():
             # -- Look below how the GenericUNet the class initializes should look like -- #
             mh_network = MultiHead_Module.MultiHead_Module(Generic_UNet, splits[i], tasks[i], prev_trainer=None,
                                           input_channels=3, base_num_features=5, num_classes=2, num_pool=3) # Does not matter how to set it, just testing ..
-        else:   # --> Something is wrong here in a second loop
+        else:
             # -- Perform the second test by using a base model from the first test -- #
             mh_network = MultiHead_Module.MultiHead_Module(Generic_UNet, splits[i], tasks[i], prev_trainer=prev_trainer,
                                           input_channels=3, base_num_features=5, num_classes=2, num_pool=3) # Does not matter now since we use a base model ..
-        
+
         # -- Check that class object name is correct -- #
         assert mh_network.get_model_type() == 'Generic_UNet',\
             "The class name of the class on which we make a split on is \'{}\' and not \'Generic_UNet\' as expected.".format(mh_network.get_model_type())
@@ -71,7 +72,7 @@ def test_multihead_network():
         try:
             _ = mh_network.heads['single_addition']
         except:
-            assert False, "The desired task \'single_addition\' does not exist in the head althoug it should."
+            assert False, "The desired task \'single_addition\' does not exist in the head although it should."
         
         # -- Check that the activated task changed after the addition of a new task -- #
         assert mh_network.active_task == tasks[i],\
@@ -112,7 +113,7 @@ def test_multihead_network():
                 "The state_dicts in \'test_2\' and \'single_addition\' with key \'{}\' are not identical although they should.".format(key)
         
         # -- Replace conv2d layer in a specific head -- #
-        mh_network.replace_layers(mh_network.heads['test_1'], nn.Conv2d, nn.AdaptiveMaxPool2d((6, 6)))
+        mh_network.heads['test_1'] = mh_network.replace_layers(copy.deepcopy(mh_network.heads['test_1']), nn.Conv2d, nn.AdaptiveMaxPool2d((6, 6)))
         
         if i == 0:
             # -- Check that the conv2d layers in this specific head changed and that the a different head is unchanged -- #
@@ -132,7 +133,7 @@ def test_multihead_network():
         del mh_network
         
         # -- Reload the Multi Head module, otherwise there will be mixups during runtime and wrong results will be produced -- #
-        importlib.reload(MultiHead_Module)
+        refresh_imports(MultiHead_Module, reload=True)
     
     # -- Remove the prev_trainer after the loop since it will not be used anymore -- #
     del prev_trainer
@@ -150,7 +151,7 @@ def test_multihead_network():
         raise e
 
     # -- Reload the Multi Head module, otherwise there will be mixups during runtime and wrong results will be produced -- #
-    importlib.reload(MultiHead_Module)
+    refresh_imports(MultiHead_Module, reload=True)
     
     # -- Check that the split on the very last layer is working -- #
     try:
@@ -169,7 +170,7 @@ def test_multihead_network():
         raise e
 
     # -- Reload the Multi Head module, otherwise there will be mixups during runtime and wrong results will be produced -- #
-    importlib.reload(MultiHead_Module)
+    refresh_imports(MultiHead_Module, reload=True)
     
     # -- Test if the split on the deepest layer works -- #
     try:
@@ -188,7 +189,7 @@ def test_multihead_network():
         raise e
 
     # -- Reload the Multi Head module, otherwise there will be mixups during runtime and wrong results will be produced -- #
-    importlib.reload(MultiHead_Module)
+    refresh_imports(MultiHead_Module, reload=True)
     
     # -- Do some tests where an error should be thrown -- #
     # -- Give network a non string split path -- #
@@ -203,7 +204,7 @@ def test_multihead_network():
           assert False, "When providing a non like split, it is expected that the model should throw an error but it did not."
           
     # -- Reload the Multi Head module, otherwise there will be mixups during runtime and wrong results will be produced -- #
-    importlib.reload(MultiHead_Module)
+    refresh_imports(MultiHead_Module, reload=True)
     
     # -- Give network a direct split to first layer and indirect to first layer and expect an error thrown -- #
     for split in ['conv_blocks_localization', 'conv_blocks_localization.0', 'conv_blocks_localization.0.0.blocks', 'conv_blocks_localization.0.0.blocks.0.conv']:
@@ -216,7 +217,7 @@ def test_multihead_network():
               assert False, "When trying to split on first layer, the model should throw an error since this makes no sense but it did not."
             
     # -- Reload the Multi Head module, otherwise there will be mixups during runtime and wrong results will be produced -- #
-    importlib.reload(MultiHead_Module)
+    refresh_imports(MultiHead_Module, reload=True)
     
     # -- Give network a wrong split path that does not exist -- #
     try:
@@ -229,7 +230,7 @@ def test_multihead_network():
             assert False, "When providing a non existing split path, it is expected that the model should throw an error but it did not."
 
     # -- Reload the Multi Head module, otherwise there will be mixups during runtime and wrong results will be produced -- #
-    importlib.reload(MultiHead_Module)
+    refresh_imports(MultiHead_Module, reload=True)
     
     # -- Give network from wrong, non nn.Module module (class_object) -- #
     try:
@@ -242,7 +243,7 @@ def test_multihead_network():
             assert False, "The split Network should only be able for models based on nn.Module, but it did not."
 
     # -- Reload the Multi Head module, otherwise there will be mixups during runtime and wrong results will be produced -- #
-    importlib.reload(MultiHead_Module)
+    refresh_imports(MultiHead_Module, reload=True)
     
     # -- Use a prev_trainer that is not of the same type as the specified class_object -- #
     try:
@@ -255,7 +256,7 @@ def test_multihead_network():
             assert False, "When providing a prev_trainer, that is different from the specified class_object an error is expected."    
 
     # -- Reload the Multi Head module, otherwise there will be mixups during runtime and wrong results will be produced -- #
-    importlib.reload(MultiHead_Module)
+    refresh_imports(MultiHead_Module, reload=True)
     
     # -- Try to use an empty prev_trainer that maps the class_object -- #
     try:
