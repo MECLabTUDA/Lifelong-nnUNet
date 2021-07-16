@@ -2,7 +2,9 @@
 #------This module contains useful functions that are used throughout the nnUNet_extensions project.-----#
 ##########################################################################################################
 
-import os, shutil
+import sys, os, shutil
+from batchgenerators.utilities.file_and_folder_operations import join
+from nnunet_ext.paths import nnUNet_raw_data, nnUNet_cropped_data, preprocessing_output_dir
 
 def delete_dir_con(path):
     r"""This function deletes the whole content in the folder specified by the path and then deletes the empty folder
@@ -44,7 +46,10 @@ def move_dir(source, dest):
     shutil.move(source, dest, copy_function=shutil.copytree)
 
     # -- Delete empty folder from which everything has been moved -- #
-    delete_dir_con(source)
+    try:
+        delete_dir_con(source)
+    except: # Folder does not exist anymore
+        pass
 
 def join_texts_with_char(texts, combine_with):
     r"""This function takes a list of strings and joins them together with the combine_with between each text from texts.
@@ -55,3 +60,45 @@ def join_texts_with_char(texts, combine_with):
     assert isinstance(combine_with, str), "The character to combine the string series from the list with needs to be from type <string>."
     # -- Combine the string series from the list with the combine_with -- #
     return combine_with.join(texts)
+
+def delete_task(task_id):
+    r"""This function can be used to sucessfully delete a task in all nnU-Net directories.
+        If it does not exists there is nothign to delete.
+        :param task_id: A string representing the ID of the task to delete, e.g. '002' for the Decathlong Heart Dataset.
+    """
+    # -- Ensure that the task_id is of type string since an integer with a beginning 0 is not accepted as integer -- #
+    # -- Further ensure that the provided task_id is three digits long so we can be sure it is unique and only one task is removed -- #
+    assert isinstance(task_id, str) and len(task_id) == 3, "The provided task_id should be a string and exactly three digits long."
+    
+    # -- Extract all existing tasks as long as the desired id is in there -- #
+    task = [x for x in os.listdir(nnUNet_raw_data) if task_id in x] # Only the one with the mapping id
+    
+    # -- Check that the list only includes one element, if not raise an error since we do not know what to delete now -- #
+    assert len(task) == 1, "There are multiple tasks with the same task_id: {}.".format(join_texts_with_char(task, ' '))
+
+    # -- Delete the task in raw_data, cropped_data and preprocessed_data -- #
+    # -- For each deletion make a seperate try, since some script might crashed in between there and some parts are missing/deleted! -- #
+    try:
+        delete_dir_con(join(nnUNet_raw_data, task[0]))
+    except Exception as e:
+        print(e)
+    try:
+        delete_dir_con(join(nnUNet_cropped_data, task[0]))
+    except Exception as e:
+        print(e)
+    try:
+        delete_dir_con(join(preprocessing_output_dir, task[0]))
+    except Exception as e:
+        print(e)
+
+def refresh_mod_imports(mod):
+    r"""This function can be used especially during generic testing, when a specific import
+        needs to be refreshed, ie. resetted.
+        :param mod: String specifying module name or distinct string (stem like nnunet) that is
+                    included in a bunch of modules that should all be refreshed.
+        Example: All imported modules during a test that are connnected to nnUNet or Lifelong-nnUNet
+                 need to be refreshed, then simply provide mod = 'nnunet'.
+    """
+    for key in list(sys.modules.keys()):
+        if mod in key:
+            del sys.modules[key]

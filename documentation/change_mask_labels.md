@@ -3,7 +3,7 @@
 
 This is a general description on how to change the masks of a desired dataset based on a provided mapping file using the nnU-Net extension.
 
-1. The extension can only be used after it has been succesfully installed *-- including all dependencies --* following the instructions from [here](https://github.com/camgbus/nnUNet_extensions/blob/continual_learning/README.md#installation). Further, all relevant paths have to be set, so the nnU-Net and the nnU-Net extension can extract the right directories for training, preprocessing, storing etc. as described [here](https://github.com/MIC-DKFZ/nnUNet/blob/master/documentation/setting_up_paths.md).
+1. The extension can only be used after it has been succesfully installed *-- including all dependencies --* following the instructions from [here](https://github.com/camgbus/Lifelong-nnUNet/blob/continual_learning/README.md#installation). Further, all relevant paths have to be set, so the nnU-Net and the nnU-Net extension can extract the right directories for training, preprocessing, storing etc. as described [here](https://github.com/MIC-DKFZ/nnUNet/blob/master/documentation/setting_up_paths.md).
 
 2. The desired dataset for which the mask labels should be transformed needs to be located under the specified `nnUNet_raw_data_base` that has been set in the previous step. It is very important to know, that the dataset needs to have a Decathlon-like structure, ie. the name starts with `Task_XX`, whereas `XX` is a desired ID and the following structure should apply:
 

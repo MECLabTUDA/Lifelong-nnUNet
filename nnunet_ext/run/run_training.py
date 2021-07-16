@@ -296,7 +296,7 @@ def run_training(extension='multihead'):
     # ----------------------------------------------
     # Define dict with arguments for function calls
     # ----------------------------------------------
-    # -- Join all task names together with a '_' in between them
+    # -- Join all task names together with a '_' in between them -- #
     char_to_join_tasks = '_'
     tasks_list_with_char = (tasks_for_folds, char_to_join_tasks)
     tasks_joined_name = join_texts_with_char(tasks_for_folds, char_to_join_tasks)
@@ -304,7 +304,8 @@ def run_training(extension='multihead'):
     # -- Create all argument dictionaries that are used for function calls to make it more generic -- #
     basic_args = {'unpack_data': decompress_data, 'deterministic': deterministic, 'fp16': run_mixed_precision }          
     basic_exts = {'save_interval': save_interval, 'identifier': init_identifier, 'extension': extension,
-                  'tasks_list_with_char': copy.deepcopy(tasks_list_with_char), **basic_args}
+                  'tasks_list_with_char': copy.deepcopy(tasks_list_with_char), 
+                   'mixed_precision': run_mixed_precision, **basic_args}
     reh_args = {'samples_per_ds': samples, 'seed': seed, **basic_exts}
     ewc_args = {'ewc_lambda': ewc_lambda, **basic_exts}
     lwf_args = {'lwf_temperature': lwf_temperature, **basic_exts}
@@ -506,12 +507,12 @@ def run_training(extension='multihead'):
                     raise RuntimeError("Could not find trainer class in nnunet.training.network_training nor nnunet_ext.training.network_training")
 
                 # -- Load (pre-trained) prev_trainer for intialization --> will be initialized in next loop, always use init_output_folder -- #
-                if trainer_class.__name__ == str(nnUNetTrainerV2).split('.')[-1][:-2]:  # --> Initialization with nnUNetTrainerV2
+                if trainer_class.__name__ == nnUNetTrainerV2.__name__:  # --> Initialization with nnUNetTrainerV2
                     prev_trainer = trainer_class(plans_file, t_fold, output_folder=init_output_folder, dataset_directory=dataset_directory,\
                                                  batch_dice=batch_dice, stage=stage, **(args_f[trainer_class.__name__]))
                 else:
                     prev_trainer = trainer_class(split, t, plans_file, t_fold, output_folder=init_output_folder, dataset_directory=dataset_directory,\
-                                                 batch_dice=batch_dice, stage=stage, trainer_class_name=trainer_class.__name__,\
+                                                 batch_dice=batch_dice, stage=stage,\
                                                  already_trained_on=already_trained_on, **(args_f[trainer_class.__name__]))
                 
                 # -- Create already trained on for this task we are going to skip -- #
@@ -550,7 +551,7 @@ def run_training(extension='multihead'):
                 # -- During training the tasks will be updated, so this should cause no problems -- #
                 # -- Set the trainer with corresponding arguments --> can only be an extension from here on -- #
                 trainer = trainer_class(split, all_tasks[0], plans_file, t_fold, output_folder=output_folder_name, dataset_directory=dataset_directory,\
-                                        batch_dice=batch_dice, stage=stage, trainer_class_name=trainer_class.__name__,\
+                                        batch_dice=batch_dice, stage=stage,\
                                         already_trained_on=already_trained_on, **(args_f[trainer_class.__name__]))
 
                 # -- Initialize the trainer with the dataset, task, fold, optimizer, etc. -- #
@@ -602,7 +603,7 @@ def run_training(extension='multihead'):
                 # -- Evaluate the trainers network -- #
                 trainer.network.eval()
 
-                # -- Predict the trainers validation -- #
+                # -- Perform validation using the trainer -- #
                 trainer.validate(save_softmax=args.npz, validation_folder_name=val_folder,
                                  run_postprocessing_on_folds=not disable_postprocessing_on_folds,
                                  overwrite=args.val_disable_overwrite)
@@ -636,7 +637,10 @@ def run_training(extension='multihead'):
             # -- Delete content of the folder -- #
             move_dir(prev_trainer_path, p_folder_path)
         
-    # -- Reset init_seq and prev_trainer -- #
-    init_seq = args.init_seq
-    prev_trainer = args.initialize_with_network_trainer
+        # -- Reset init_seq and prev_trainer -- #
+        init_seq = args.init_seq
+        prev_trainer = args.initialize_with_network_trainer
+
+    # -- Reset cuda device as environment variable, otherwise other GPUs might not be available ! -- #
+    del os.environ["CUDA_VISIBLE_DEVICES"]
 #------------------------------------------- Inspired by original implementation -------------------------------------------#

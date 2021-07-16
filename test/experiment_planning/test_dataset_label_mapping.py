@@ -3,6 +3,7 @@ import SimpleITK as sitk
 from nnunet_ext.experiment_planning.dataset_label_mapping import _perform_transformation_on_mask_using_mapping
 
 def test_dataset_label_mapping():
+    r"""This function is used to test the dataset label mapping function."""
     # -- Define mask as numpy array for the test -- #
     mask = np.array([[[1, 2, 3, 4],
                       [5, 6, 7, 8],
@@ -78,7 +79,7 @@ def test_dataset_label_mapping():
 
     # -- Create the transformed mask --> expect an error this time -- #
     try:
-        new_mask = _perform_transformation_on_mask_using_mapping(mask, mapping)
+        _ = _perform_transformation_on_mask_using_mapping(mask, mapping)
         assert False, "Expected an error due to empty mapping."
     except Exception as ex:
         if type(ex).__name__ != "AssertionError":

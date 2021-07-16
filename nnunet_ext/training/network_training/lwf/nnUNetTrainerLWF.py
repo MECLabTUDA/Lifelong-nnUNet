@@ -26,12 +26,12 @@ class nnUNetTrainerLWF(nnUNetTrainerMultiHead): # Inherit default trainer class 
     def __init__(self, split, task, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
                  identifier=default_plans_identifier, extension='lwf', lwf_temperature=2.0, tasks_list_with_char=None,
-                 trainer_class_name=None):
+                 mixed_precision=True):
         r"""Constructor of LWF trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
         """
         # -- Initialize using parent class -- #
         super().__init__(split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic,
-                         fp16, save_interval, already_trained_on, use_progress, identifier, extension, tasks_list_with_char, trainer_class_name)
+                         fp16, save_interval, already_trained_on, use_progress, identifier, extension, tasks_list_with_char)
 
         # -- Set the temperature variable for the LWF Loss calculation during training -- #
         self.lwf_temperature = lwf_temperature
@@ -39,7 +39,12 @@ class nnUNetTrainerLWF(nnUNetTrainerMultiHead): # Inherit default trainer class 
         # -- Update lwf_temperature in trained on file fore restoring to be able to ensure that lwf_temperature can not be changed during training -- #
         self.already_trained_on[str(self.fold)]['used_lwf_temperature'] = self.lwf_temperature
 
-        # -- Initialize a ModleList in which all previous tasks models will be stored -- #
+        # -- Update self.init_tasks so the storing works properly -- #
+        self.init_args = (split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
+                          deterministic, fp16, save_interval, already_trained_on, use_progress, identifier, extension,
+                          lwf_temperature, tasks_list_with_char, mixed_precision)
+
+        # -- Initialize a ModuleList in which all previous tasks models will be stored -- #
         #self.prev_trainer_list = torch.nn.ModuleList()
 
     def initialize(self, training=True, force_load_plans=False, num_epochs=500, prev_trainer=None):

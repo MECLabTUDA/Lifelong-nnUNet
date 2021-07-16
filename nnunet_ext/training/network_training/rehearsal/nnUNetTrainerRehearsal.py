@@ -16,12 +16,12 @@ class nnUNetTrainerRehearsal(nnUNetTrainerMultiHead): # Inherit default trainer 
     def __init__(self, split, task, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
                  identifier=default_plans_identifier, extension='rehearsal', tasks_list_with_char=None, samples_per_ds=0.25,
-                 seed=3299, trainer_class_name=None):
+                 seed=3299, mixed_precision=True):
         r"""Constructor of Rehearsal trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
         """
         # -- Initialize using parent class -- #
         super().__init__(split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic,
-                         fp16, save_interval, already_trained_on, use_progress, identifier, extension, tasks_list_with_char, trainer_class_name)
+                         fp16, save_interval, already_trained_on, use_progress, identifier, extension, tasks_list_with_char, mixed_precision)
 
         # -- Set samples based on samples_per_ds -- #
         self.samples = samples_per_ds
@@ -34,6 +34,11 @@ class nnUNetTrainerRehearsal(nnUNetTrainerMultiHead): # Inherit default trainer 
 
         # -- Add the used sample portion in trained on file for restoring to be able to ensure that seed can not be changed during training -- #
         self.already_trained_on[str(self.fold)]['used_sample_portion'] = self.samples
+
+        # -- Update self.init_tasks so the storing works properly -- #
+        self.init_args = (split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
+                          deterministic, fp16, save_interval, already_trained_on, use_progress, identifier, extension,
+                          tasks_list_with_char, samples_per_ds, seed, mixed_precision)
 
         # -- Initialize self.splitted_dataset_val that holds for each task a sample validation set and the corresponding -- #
         # -- dataset_directory. For validation it is important to be able to distinguish between it since the -- #

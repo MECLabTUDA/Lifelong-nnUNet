@@ -12,9 +12,10 @@ from nnunet.network_architecture.generic_UNet import Generic_UNet
 
 # -- Start testing --> This suite only tests the Multi Head Network, whereas no training will be performed -- #
 def test_multihead_network():
-    # -------------------------#
+    r"""This function is used to test the Multi Head Network Module."""
+    # ------------------------ #
     # ------ First test ------ #
-    # -------------------------#
+    # ------------------------ #
     # -- Define the splits and task names for the experiments -- #
     splits = ['conv_blocks_context', '     conv_blocks_context    . 0 .    blocks .    1', 'conv_blocks_context.0.blocks.1']
     tasks = ['test', 'new_test', 'test_final']
@@ -129,14 +130,16 @@ def test_multihead_network():
         # -- Create a backup, otherwise there will be a mixup in the next iteration -- #
         prev_trainer = mh_network.model
         del mh_network
+        
+        # -- Reload the Multi Head module, otherwise there will be mixups during runtime and wrong results will be produced -- #
+        importlib.reload(MultiHead_Module)
+    
+    # -- Remove the prev_trainer after the loop since it will not be used anymore -- #
     del prev_trainer
 
     # ------------------------- #
     # ------ Second test ------ #
     # ------------------------- #
-    # -- Reload the Multi Head module, otherwise there will be mixups during runtime and wrong results will be produced -- #
-    importlib.reload(MultiHead_Module)
-    
     # -- Check if a split is correcty simplified by the model -- #
     try:
         split = 'conv_blocks_localization  . 2  . 0.blocks.0'

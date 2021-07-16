@@ -9,7 +9,6 @@
 
 #from itertools import tee
 #from torch import autograd
-from nnunet_ext.utilities.load_prev_trainers import get_prev_trainers
 from nnunet_ext.paths import default_plans_identifier
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet.training.loss_functions.dice_loss import DC_and_CE_loss
@@ -20,13 +19,12 @@ from nnunet_ext.training.network_training.multihead.nnUNetTrainerMultiHead impor
 class nnUNetTrainerEWC(nnUNetTrainerMultiHead): # Inherit default trainer class for 2D, 3D low resolution and 3D full resolution U-Net 
     def __init__(self, split, task, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
-                 identifier=default_plans_identifier, extension='ewc', ewc_lambda=0.4, tasks_list_with_char=None,
-                 trainer_class_name=None):
+                 identifier=default_plans_identifier, extension='ewc', ewc_lambda=0.4, tasks_list_with_char=None, mixed_precision=True):
         r"""Constructor of EWC trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
         """
         # -- Initialize using parent class -- #
         super().__init__(split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic,
-                         fp16, save_interval, already_trained_on, use_progress, identifier, extension, tasks_list_with_char, trainer_class_name)
+                         fp16, save_interval, already_trained_on, use_progress, identifier, extension, tasks_list_with_char, mixed_precision)
 
         # -- Set the importance variable for the EWC Loss calculation during training -- #
         self.ewc_lambda = ewc_lambda
@@ -45,6 +43,11 @@ class nnUNetTrainerEWC(nnUNetTrainerMultiHead): # Inherit default trainer class 
             self.already_trained_on[str(self.fold)]['fisher'] = dict()
             self.already_trained_on[str(self.fold)]['params'] = dict()
         """
+
+        # -- Update self.init_tasks so the storing works properly -- #
+        self.init_args = (split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
+                          deterministic, fp16, save_interval, already_trained_on, use_progress, identifier, extension,
+                          ewc_lambda, tasks_list_with_char, mixed_precision)
 
         # -- Initialize a variable that includes all model parameters of the last iteration -- #
         #self.network_params_last_iteration = None
