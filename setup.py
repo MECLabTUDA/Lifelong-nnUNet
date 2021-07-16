@@ -31,7 +31,8 @@ setup(name='nnunet_ext',
       entry_points={
           'console_scripts': [
               'nnUNet_dataset_label_mapping = nnunet_ext.experiment_planning.dataset_label_mapping:main',# Use when the labels of the masks need to be changed based on a mapping file
-              'nnUNet_train_multihead = nnunet_ext.run.run_training_multihead:main'           # Use for multi head training
+              'nnUNet_train_multihead = nnunet_ext.run.run_training_multihead:main',                     # Use for multi head training
+              'nnUNet_delete_tasks = nnunet_ext.scripts.delete_specified_task:main'                      # Use for deleting preprocessed and planned data
           ],
       },
       keywords=['deep learning', 'image segmentation', 'medical image analysis',

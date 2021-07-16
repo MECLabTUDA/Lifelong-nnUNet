@@ -14,16 +14,16 @@ from nnunet_ext.paths import network_training_output_dir, preprocessing_output_d
 
 #------------------------------------------- Partially copied from original implementation -------------------------------------------#
 def get_default_configuration(network, task, running_task, network_trainer, tasks_joined_name, plans_identifier=default_plans_identifier,
-                              search_in=None, base_module=None, extension_type='sequential'):
+                              search_in=None, base_module=None, extension_type='multihead'):
     r"""This function extracts paths to the plans_file, specifies the output_folder_name, dataset_directory, batch_dice, stage, and trainer_class.
-        The extension type specifies which nnUNet extension will be used (sequential, rehearsal, etc.).
+        The extension type specifies which nnUNet extension will be used (multihead, rehearsal, etc.).
     """
     # -- If network_trainer is actual trainer than transform it into a string -- #
     if not isinstance(network_trainer, str):
         network_trainer = str(network_trainer).split('.')[-1][:-2].split(' ')[0]    # May be sth like "TrainerXY at ..."
         
     # -- Extract network_trainer type -- #
-    is_classic_trainer = network_trainer == str(nnUNetTrainerV2).split('.')[-1][:-2]
+    is_classic_trainer = network_trainer == nnUNetTrainerV2.__name__
     
     # -- If search_in not provided set it with base_module -- #
     if search_in is None:

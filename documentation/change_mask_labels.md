@@ -1,13 +1,13 @@
 
-# Lifelong-nnUNet: Change mask labels for dataset given a mapping file
+# nnU-Net Continual Learning extension: Change mask labels for dataset given a mapping file
 
-This is a general description on how to change the masks of a desired dataset based on a provided mapping file.
+This is a general description on how to change the masks of a desired dataset based on a provided mapping file using the nnU-Net extension.
 
-1. Lifelong-nnUNet can only be used after it has been succesfully installed *-- including all dependencies --* following [these instructions](../README.md#installation). Further, all relevant paths have to be set so that the right directories for training, preprocessing, storing etc. can be extracted. This process is described [here](setting_up_paths.md).
+1. The extension can only be used after it has been succesfully installed *-- including all dependencies --* following the instructions from [here](https://github.com/camgbus/Lifelong-nnUNet/blob/continual_learning/README.md#installation). Further, all relevant paths have to be set, so the nnU-Net and the nnU-Net extension can extract the right directories for training, preprocessing, storing etc. as described [here](https://github.com/MIC-DKFZ/nnUNet/blob/master/documentation/setting_up_paths.md).
 
-2. The desired dataset for which the mask labels should be transformed needs to be located under the specified `nnUNet_raw_data_base` that has been set in the previous step. The dataset must already have a Decathlon-like structure, ie. the name should start with `Task_X`, whereas `X` is a desired ID and the following structure should apply:
+2. The desired dataset for which the mask labels should be transformed needs to be located under the specified `nnUNet_raw_data_base` that has been set in the previous step. It is very important to know, that the dataset needs to have a Decathlon-like structure, ie. the name starts with `Task_XX`, whereas `XX` is a desired ID and the following structure should apply:
 
-	    nnUNet_raw_data_base/TaskX_<dataset_name>/
+	    nnUNet_raw_data_base/TaskXX_<dataset_name>/
 	        ├── dataset.json
 	        ├── imagesTr
 	        │   ├── <dataset_name>_<img_nr>_0000.nii.gz
@@ -19,7 +19,7 @@ This is a general description on how to change the masks of a desired dataset ba
 	            ├── <dataset_name>_<img_nr>.nii.gz
 	            ├── ...
 
-	Note that the `dataset.json` is crucial for this functionality, since the original label mappings should be/are  defined in there. Additionally, the task ID needs to be unique, otherwise there will be an error during training, when the nnUNet implementation tries to map a provided Task ID to its Task name -- so always provide distinct Task IDs. For simplicity let's assume we want to change the labels for the Hippocampus dataset. The Dataset already has the desired structure, so nothing needs to be changed there:
+	Note that the `dataset.json` is crucial for this functionality, since the original label mappings should be/are  defined in there. Additionally, the task ID needs to be unique, otherwise there will be an error during training, when the nnU-Net implementation tries to map a provided Task ID to its Task name -- so always provide distinct Task IDs. For simplicity let's assume we want to change the labels for the Hippocampus dataset. The Dataset has already the desired structure, so nothing needs to be changed there:
 
 		nnUNet_raw_data_base/Task04_Hippocampus/
 				├── dataset.json
@@ -33,7 +33,7 @@ This is a general description on how to change the masks of a desired dataset ba
 		            ├── hippocampus_001.nii.gz
 		            ├── ...
 
-3. In a next step, the mapping `.json` file needs to be created. The location of this file is irrelevant, as long as the algorithm has permission to follow the path and access the file under the provided path. The most straight-forward way is to create a `mappings` folder in `nnUNet_raw_data_base/mappings`, where all the mappings are stored. Every mappings file must be in the JSON format and must have the following structure:
+3. In a next step, the mapping `.json` file needs to be created. The location of this file is irrelevant, as long as the algorithm has permission to follow the path and access the file under the provided path. The most straight forward way is to create a mappings folder in `nnUNet_raw_data_base/mappings`, where all the mappings are stored. Every mappings file must be in the JSON format and must have the following structure:
 	```
 	{
 		"old_label_description --> old_label": new_label,
@@ -81,13 +81,12 @@ As we have seen, the Anterior region *-- that was previouly red --* is now not v
 
 In the following, the possible command line arguments are presented and further discussed.
 
-
-## Command Line Arguments
+### Command Line Arguments
 The following arguments and flags can be set to use this extension:
 
 | Tag_name | description | required | choices | default | 
 |:-:|-|:-:|:-:|:-:|
-| `-t_in` or `--tasks_in_path` | Specify one or a list of paths to tasks TaskX_TASKNAME folders. | yes | -- | -- |
+| `-t_in` or `--tasks_in_path` | Specify one or a list of paths to tasks TaskXX_TASKNAME folders. | yes | -- | -- |
 | `-t_out` or `--tasks_out_path` | Specify the *unique* task ids for the output folders. | yes | -- | -- |
 | `-m` or `--mapping_files_path` | Specify one or a list of paths to the mapping (.json) files corresponding to the task ids. | yes | -- | -- |
 | `-c` or `--channels` | Use this to specify which channels should be used. Note the channel indices should be 0 based. If multiple values are provided, they are used for each task from `-t_in` equally. | no | -- | `all` |
@@ -100,25 +99,29 @@ When talking about lists in command lines, this does not mean to provide a real 
 For instance, the general command for changing the labels in a mask of multiple datasets with multiple mappings  looks like the following:
 
 ```bash
+          ~ $ source ~/.bashrc
+          ~ $ source activate <your_anaconda_env>
 (<your_anaconda_env>) $ nnUNet_dataset_label_mapping -t_in <path_1> <path_2> ... <path_n> 
 						     -t_out <ID_1> <ID_2> ... <ID_n> 
 						     -m <mapping_1> <mapping_2> ... <mapping_n> 
-						    [-p <number> --no_pp]
+						    [-c <number(s)> -p <number(s)> --no_pp]
 ```
 
 Let's assume the dataset has 5 channels and only the first and last channel would be of interest, than the command would look like the following:
 
 ```bash
+          ~ $ source ~/.bashrc
+          ~ $ source activate <your_anaconda_env>
 (<your_anaconda_env>) $ nnUNet_dataset_label_mapping -t_in <path_1> <path_2> ... <path_n> 
 						     -t_out <ID_1> <ID_2> ... <ID_n> 
 						     -m <mapping_1> <mapping_2> ... <mapping_n> 
-						     -c 0 4
-						    [-p <number> --no_pp]
+							 -c 0 4
+						    [-p <number(s)> --no_pp]
 ```
 Note that the channel indices are 0 based and that the channel selection will be performed for each task from `-t_in`.
 
-If `--no_pp` or `--disable_plan_ preprocess_task` is not set, the function will run the nnUNets pipeline configuration and preprocessing using the 
+If `--no_pp` or `--disable_plan_ preprocess_task` is not set, the function will run the nnU-Nets pipeline configuration and preprocessing using the 
 ```bash
 nnUNet_plan_and_preprocess -t <task_id_from_task_out>
 ```
-command. After that, the dataset can directly be used for training either a conventional nnUNet or a provided extension of the nnUNet.
+command. After that, the dataset can directly be used for training either a conventional nnU-Net or a provided extension of the nnU-Net.

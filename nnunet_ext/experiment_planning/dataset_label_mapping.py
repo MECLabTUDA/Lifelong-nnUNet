@@ -11,9 +11,9 @@ from tqdm import tqdm
 import SimpleITK as sitk
 from nnunet.configuration import default_num_threads
 from nnunet.experiment_planning.utils import split_4d
-from nnunet_ext.utilities.helpful_functions import delete_dir_con
-from batchgenerators.utilities.file_and_folder_operations import *
+from nnunet_ext.utilities.helpful_functions import delete_dir_con, copy_dir
 from nnunet_ext.paths import preprocessing_output_dir, nnUNet_raw_data, nnUNet_cropped_data
+from batchgenerators.utilities.file_and_folder_operations import join, load_json, save_json
 from nnunet.experiment_planning.nnUNet_convert_decathlon_task import crawl_and_remove_hidden_from_decathlon
 
 def _extract_desired_channels(path, task_name, channels):
@@ -49,7 +49,8 @@ def _extract_desired_channels(path, task_name, channels):
     os.makedirs(new_path)
 
     # -- Copy the labels folder (since they always have one channel) and all other files except imagesTr, imagesTs -- #
-    shutil.copytree(join(path, "labelsTr"), join(new_path, "labelsTr"))
+    copy_dir(join(path, "labelsTr"), join(new_path, "labelsTr"))
+    #shutil.copytree(join(path, "labelsTr"), join(new_path, "labelsTr"))
     shutil.copy(join(path, "dataset.json"), new_path)
 
     # -- Go into each folder (if it exists) and then extract the desired channels -- #
@@ -106,35 +107,9 @@ def _perform_transformation_on_mask_using_mapping(mask, mapping):
     return mask
             
 
-def main():
-    # -----------------------
-    # Build argument parser
-    # -----------------------
-    # -- Create argument parser and add arguments -- #
-    parser = argparse.ArgumentParser()
-    
-    # NOTE: The input task should have the same structure as for the conventional nnUNet!
-    parser.add_argument("-t_in", "--tasks_in_path", nargs="+", help="Specify one or a list of paths to tasks TaskXX_TASKNAME folders.", required=True)
-    parser.add_argument("-t_out", "--tasks_out_ids", nargs="+", type=int, help="Specify the unique task ids for the output folders. "
-                                                                               "Since the task ids of the input folder are already used "
-                                                                               "with the original (unchanged) masked this is required."
-                                                                               "Keep in mind that IDs need to be unique --> This will be tested!", required=True)
-    parser.add_argument("-m", "--mapping_files_path", nargs="+", help="Specify a list of paths to the mapping (.json) files corresponding to the task ids.",
-                        required=True)
-    parser.add_argument("-c", "--channels", nargs="+", help="Specify which channels to extract. Use (possible) indices 0, 1, ... or \'all\'."
-                                                            " When using multiple tasks, consider that it is used for each task. Further consider"
-                                                            " that the indices are all 0-based. If not specified, all channels will be extracted", required=False)
-    parser.add_argument("-p", required=False, default=default_num_threads, type=int,
-                        help="Use this to specify how many processes are used to run the script. "
-                             "Default is %d" % default_num_threads)
-    parser.add_argument("--no_pp", "--disable_plan_preprocess_tasks", required=False, action='store_true', default=False,
-                        help="Set this if the plan and preprocessing step for each task using nnUNet_plan_and_preprocess "
-                             "should not be performed after a transformation. "
-                             "Default: After each task is transformed, nnUNet_plan_and_preprocess is performed.")
-
-    
+def main(use_parser=True, **kwargs):
     # -----------------------------------------------------------------------------------------
-    #                           Mapping .json strcutre definition
+    #                           Mapping .json structre definition
     # The mapping file should be a .json file and needs to have the following structure:
     #   {
     #        "old_label_description --> old_label": new_label,
@@ -153,18 +128,54 @@ def main():
     # NOTE: Spaces before or after --> is not mandatory and will be stripped either way.
     # -----------------------------------------------------------------------------------------
 
+    # -- Use the ArgumentParser if desired -- #
+    if use_parser:
+        # -----------------------
+        # Build argument parser
+        # -----------------------
+        # -- Create argument parser and add arguments -- #
+        parser = argparse.ArgumentParser()
+        
+        # NOTE: The input task should have the same structure as for the conventional nnUNet!
+        parser.add_argument("-t_in", "--tasks_in_path", nargs="+", help="Specify one or a list of paths to tasks TaskXX_TASKNAME folders.", required=True)
+        parser.add_argument("-t_out", "--tasks_out_ids", nargs="+", type=int, help="Specify the unique task ids for the output folders. "
+                                                                                "Since the task ids of the input folder are already used "
+                                                                                "with the original (unchanged) masked this is required."
+                                                                                "Keep in mind that IDs need to be unique --> This will be tested!", required=True)
+        parser.add_argument("-m", "--mapping_files_path", nargs="+", help="Specify a list of paths to the mapping (.json) files corresponding to the task ids.",
+                            required=True)
+        parser.add_argument("-c", "--channels", nargs="+", help="Specify which channels to extract. Use (possible) indices 0, 1, ... or \'all\'."
+                                                                " When using multiple tasks, consider that it is used for each task. Further consider"
+                                                                " that the indices are all 0-based. If not specified, all channels will be extracted", required=False)
+        parser.add_argument("-p", required=False, default=default_num_threads, type=int,
+                            help="Use this to specify how many processes are used to run the script. "
+                                "Default is %d" % default_num_threads)
+        parser.add_argument("--no_pp", "--disable_plan_preprocess_tasks", required=False, action='store_true', default=False,
+                            help="Set this if the plan and preprocessing step for each task using nnUNet_plan_and_preprocess "
+                                "should not be performed after a transformation. "
+                                "Default: After each task is transformed, nnUNet_plan_and_preprocess is performed.")
 
-    # -------------------------------
-    # Extract arguments from parser
-    # -------------------------------
-    # -- Extract parser arguments -- #
-    args = parser.parse_args()
-    tasks_in = args.tasks_in_path    # List of the paths to the tasks
-    task_out = args.tasks_out_ids   # List of the tasks IDs
-    mappings = args.mapping_files_path       # List of the paths to the mapping files
-    channels = args.channels       # List of the channels to extract
-    disable_pp = args.no_pp # Flag that specifies if nnUNet_plan_and_preprocess should be performed
-
+        # -------------------------------
+        # Extract arguments from parser
+        # -------------------------------
+        # -- Extract parser arguments -- #
+        args = parser.parse_args()
+        tasks_in = args.tasks_in_path       # List of the paths to the tasks
+        task_out = args.tasks_out_ids       # List of the tasks IDs
+        mappings = args.mapping_files_path  # List of the paths to the mapping files
+        channels = args.channels            # List of the channels to extract
+        p = args.p                          # Number of processes to use
+        disable_pp = args.no_pp             # Flag that specifies if nnUNet_plan_and_preprocess should be performed
+    # -- When internally using the function, we do not want an ArgumentParser, so provide the arguments properly -- #
+    else:
+        # -- Extract arguments from positional arguments -- #
+        tasks_in = kwargs['tasks_in_path']      # List of the paths to the tasks
+        task_out = kwargs['tasks_out_ids']      # List of the tasks IDs
+        mappings = kwargs['mapping_files_path'] # List of the paths to the mapping files
+        channels = kwargs['channels']           # List of the channels to extract
+        p = kwargs['p']                       # Number of processes to use
+        disable_pp = kwargs['no_pp']            # Flag that specifies if nnUNet_plan_and_preprocess should be performed
+        
     # -- Sanity checks for input -- #
     if task_out is not None:
         assert len(tasks_in) == len(task_out), "Number of input tasks should be equal to the number of specified output tasks IDs."
@@ -233,7 +244,7 @@ def main():
         
         # -- Use nnUNet provided split_4d function that is used for Decathlon data but check before if task is unique! -- #
         print("Perform 4D split..")
-        split_4d(mod_in_task, args.p, out_task)
+        split_4d(mod_in_task, p, out_task)
 
         # -- Delete the copied and modified dataset.json file -- #
         os.remove(join(in_task, 'dataset.json'))
