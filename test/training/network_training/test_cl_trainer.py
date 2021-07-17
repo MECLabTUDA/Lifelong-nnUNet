@@ -13,8 +13,8 @@ from nnunet_ext.training.network_training.multihead.nnUNetTrainerMultiHead impor
 from nnunet_ext.training.network_training.rehearsal.nnUNetTrainerRehearsal import nnUNetTrainerRehearsal# Own implemented class
 
 # -- Import the test function that tests Multi Head Trainer -- #
-file = 'test/training/network_training/test_multi_head_trainer.py' # --> Update this if sth changes
-test_multi_head_trainer = SourceFileLoader('test_multi_head_trainer', file).load_module() # --> Update this if sth changes
+file = 'test/training/network_training/test_multi_head_trainer.py' # --> Update this if sth. changes there
+test_multi_head_trainer = SourceFileLoader('test_multi_head_trainer', file).load_module() # --> Update this if sth. changes there
 
 
 if __name__ == "__main__":
@@ -27,7 +27,7 @@ if __name__ == "__main__":
                'ewc': nnUNetTrainerEWC, 'lwf': nnUNetTrainerLWF}
 
     # -- Define the tasks to train on -- #
-    tasks = ['Task-11_Hippocampus', 'Task-22_Heart', 'Task-33_Prostate']
+    tasks = ['Task-11_Hippocampus', 'Task-33_Prostate', 'Task-22_Heart']
 
     # -- Join all task names together with a '_' in between them -- #
     char_to_join_tasks = '_'
@@ -59,4 +59,3 @@ if __name__ == "__main__":
 
     # -- Ensure that the data is really removed -- #
     delete_specified_task(False, test_data=True, task_ids=list())
-    

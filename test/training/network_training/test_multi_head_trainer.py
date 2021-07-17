@@ -212,7 +212,7 @@ def test_multi_head_trainer(ext_map=None, args_f=None):
             refresh_imports('nnunet')
 
             # -- Perform two iterations, one with direct sequence training and one with a sort of restoring and continuing -- #
-            for i in range(2):
+            for i in range(3):
                 # -- Get the current timestamp to claculate the correct runtime -- #
                 start_train_time = time()
 
@@ -227,8 +227,39 @@ def test_multi_head_trainer(ext_map=None, args_f=None):
                     already_trained_on[str(fold)]['val_metrics_should_exist'] = False
                     # -- Set the running_task_list correctly -- #
                     running_task_list = already_trained_on[str(fold)]['finished_training_on'][:]
+                elif i == 2:
+                    # -- Update the log file -- #
+                    log_file = print_to_log_file(log_file, output_folder,\
+                        "Start training with network \'{}\' and trainer \'nnUNetTrainerV2\' for task \'{}\'".format(network, all_tasks[0]))
+                    
+                    # -- Train first on nnUNetTrainerV2 to use this in the upcoming loop -- #
+                    # -- Extract the corresponding informations to create a new trainer -- #
+                    plans_file, output_folder_name, dataset_directory, batch_dice, stage, \
+                    trainer_class = nn_get_default_configuration(network, all_tasks[0], 'nnUNetTrainerV2', default_plans_identifier)
+                    # -- Create a trainer based on the extracted trainer_class -- #
+                    trainer = trainer_class(plans_file, fold, output_folder=output_folder_name, dataset_directory=dataset_directory,
+                                            batch_dice=batch_dice, stage=stage, unpack_data=True,
+                                            deterministic=False, fp16=True)
+                    # -- Change the max number of epochs to 1, otherwise this will train 1000 epochs -- #
+                    trainer.max_num_epochs = 1
+                    # -- Initialize and train on the first task for one epoch using the conventional nnU-Net -- #
+                    trainer.initialize(True)
+                    trainer.run_training()
+                    # -- Evaluate and perform validation on the trainer -- #
+                    trainer.network.eval()
+                    trainer.validate(save_softmax=False, validation_folder_name="validation_raw",
+                                    run_postprocessing_on_folds=True, overwrite=True)
+                    # -- Set the tasks correctly to loop through and train using the trained network as a base -- #
+                    # -- Set trainer as prev_trainer_path so it can be used in the loop and remove the trainer -- #
+                    prev_trainer_path = trainer.output_folder
+                    # -- Use the nnUNetTrainerV2 trained path as base and continue from there -- #
+                    # -- Set train_tasks to last task if we do use the pre-trained models -- #
+                    train_tasks = tasks[1:]
+                    # -- Set the running_task_list correctly -- #
+                    running_task_list = [all_tasks[0]]
+                    del trainer
                 else:
-                    # -- Set train_tasks to first two tasks if we do not use the pre-trained models -- #
+                    # -- Set train_tasks to first n-1 tasks if we do not use the pre-trained models -- #
                     train_tasks = tasks[:-1]
                     # -- Set pre-trained model path and already_trained_on to None when we do not use a pre-trained model -- #
                     prev_trainer_path, already_trained_on = None, None
@@ -253,7 +284,7 @@ def test_multi_head_trainer(ext_map=None, args_f=None):
                     # -- Extract the configurations and check that trainer_class is not None -- #
                     plans_file, output_folder_name, dataset_directory, batch_dice, stage, \
                     trainer_class = get_default_configuration(network, t, running_task, trainer_to_use.__name__,
-                                                              tasks_joined_name, default_plans_identifier, extension_type=extension)
+                                                            tasks_joined_name, default_plans_identifier, extension_type=extension)
                     # -- Change the output_folder_name to our new path -- #
                     output_folder_name = output_folder_name.replace(old_network_training_output_dir, network_training_output_dir)
                     
@@ -276,12 +307,11 @@ def test_multi_head_trainer(ext_map=None, args_f=None):
                     backup_head = copy.deepcopy(trainer.mh_network.heads[t])
 
                     # -- Check if the building of a trainer using a pre-trained network worked as expected -- #
-                    if i == 1:
+                    if i != 0:
                         assert equal_models(trainer.mh_network.heads[all_tasks[0]], base_heads[all_tasks[0]]),\
                             "After restoring a trainer that is used as a base, the existing head states should not have changed."
 
                     # -- Train the trainer for the task t -- #
-                    print(trainer.mh_network)
                     trainer.run_training(task=t, output_folder=output_folder_name)
 
                     # -- Create a copy from the model/head after training to compare if it updated itself -- #
@@ -299,7 +329,7 @@ def test_multi_head_trainer(ext_map=None, args_f=None):
                     trainer.network.eval()
                     # -- Perform validation using the trainer -- #
                     trainer.validate(save_softmax=False, validation_folder_name="validation_raw",
-                                     run_postprocessing_on_folds=True, overwrite=True)
+                                    run_postprocessing_on_folds=True, overwrite=True)
 
                     # -- Copy the trainer for saving the relevant parts in case of a training on a pre-trained trainer -- #
                     copy_trainer = trainer
@@ -317,7 +347,7 @@ def test_multi_head_trainer(ext_map=None, args_f=None):
                         "The tasks the trainer should have been trained on ({}) do not map with the ones in the head ({}).".format(list(running_task_list, trainer.mh_network.heads.keys()))
                     
                     # -- Check that the current state dict entry is different from the first one -- #
-                    if idx_task != 0 or idx_task == len(train_tasks)-1 and i == 1:
+                    if idx_task != 0 or idx_task == len(train_tasks)-1 and i != 0:
                         assert not equal_models(trainer.mh_network.heads[all_tasks[0]], curr_head),\
                             "The state_dicts in \'{}\' and \'{}\' are identical although they should not be.".format(all_tasks[0], t)
                         
@@ -356,7 +386,7 @@ def test_multi_head_trainer(ext_map=None, args_f=None):
                     
                     # -- For the second task, ensure that restoring works --> only necessary for the second -- #
                     # -- task or when using pre-trained model as base -- #
-                    if idx_task != 0 and i == 0 or idx_task == len(train_tasks)-1 and i == 1:
+                    if idx_task != 0 and i == 0 or idx_task == len(train_tasks)-1 and i != 0:
                         # -- Check that after training a the second/nth task, the first task is unchanged -- #
                         # -- For this use backup_head from previous loop and compare the state_dicts -- #
                         assert equal_models(trainer.mh_network.heads[all_tasks[0]], base_heads[all_tasks[0]]),\
@@ -388,11 +418,11 @@ def test_multi_head_trainer(ext_map=None, args_f=None):
                     # -- and since we catch the error, the trainer_class has the changes present --> would lead -- #
                     # -- to error if we train after that test with a messed up split/head modules -- #
                     # -- Test when using pre-trained network that the split can not be changed -- #
-                    if idx_task == len(train_tasks)-1 and i == 1:
+                    if idx_task == len(train_tasks)-1 and i != 0:
                         # -- Provide a different split as before and expect an error -- #
                         trainer_fail = trainer_class('tu', all_tasks[0], plans_file, fold, output_folder=output_folder_name, dataset_directory=dataset_directory,\
-                                                     batch_dice=batch_dice, stage=stage, extension=extension, mixed_precision=True,\
-                                                     already_trained_on=already_trained_on, **(args_f[trainer_class.__name__]))
+                                                    batch_dice=batch_dice, stage=stage, extension=extension, mixed_precision=True,\
+                                                    already_trained_on=already_trained_on, **(args_f[trainer_class.__name__]))
                         try:
                             # -- Initialize the trainer with the dataset, task, fold, optimizer and wrong split --> should fail -- #
                             trainer_fail.initialize(True, num_epochs=1, prev_trainer_path=prev_trainer_path)
@@ -418,45 +448,6 @@ def test_multi_head_trainer(ext_map=None, args_f=None):
             # -- Remove the trainer_class -- #
             del trainer_class
 
-    """ --> Embed into above loop
-    # ----------------------------------------------- #
-    # -- Test using nnUNetrTrainerV2 as base model -- #
-    # ----------------------------------------------- #
-    # -- Loop through the networks and train using each network -- #
-    for network in networks:
-        
-        # -- Extract the corresponding informations to create a new trainer -- #
-        plans_file, output_folder_name, dataset_directory, batch_dice, stage, \
-        trainer_class = nn_get_default_configuration(network, all_tasks[0], 'nnUNetTrainerV2', default_plans_identifier)
-        # -- Create a trainer based on the extracted trainer_class -- #
-        trainer = trainer_class(plans_file, fold, output_folder=output_folder_name, dataset_directory=dataset_directory,
-                                batch_dice=batch_dice, stage=stage, unpack_data=True,
-                                deterministic=False, fp16=True)
-        # -- Change the max number of epochs to 1, otherwise this will train 1000 epochs -- #
-        trainer.max_num_epochs = 1
-        # -- Initialize and train on the first task for one epoch using the conventional nnU-Net -- #
-        trainer.initialize(True)
-        trainer.run_training()
-        # -- Evaluate and perform validation on the trainer -- #
-        trainer.network.eval()
-        trainer.validate(save_softmax=False, validation_folder_name="validation_raw",
-                         run_postprocessing_on_folds=True, overwrite=True)
-        # -- Set the tasks correctly to loop through and train using the trained network as a base -- #
-        train_tasks = tasks[1:]
-        # -- Set trainer as prev_trainer_path so it can be used in the loop and remove the trainer -- #
-        prev_trainer_path = trainer.output_folder
-        del trainer
-        # -- Initialize the running_task_list since one task is already trained on -- #
-        running_task_list = [all_tasks[0]]
-
-        # -- Loop through the different extension trainers and train for each trainer -- #
-        for extension, trainer_to_use in ext_map.items():
-                
-                # -- Loop through the tasks and train for each task the (finished) model -- #
-                for idx_task, t in enumerate(train_tasks):
-                    # -- Same as above, so just include it there with a seperate loop or so -- #
-                    pass
-    """
 
     # ----------------------- #
     # -- Clean the mess up -- #
@@ -487,7 +478,7 @@ def test_multi_head_trainer(ext_map=None, args_f=None):
     # -- Update the log file for the last time -- #
     execution_time = time() - start_time
     log_file = print_to_log_file(log_file, output_folder,\
-            "The execution time all tests took {:.2f} seconds ({} minutes and {:.2f} seconds).\n".format(execution_time, *divmod(execution_time, 60)))
+            "The execution time for all tests took {:.2f} seconds ({} minutes and {:.2f} seconds).\n".format(execution_time, *divmod(execution_time, 60)))
 
 
 if __name__ == "__main__":
