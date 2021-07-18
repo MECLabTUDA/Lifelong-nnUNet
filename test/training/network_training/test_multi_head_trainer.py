@@ -471,8 +471,9 @@ def test_multi_head_trainer(ext_map=None, args_f=None):
                                 # -- Initialize the trainer with the dataset, task, fold, optimizer and wrong split --> should fail -- #
                                 trainer_fail.initialize(True, num_epochs=1, prev_trainer_path=prev_trainer_path)
                                 raise RuntimeError
-                            except RuntimeError:
-                                assert False, "When trying to split on a different layer as the checkpoint an error should be thrown."
+                            except Exception:
+                                if isinstance(Exception, RuntimeError):
+                                    assert False, "When trying to split on a different layer as the checkpoint an error should be thrown."
                             
                     # -- Check again that in the current models head all tasks are present -- #
                     assert (np.array(list(trainer.mh_network.heads.keys())) == np.array(running_task_list)).all(),\
