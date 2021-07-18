@@ -9,7 +9,6 @@ from nnunet_ext.scripts.delete_specified_task import main as delete_specified_ta
 from nnunet_ext.training.network_training.ewc.nnUNetTrainerEWC import nnUNetTrainerEWC # Own implemented class
 from nnunet_ext.training.network_training.lwf.nnUNetTrainerLWF import nnUNetTrainerLWF # Own implemented class
 from nnunet_ext.paths import network_training_output_dir_base as old_network_training_output_dir_base
-from nnunet_ext.training.network_training.multihead.nnUNetTrainerMultiHead import nnUNetTrainerMultiHead# Own implemented class
 from nnunet_ext.training.network_training.rehearsal.nnUNetTrainerRehearsal import nnUNetTrainerRehearsal# Own implemented class
 
 # -- Import the test function that tests Multi Head Trainer -- #
@@ -22,8 +21,7 @@ if __name__ == "__main__":
     sys.stdout = open(os.devnull, 'w')
 
     # -- Create all the mappings and arguments for the testing function -- #
-    ext_map = {'multihead': nnUNetTrainerMultiHead, 
-               'rehearsal': nnUNetTrainerRehearsal,
+    ext_map = {'rehearsal': nnUNetTrainerRehearsal,
                'ewc': nnUNetTrainerEWC, 'lwf': nnUNetTrainerLWF}
 
     # -- Define the tasks to train on -- #
