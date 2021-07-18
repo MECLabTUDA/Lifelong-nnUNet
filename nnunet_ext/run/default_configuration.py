@@ -48,6 +48,10 @@ def get_default_configuration(network, task, running_task, network_trainer, task
     plans = load_pickle(plans_file)
     possible_stages = list(plans['plans_per_stage'].keys())
 
+    if (network == '3d_cascade_fullres' or network == "3d_lowres") and len(possible_stages) == 1:
+        raise RuntimeError("3d_lowres only applies if there is more than one stage. This task does "
+                           "not require the cascade. Run 3d_fullres instead.")
+
     if network == '2d' or network == "3d_lowres":
         stage = 0
     else:
