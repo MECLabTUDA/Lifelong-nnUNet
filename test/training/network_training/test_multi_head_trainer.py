@@ -282,6 +282,12 @@ def test_multi_head_trainer(ext_map=None, args_f=None):
                         # -- Set the running_task_list correctly -- #
                         running_task_list = [all_tasks[0]]
                         del trainer
+                        # -- Update the log file -- #
+                        execution_time = time() - start_train_time
+                        log_file = print_to_log_file(log_file, output_folder,\
+                                "This execution time for training the network \'{}\' with trainer \'{}\' took {:.2f} seconds ({}).\n".format(network, extension, execution_time, time_mod.strftime('%H:%M:%S', time_mod.gmtime(execution_time))))
+                        # -- Reset the start_train_time since we do not continue with next element but keep in this loop -- #
+                        start_train_time = time()
                     else:
                         # -- Set train_tasks to first n-1 tasks if we do not use the pre-trained models -- #
                         train_tasks = tasks[:-1]
@@ -300,7 +306,7 @@ def test_multi_head_trainer(ext_map=None, args_f=None):
                         else:
                             # -- Update the log file -- #
                             log_file = print_to_log_file(log_file, output_folder,\
-                                "Start training with network \'{}\' and trainer \'{}\' for task \'{}\' using an existing trained network as a foundation to continue with training".format(network, trainer_to_use.__name__, t))
+                                "Start training with network \'{}\' and trainer \'{}\' for task \'{}\' using the just trained and existing network as a foundation to continue with training".format(network, trainer_to_use.__name__, t))
                         # -- Update running task list and create running task which are all (trained tasks and current task joined) for output folder name -- #
                         running_task_list.append(t)
                         running_task = join_texts_with_char(running_task_list, char_to_join_tasks)
@@ -484,7 +490,7 @@ def test_multi_head_trainer(ext_map=None, args_f=None):
                     base_trainers[str(network) + str(extension)] = (copy_trainer.output_folder, copy_trainer.already_trained_on)
                     del copy_trainer
 
-                    # -- Update the log file for the last time -- #
+                    # -- Update the log file -- #
                     execution_time = time() - start_train_time
                     log_file = print_to_log_file(log_file, output_folder,\
                             "This execution time for training the network \'{}\' with trainer \'{}\' took {:.2f} seconds ({}).\n".format(network, extension, execution_time, time_mod.strftime('%H:%M:%S', time_mod.gmtime(execution_time))))
@@ -528,7 +534,7 @@ def test_multi_head_trainer(ext_map=None, args_f=None):
     # -- Update the log file for the last time -- #
     execution_time = time() - start_time
     log_file = print_to_log_file(log_file, output_folder,\
-            "The execution time for all tests took {:.2f} seconds ({}).\n".format(execution_time, time_mod.strftime('%H:%M:%S', time_mod.gmtime(execution_time))))
+            "The execution time for all tests took {:.2f} seconds ({})\n".format(execution_time, time_mod.strftime('%H:%M:%S', time_mod.gmtime(execution_time))))
 
 
 if __name__ == "__main__":

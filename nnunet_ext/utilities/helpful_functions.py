@@ -2,6 +2,7 @@
 #------This module contains useful functions that are used throughout the nnUNet_extensions project.-----#
 ##########################################################################################################
 
+import pandas as pd
 from types import ModuleType
 import sys, os, shutil, importlib
 from batchgenerators.utilities.file_and_folder_operations import join
@@ -75,7 +76,7 @@ def delete_task(task_id):
     task = [x for x in os.listdir(nnUNet_raw_data) if task_id in x] # Only the one with the mapping id
     
     # -- Check that the list only includes one element, if not raise an error since we do not know what to delete now -- #
-    assert len(task) == 1, "There are multiple tasks with the same task_id: {}.".format(join_texts_with_char(task, ' '))
+    assert len(task) == 1, "The task does not exist or there are multiple tasks with the same task_id: {}.".format(join_texts_with_char(task, ' '))
 
     # -- Delete the task in raw_data, cropped_data and preprocessed_data -- #
     # -- For each deletion make a seperate try, since some script might crashed in between there and some parts are missing/deleted! -- #
@@ -120,3 +121,82 @@ def refresh_mod_imports(mod, reload=False):
             if mod in key:
                 # -- Remove it from the sys modules -- #
                 del sys.modules[key]
+
+def flattendict(data, delim):
+    r"""This function can be used to flatten any dictionary/json no matter how nested the dict is.
+        It is specifically used for transforming nested dicts into a flat form to store the dict then
+        as a .csv file. --> see function nestedDictToFlatTable(...).
+        Extracted from: https://stackoverflow.com/questions/1871524/how-can-i-convert-json-to-csv.
+
+        :param data: Nested dictionary where valueas are dicts of dicts etc.
+        :param delim: String indicating the delimeter that is used to concatenate between the different layers
+                      of the nested dict (key1 + delim + key11 + delim + ... + delim + key11111..),
+                      
+    """
+    # -- Define result dictionary that will be flat, ie. key is a string and value is of primitive type -- #
+    val = {}
+    # -- Loop through the first layer of keys -- #
+    for i in data.keys():
+        # -- If the value is a dict then go one layer deeper --> nested -- #
+        if isinstance(data[i], dict):
+            # -- Do recursive call until the leaf node is reached -- #
+            get = flattendict(data[i], delim)
+            # -- Loop through keys again -- #
+            for j in get.keys():
+                # -- Register the joint keys using the delimeter as key and add the leaf value as correpsonding value -- #
+                val[i + delim + j] = get[j]
+        else:
+            # -- If there is no dict left, leaf node is reached add it to the dict -- #
+            val[i] = data[i]
+    # -- Return the flattened dictionary -- #
+    return val
+  
+def flatteneddict_to_df(flatteneddict, cols, delim):
+    r"""This function can be used to transform a flattened dictionary into a DataFrame, ie. table like structure
+        (tidy data). Use the flattened dict from the flattendict(...) function with the used delimeter.
+        Note that the cols should be of the same length than the length of the keys split used the delimeter + the value.
+        :param flatteneddict: A flattened dictionary, ie. key and value whereas value is primitve type like int, str, etc.
+        :param cols: List of column names for the DataFrame --> Should have the same length as the extracted elements, ie.
+                     splitted key based on delimeter + the value mapped to the key.
+        :param delim: String representing the delimeter that has been used during the falltening process of a nested dict.
+        """
+    # -- Check that the number of cols matches as expected -- #
+    assert len(cols) == len(list(flatteneddict.keys())[0].split(delim))+1,\
+    "The number of columns in the json does not match with the provided list of columns."
+    # -- Define an empty DataFrame based on the cols -- #
+    res = pd.DataFrame([], columns=cols)
+    # -- Loop through the flattened dict and build the table -- #
+    for k, v in flatteneddict.items():
+        # -- Split the key using the delimeter to get the first n-1 values -- #
+        row = k.split(delim)
+        # -- Add the corresponding value to the list -- #
+        row.append(v)
+        # -- Append this list as a row to the DataFrame -- #
+        res.loc[len(res)] = row
+    # -- Return the build DataFrame while resetting the indices of the frame -- #
+    return res.reset_index(drop=True)
+
+def nestedDictToFlatTable(nested_dict, cols):
+    r"""This function can be used to transform a nested dictionary into a DataFrame. The function uses
+        flattendict and flatteneddict_to_df to realize this.
+        :param nested_dict: The nested dictionary no matter how deep ;)
+        :param cols: List of column names for the DataFrame --> Should have the same length as the depth
+                     of the provided nested_dict + 1 (all keys + value).
+        """
+    # -- Build the DataFrame from the dictionary and return the Frame -- #
+    return flatteneddict_to_df(flattendict(nested_dict, "__"), cols, '__')
+
+def dumpDataFrameToCsv(data, path, name, sep='\t'):
+    r"""This function dumps a DataFrame in form of a .csv file.
+        :param data: A DataFrame.
+        :param path: Path as a string indicating where to store the file.
+        :param name: String indicating the name of the file.
+        :param sep: String indicating the seperator for the csv file, ie. how to seperate the content."""
+    # -- Check if csv is in the name -- #
+    if '.csv' not in name:
+        # -- Add it if its missing -- #
+        name = name + '.csv'
+    # -- Build the absolute path based on the path and name -- #
+    path = os.path.join(path, name)
+    # -- Dump the DataFrame using the path and seperator without using the index from the frame -- #
+    data.to_csv(path, index=False, sep=sep)

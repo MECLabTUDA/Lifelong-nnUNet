@@ -60,6 +60,9 @@ def main(use_parser=True, **kwargs):
     
     # -- Loop through tasks and remove them, test data is included if it was desired -- #
     for task_id in tasks:
+        # -- Make 3 digit task id out of it -- #
+        task_id = "%03.0d" % int(task_id)
+        
         # -- Delete the specified task data folders that have been created by the nnUNet (-extension). -- #
         delete_task(task_id)
 

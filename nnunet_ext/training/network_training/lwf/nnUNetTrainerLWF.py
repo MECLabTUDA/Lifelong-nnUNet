@@ -26,12 +26,13 @@ class nnUNetTrainerLWF(nnUNetTrainerMultiHead): # Inherit default trainer class 
     def __init__(self, split, task, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
                  identifier=default_plans_identifier, extension='lwf', lwf_temperature=2.0, tasks_list_with_char=None,
-                 mixed_precision=True):
+                 mixed_precision=True, save_csv=True):
         r"""Constructor of LWF trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
         """
         # -- Initialize using parent class -- #
         super().__init__(split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic,
-                         fp16, save_interval, already_trained_on, use_progress, identifier, extension, tasks_list_with_char)
+                         fp16, save_interval, already_trained_on, use_progress, identifier, extension, tasks_list_with_char,
+                         save_csv)
 
         # -- Set the temperature variable for the LWF Loss calculation during training -- #
         self.lwf_temperature = lwf_temperature
@@ -47,12 +48,12 @@ class nnUNetTrainerLWF(nnUNetTrainerMultiHead): # Inherit default trainer class 
         # -- Initialize a ModuleList in which all previous tasks models will be stored -- #
         #self.prev_trainer_list = torch.nn.ModuleList()
 
-    def initialize(self, training=True, force_load_plans=False, num_epochs=500, prev_trainer=None):
+    def initialize(self, training=True, force_load_plans=False, num_epochs=500, prev_trainer_path=None):
         r"""Overwrite the initialize function so the correct Loss function for the LWF method can be set.
             NOTE: The previous tasks are already set in self.mh_network, so everything is in self.
         """
         # -- Perform initialization of parent class -- #
-        super().initialize(training, force_load_plans, num_epochs, prev_trainer)
+        super().initialize(training, force_load_plans, num_epochs, prev_trainer_path)
  
         #  -- If this trainer is initialized for training, then load the models, else it is just an initialization as a prev_trainer -- #
         #if training:
@@ -85,6 +86,7 @@ class nnUNetTrainerLWF(nnUNetTrainerMultiHead): # Inherit default trainer class 
         r"""This function needs to be changed for the LWF method, since all previously trained models will be used
             to predict the same batch as the current model we train on. These results go then into the Loss function
             to compute the Loss as proposed in the paper.
+            TODO: Change so this is not done when doing evaluation on every nth epoch!!!!!!!!!!!!!!!!!!!!!!
         """
         # -- Initialize empty list in which the predictions of the previous models will be put -- #
         prev_task_models_res = list()

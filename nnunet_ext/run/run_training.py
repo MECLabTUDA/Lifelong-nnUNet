@@ -101,9 +101,12 @@ def run_training(extension='multihead'):
     parser.add_argument('-num_epochs', action='store', type=int, nargs=1, required=False, default=500,
                         help='Specify the number of epochs to train the model.'
                             ' Default: Train for 500 epochs.')
-    parser.add_argument('-save_interval', action='store', type=int, nargs=1, required=False, default=5,
+    parser.add_argument('-save_interval', action='store', type=int, nargs=1, required=False, default=25,
                         help='Specify after which epoch interval to update the saved data.'
-                            ' Default: If disable_saving False, the result will be updated every 5th epoch.')
+                            ' Default: If disable_saving False, the result will be updated every 25th epoch.')
+    parser.add_argument('-store_csv', required=False, default=False, action="store_true",
+                        help='Set this flag if the validation data and any other data if applicable should be stored'
+                            ' as a .csv file as well. Default: .csv are not created.')
     parser.add_argument('--init_seq', action='store_true', default=False,
                         help='Specify if the first task from -t is already trained and represents '
                              ' an init network_trainer to do (extensional) training on or not. If so, -initialize_with_network_trainer '
@@ -209,6 +212,7 @@ def run_training(extension='multihead'):
         init_identifier = default_plans_identifier  # Set to init_identifier
     disable_saving = args.disable_saving
     save_interval = args.save_interval
+    save_csv = args.store_csv
     if isinstance(save_interval, list):    # When the save_interval gets returned as a list, extract the number to avoid later appearing errors
         save_interval = save_interval[0]
     cuda = args.device
@@ -304,8 +308,8 @@ def run_training(extension='multihead'):
     # -- Create all argument dictionaries that are used for function calls to make it more generic -- #
     basic_args = {'unpack_data': decompress_data, 'deterministic': deterministic, 'fp16': run_mixed_precision }          
     basic_exts = {'save_interval': save_interval, 'identifier': init_identifier, 'extension': extension,
-                  'tasks_list_with_char': copy.deepcopy(tasks_list_with_char), 
-                   'mixed_precision': run_mixed_precision, **basic_args}
+                  'tasks_list_with_char': copy.deepcopy(tasks_list_with_char), 'save_csv': save_csv,
+                  'mixed_precision': run_mixed_precision, **basic_args}
     reh_args = {'samples_per_ds': samples, 'seed': seed, **basic_exts}
     ewc_args = {'ewc_lambda': ewc_lambda, **basic_exts}
     lwf_args = {'lwf_temperature': lwf_temperature, **basic_exts}
@@ -360,7 +364,7 @@ def run_training(extension='multihead'):
             if isinstance(trained_on_folds, dict):
                 began_with = trained_on_folds.get('start_training_on', None)
                 running_task_list = already_trained_on[str(t_fold)]['finished_training_on'][:] # Without '[:]' reference will change over time as well !
-
+            
             # -- If began_with is None, the fold has not started training with --> start with the first task as -c would not have been set -- #
             if began_with is None:
                 # -- Check if all tasks have been trained on so far, if so, this fold is finished with training, else it is not -- #
@@ -387,19 +391,23 @@ def run_training(extension='multihead'):
             # -- If this list is empty, the trainer did not train on any task --> Start directly with the first task as -c would not have been set -- #
             if began_with != -1 and len(running_task_list) != 0: # At this point began_with is either a task or -1 but not None
                 # -- Substract the tasks from the tasks list --> Only use the tasks that are in tasks but not in finished_with -- #
+                remove_tasks = tasks[:]
                 for task in tasks:
                     # -- If the task has already been trained, remove the entry from the tasks dictionary -- #
                     if task in running_task_list:
                         prev_task = task    # Keep track to insert it at the end again
-                        tasks.remove(task)
-                
+                        remove_tasks.remove(task)
+                # -- Reset the tasks so everything is as expected -- #
+                tasks = remove_tasks
+                del remove_tasks
+
                 # -- Only when we want to train change tasks and running_task_list -- #
                 if not validation_only:
                     # -- Insert the previous task to the beginning of the list to ensure that the model will be initialized the right way -- #
-                    tasks.insert(0, prev_task) 
+                    tasks.insert(0, prev_task)
                     # -- Remove the prev_task in running_task_list, since this is now the first in tasks --> otherwise this is redundandent and raises error -- #
                     running_task_list.remove(prev_task)
-                    
+                
                 # -- Treat the last fold as initialization, so set init_seq to True by keeping continue_learning to True  -- #
                 init_seq = True
                 
@@ -486,7 +494,7 @@ def run_training(extension='multihead'):
                     " So choose {}"\
                     " as a network_trainer corresponding to the network, or use the convential nnunet command to train.".format(ext_map[extension], extension, ext_map[extension])
             
-            # -- Load trainer from last task and initialize new trainer if continue training is wrong -- #
+            # -- Load trainer from last task and initialize new trainer if continue training is not set -- #
             if idx == 0 and init_seq:# and not continue_training:
                 # -- Initialize the prev_trainer if it is not None. If it is None, the trainer will be initialized in the parent class -- #
                 # -- Further check that all necessary information is provided, otherwise exit with error message -- #
@@ -498,14 +506,16 @@ def run_training(extension='multihead'):
                 # -- will result in other network structures (structure based on plans_file) -- #
                 # -- Current task t might not be equal to all_tasks[0], since tasks might be changed in the -- #
                 # -- preparation for -c. -- #
-                plans_file, init_output_folder, dataset_directory, batch_dice, stage, \
+                #plans_file, init_output_folder, dataset_directory, batch_dice, stage, \
+                plans_file, prev_trainer_path, dataset_directory, batch_dice, stage, \
                 trainer_class = get_default_configuration(network, all_tasks[0], running_task, prev_trainer, tasks_joined_name,\
                                                           init_identifier, extension_type=extension)
-                
+
                 # -- Ensure that trainer_class is not None -- #
                 if trainer_class is None:
                     raise RuntimeError("Could not find trainer class in nnunet.training.network_training nor nnunet_ext.training.network_training")
 
+                """
                 # -- Load (pre-trained) prev_trainer for intialization --> will be initialized in next loop, always use init_output_folder -- #
                 if trainer_class.__name__ == nnUNetTrainerV2.__name__:  # --> Initialization with nnUNetTrainerV2
                     prev_trainer = trainer_class(plans_file, t_fold, output_folder=init_output_folder, dataset_directory=dataset_directory,\
@@ -530,7 +540,7 @@ def run_training(extension='multihead'):
                     
                 # -- Initialize prev_trainer -- #
                 prev_trainer.initialize(training=False)
-
+                """
                 # -- Only if we do not want to do a validation we continue with the next element in the loop -- #
                 if not validation_only:
                     # -- Continue with next element, since the previous trainer is restored, otherwise it will be trained as well -- #
@@ -553,10 +563,10 @@ def run_training(extension='multihead'):
                 trainer = trainer_class(split, all_tasks[0], plans_file, t_fold, output_folder=output_folder_name, dataset_directory=dataset_directory,\
                                         batch_dice=batch_dice, stage=stage,\
                                         already_trained_on=already_trained_on, **(args_f[trainer_class.__name__]))
-
+                
                 # -- Initialize the trainer with the dataset, task, fold, optimizer, etc. -- #
-                trainer.initialize(not validation_only, num_epochs=num_epochs, prev_trainer=prev_trainer)
-
+                trainer.initialize(not validation_only, num_epochs=num_epochs, prev_trainer_path=prev_trainer_path)
+            
             # -- Nothing needs to be done with the trainer, since it makes everything by itself, for instance -- #
             # -- if the task we train on does not exist at the later point, it simply initializes it as a new head -- #
 
@@ -572,7 +582,7 @@ def run_training(extension='multihead'):
 
             # -- Update trained_on 'manually' if first task is done but finished_training_on is empty --> first task was used for initialization -- #
             if idx == 1 and len(trainer.already_trained_on[str(t_fold)]['finished_training_on']) == 0:
-                trainer.update_save_trained_on_json(t, finished=True)
+                trainer.update_save_trained_on_json(tasks[0], finished=True)
 
             # -- Find a matchting lr given the provided num_epochs -- #
             if find_lr:
