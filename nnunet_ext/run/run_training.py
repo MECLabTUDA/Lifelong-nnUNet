@@ -388,28 +388,36 @@ def run_training(extension='multihead'):
                     # -- Remove the last task from the running_task_list because we want to do validation on this task -- #
                     running_task_list = running_task_list[:-1]
                 
-            # -- If this list is empty, the trainer did not train on any task --> Start directly with the first task as -c would not have been set -- #
-            if began_with != -1 and len(running_task_list) != 0: # At this point began_with is either a task or -1 but not None
-                # -- Substract the tasks from the tasks list --> Only use the tasks that are in tasks but not in finished_with -- #
-                remove_tasks = tasks[:]
-                for task in tasks:
-                    # -- If the task has already been trained, remove the entry from the tasks dictionary -- #
-                    if task in running_task_list:
-                        prev_task = task    # Keep track to insert it at the end again
-                        remove_tasks.remove(task)
-                # -- Reset the tasks so everything is as expected -- #
-                tasks = remove_tasks
-                del remove_tasks
+            # -- If we began with training but nothing is finished yet, then continue from where wee left -- #
+            #if began_with != -1:
 
-                # -- Only when we want to train change tasks and running_task_list -- #
-                if not validation_only:
-                    # -- Insert the previous task to the beginning of the list to ensure that the model will be initialized the right way -- #
-                    tasks.insert(0, prev_task)
-                    # -- Remove the prev_task in running_task_list, since this is now the first in tasks --> otherwise this is redundandent and raises error -- #
-                    running_task_list.remove(prev_task)
+            # -- If this list is empty, the trainer did not train on any task --> Start directly with the first task as -c would not have been set -- #
+            if began_with != -1: #and len(running_task_list) != 0: # At this point began_with is either a task or -1 but not None
+                if len(running_task_list) != 0:
+                    # -- Substract the tasks from the tasks list --> Only use the tasks that are in tasks but not in finished_with -- #
+                    remove_tasks = tasks[:]
+                    for task in tasks:
+                        # -- If the task has already been trained, remove the entry from the tasks dictionary -- #
+                        if task in running_task_list:
+                            prev_task = task    # Keep track to insert it at the end again
+                            remove_tasks.remove(task)
+                    # -- Reset the tasks so everything is as expected -- #
+                    tasks = remove_tasks
+                    del remove_tasks
+
+                    # -- Only when we want to train change tasks and running_task_list -- #
+                    if not validation_only:
+                        # -- Insert the previous task to the beginning of the list to ensure that the model will be initialized the right way -- #
+                        tasks.insert(0, prev_task)
+                        # -- Remove the prev_task in running_task_list, since this is now the first in tasks --> otherwise this is redundant and raises error -- #
+                        running_task_list.remove(prev_task)
+                    
+                    # -- Treat the last fold as initialization, so set init_seq to True by keeping continue_learning to True  -- #
+                    init_seq = True
                 
-                # -- Treat the last fold as initialization, so set init_seq to True by keeping continue_learning to True  -- #
-                init_seq = True
+                # -- ELSE -- #
+                # -- If running_task_list is empty, the training failed at very first task, -- #
+                # -- so nothing needs to be changed, simply continue with the training -- #
                 
                 # -- Set the prev_trainer and the init_identifier so the trainer will be build correctly -- #
                 prev_trainer = ext_map.get(already_trained_on[str(t_fold)]['prev_trainer'][-1], None)
@@ -466,14 +474,14 @@ def run_training(extension='multihead'):
             # -- Update running task list and create running task which are all (trained tasks and current task joined) for output folder name -- #
             running_task_list.append(t)
             running_task = join_texts_with_char(running_task_list, char_to_join_tasks)
-
+            
             # -- Extract the configurations and check that trainer_class is not None -- #
             # -- NOTE: Each task will be saved as new folder using the running_task that are all previous and current task joined together. -- #
             # -- NOTE: Perform preprocessing and planning before ! -- #
             plans_file, output_folder_name, dataset_directory, batch_dice, stage, \
             trainer_class = get_default_configuration(network, t, running_task, network_trainer, tasks_joined_name,\
                                                       plans_identifier, extension_type=extension)
-
+            
             if trainer_class is None:
                 raise RuntimeError("Could not find trainer class in nnunet_ext.training.network_training")
 
@@ -510,7 +518,7 @@ def run_training(extension='multihead'):
                 plans_file, prev_trainer_path, dataset_directory, batch_dice, stage, \
                 trainer_class = get_default_configuration(network, all_tasks[0], running_task, prev_trainer, tasks_joined_name,\
                                                           init_identifier, extension_type=extension)
-
+                
                 # -- Ensure that trainer_class is not None -- #
                 if trainer_class is None:
                     raise RuntimeError("Could not find trainer class in nnunet.training.network_training nor nnunet_ext.training.network_training")

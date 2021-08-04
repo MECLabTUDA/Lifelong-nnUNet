@@ -127,7 +127,6 @@ def flattendict(data, delim):
         It is specifically used for transforming nested dicts into a flat form to store the dict then
         as a .csv file. --> see function nestedDictToFlatTable(...).
         Extracted from: https://stackoverflow.com/questions/1871524/how-can-i-convert-json-to-csv.
-
         :param data: Nested dictionary where valueas are dicts of dicts etc.
         :param delim: String indicating the delimeter that is used to concatenate between the different layers
                       of the nested dict (key1 + delim + key11 + delim + ... + delim + key11111..),
