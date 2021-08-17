@@ -31,10 +31,23 @@ class nnUNetTrainerRehearsal(nnUNetTrainerMultiHead): # Inherit default trainer 
         self.seed = seed
 
         # -- Add seed in trained on file for restoring to be able to ensure that seed can not be changed during training -- #
-        self.already_trained_on[str(self.fold)]['used_seed'] = self.seed
+        if already_trained_on is not None:
+            # -- If the current fold does not exists initialize it -- #
+            if self.already_trained_on.get(str(self.fold), None) is None:
+                # -- Add the seed and sample size for prev_tasks -- #
+                self.already_trained_on[str(self.fold)]['used_seed'] = self.seed
+                self.already_trained_on[str(self.fold)]['used_sample_portion'] = self.samples
 
-        # -- Add the used sample portion in trained on file for restoring to be able to ensure that seed can not be changed during training -- #
-        self.already_trained_on[str(self.fold)]['used_sample_portion'] = self.samples
+            else: # It exists, then check if everything is in it
+                # -- Define a list of all expected keys that should be in the already_trained_on dict for the current fold -- #
+                keys = ['used_seed', 'used_sample_portion']
+                # -- Check that everything is provided as expected -- #
+                assert all(key in self.already_trained_on[str(self.fold)] for key in keys),\
+                    "The provided already_trained_on dictionary does not contain all necessary elements"
+        else:
+            # -- Add the seed and used sample portion in trained on file for restoring to be able to ensure that seed can not be changed during training -- #
+            self.already_trained_on[str(self.fold)]['used_seed'] = self.seed
+            self.already_trained_on[str(self.fold)]['used_sample_portion'] = self.samples
 
         # -- Update self.init_tasks so the storing works properly -- #
         self.init_args = (split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,

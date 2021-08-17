@@ -217,6 +217,10 @@ def run_training(extension='multihead'):
         save_interval = save_interval[0]
     cuda = args.device
 
+    # -- Assert if less than 2 GPUs are provided when using LwF -- #
+    if extension == 'lwf':
+        assert len(cuda) > 1, "For the LwF Trainer, at least two GPUs need to be provided."
+
     # -- Assert if device value is ot of predefined range and create string to set cuda devices -- #
     for idx, c in enumerate(cuda):
         assert c > -1 and c < 8, 'GPU device ID out of range (0, ..., 7).'
@@ -262,6 +266,11 @@ def run_training(extension='multihead'):
         if continue_training:
             print("Note: It will be continued with previous training, be sure that the provided ewc_lambda has not "
                   "changed from previous one..")
+
+        # -- Ensure that init_seq only works for EWC trainers since no other trainer stores the fisher and param values -- #
+        if init_seq and prev_trainer != str(ext_map[extension]).split('.')[-1][:-2]:
+            assert False, "You can only use a pre-trained EWC model as a base and no other model, since the corresponding"+\
+                          " parameters that are necessary for every task are not stored in any other trainer."
 
     # -- Extract lwf arguments -- #
     lwf_temperature = None  # --> So the dictionary arguments can be build without an error even if not lwf desired ..
@@ -369,7 +378,10 @@ def run_training(extension='multihead'):
             if began_with is None:
                 # -- Check if all tasks have been trained on so far, if so, this fold is finished with training, else it is not -- #
                 run_tasks = running_task_list
-
+                # -- Ensure that the length of those lists is equal -- #
+                assert len(all_tasks) == len(run_tasks),\
+                    "When trying to train on a new fold, the tasks to train on should be of the same length as all tasks since nothing is trained yet."
+                    
                 # -- If the lists are equal, continue with the next fold, if not, specify the right task in the following steps -- #
                 if np.array(np.array(all_tasks) == np.array(run_tasks)).all()\
                    and np.array(np.array(all_tasks) == trained_on_folds.get('finished_validation_on', np.array(list()))).all():  # Use numpy because lists return true if at least one match in both lists!
@@ -388,7 +400,7 @@ def run_training(extension='multihead'):
                     # -- Remove the last task from the running_task_list because we want to do validation on this task -- #
                     running_task_list = running_task_list[:-1]
                 
-            # -- If we began with training but nothing is finished yet, then continue from where wee left -- #
+            # -- If we began with training but nothing is finished yet, then continue from where we left -- #
             #if began_with != -1:
 
             # -- If this list is empty, the trainer did not train on any task --> Start directly with the first task as -c would not have been set -- #
@@ -571,10 +583,8 @@ def run_training(extension='multihead'):
                 trainer = trainer_class(split, all_tasks[0], plans_file, t_fold, output_folder=output_folder_name, dataset_directory=dataset_directory,\
                                         batch_dice=batch_dice, stage=stage,\
                                         already_trained_on=already_trained_on, **(args_f[trainer_class.__name__]))
-                
-                # -- Initialize the trainer with the dataset, task, fold, optimizer, etc. -- #
                 trainer.initialize(not validation_only, num_epochs=num_epochs, prev_trainer_path=prev_trainer_path)
-            
+                
             # -- Nothing needs to be done with the trainer, since it makes everything by itself, for instance -- #
             # -- if the task we train on does not exist at the later point, it simply initializes it as a new head -- #
 
@@ -599,7 +609,12 @@ def run_training(extension='multihead'):
                 if not validation_only:
                     if continue_training:
                         # -- User wants to continue previous training while ignoring pretrained weights -- #
-                        trainer.load_latest_checkpoint()
+                        try: # --> There is only a checkpoint if it has passed save_every
+                            trainer.load_latest_checkpoint()
+                        except:
+                            # --> Found no checkpoint, so one task is finished but the current hasn't started yet or -- #
+                            # -- did not reach save_every -- #
+                            pass
                         # -- Set continue_training to false for possible upcoming tasks -- #
                         # -- --> otherwise an error might occur because there is no trainer to restore -- #
                         continue_training = False

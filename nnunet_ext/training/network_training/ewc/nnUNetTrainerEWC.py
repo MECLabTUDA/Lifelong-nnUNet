@@ -7,9 +7,11 @@
 # -- https://github.com/ContinualAI/colab/blob/master/notebooks/intro_to_continual_learning.ipynb. -- #
 # -- It represents the method proposed in the paper https://arxiv.org/pdf/1612.00796.pdf -- #
 
-#from itertools import tee
-#from torch import autograd
+import torch
+from time import time
+from torch.cuda.amp import autocast
 from nnunet_ext.paths import default_plans_identifier
+from nnunet.utilities.to_torch import maybe_to_torch, to_cuda
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet.training.loss_functions.dice_loss import DC_and_CE_loss
 from nnunet_ext.training.loss_functions.deep_supervision import MultipleOutputLossEWC as EWCLoss
@@ -31,139 +33,102 @@ class nnUNetTrainerEWC(nnUNetTrainerMultiHead): # Inherit default trainer class 
         # -- Set the importance variable for the EWC Loss calculation during training -- #
         self.ewc_lambda = ewc_lambda
 
-        # -- Update ewc_lambda in trained on file fore restoring to be able to ensure that ewc_lambda can not be changed during training -- #
-        self.already_trained_on[str(self.fold)]['used_ewc_lambda'] = self.ewc_lambda
-        
-        """
-        # -- If already_trained_on is not None, this is a restoring, so add fisher and params if the fold is freshly initialized -- #
-        if already_trained_on is not None: 
-            # -- If the fisher in the current fold does not exists initialize it -- #
-            if self.already_trained_on[str(self.fold)].get('fisher', None) is None: # Fold has been freshly initialized
-                self.already_trained_on[str(self.fold)]['fisher'] = dict()
-                self.already_trained_on[str(self.fold)]['params'] = dict()
+        # -- Add seed in trained on file for restoring to be able to ensure that seed can not be changed during training -- #
+        if already_trained_on is not None:
+            # -- If the current fold does not exists initialize it -- #
+            if self.already_trained_on.get(str(self.fold), None) is None:
+                # -- Add EWC specific entries to already_trained_on -- #
+                self.already_trained_on[str(self.fold)]['used_ewc_lambda'] = self.ewc_lambda
+                self.already_trained_on[str(self.fold)]['fisher_at'] = None
+                self.already_trained_on[str(self.fold)]['params_at'] = None
+            else: # It exists, then check if everything is in it
+                # -- Define a list of all expected keys that should be in the already_trained_on dict for the current fold -- #
+                keys = ['used_ewc_lambda', 'fisher_at', 'params_at']
+                # -- Check that everything is provided as expected -- #
+                assert all(key in self.already_trained_on[str(self.fold)] for key in keys),\
+                    "The provided already_trained_on dictionary does not contain all necessary elements"
         else:
-            self.already_trained_on[str(self.fold)]['fisher'] = dict()
-            self.already_trained_on[str(self.fold)]['params'] = dict()
-        """
+            # -- Update ewc_lambda in trained on file fore restoring to be able to ensure that ewc_lambda can not be changed during training -- #
+            self.already_trained_on[str(self.fold)]['used_ewc_lambda'] = self.ewc_lambda
+            # -- Add fisher and params if the fold is freshly initialized -- #
+            self.already_trained_on[str(self.fold)]['fisher_at'] = None
+            self.already_trained_on[str(self.fold)]['params_at'] = None
 
         # -- Update self.init_tasks so the storing works properly -- #
         self.init_args = (split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
                           deterministic, fp16, save_interval, already_trained_on, use_progress, identifier, extension,
                           ewc_lambda, tasks_list_with_char, mixed_precision)
 
-        # -- Initialize a variable that includes all model parameters of the last iteration -- #
-        #self.network_params_last_iteration = None
-
         # -- Initialize dicts that hold the fisher and param values -- #
-        self.fisher = dict()
-        self.params = dict()
+        if self.already_trained_on[str(self.fold)]['fisher_at'] is None or self.already_trained_on[str(self.fold)]['params_at'] is None:
+            self.fisher = dict()
+            self.params = dict()
+        else:
+            self.fisher = load_pickle(self.already_trained_on[str(self.fold)]['fisher_at'])
+            self.params = load_pickle(self.already_trained_on[str(self.fold)]['params_at'])
 
-    def initialize(self, training=True, force_load_plans=False, num_epochs=500, prev_trainer=None):
+            # -- Put data on GPU since the data is moved to CPU before it is stored -- #
+            for task in self.fisher.keys():
+                for key in self.fisher[task].keys():
+                    to_cuda(self.fisher[task][key])
+            for task in self.params.keys():
+                for key in self.params[task].keys():
+                    to_cuda(self.params[task][key])
+
+        # -- Define the path where the fisher and param values should be stored/restored -- #
+        self.ewc_values_path = join(self.trained_on_path, 'ewc_values')
+
+    def initialize(self, training=True, force_load_plans=False, num_epochs=500, prev_trainer_path=None):
         r"""Overwrite the initialize function so the correct Loss function for the EWC method can be set.
         """
         # -- Perform initialization of parent class -- #
-        super().initialize(training, force_load_plans, num_epochs, prev_trainer)
-
-        # -- If this trainer is initialized for training, then load the models, else it is just an initialization as a prev_trainer -- #
-        #if training:
-            # -- Update the log -- #
-        #    self.print_to_log_file("Start initializing all previous models so they can be used for the EWC loss calculation.")   
-
-            # -- Extract previous tasks -- #
-        #    previous_tasks = self.already_trained_on[str(self.fold)]['finished_training_on']
-            
-            # -- Build fisher and params dictionaries based on previous trained models -- #
-        #    if len(previous_tasks) != 0:
-                # -- Load the previous task models -- #
-        #        prev_models = get_prev_trainers(previous_tasks,
-        #                                        network_name=self.network_name,
-        #                                        tasks_joined_name=self.tasks_joined_name,
-        #                                        already_trained_on=self.already_trained_on,
-        #                                        fold=self.fold,
-        #                                        extension=self.extension,
-        #                                        prev_trainer=prev_trainer)
-
-                # -- Set fisher and params accordingly -- #
-        #        for idx, model in enumerate(prev_models):
-                    # -- Extract the current task --> prev_models are in same order added to the list as the task from the provided list -- #
-        #            c_task = self.already_trained_on[str(self.fold)]['finished_training_on'][idx]
-                    # -- Initialize the task in fisher and params -- #
-        #            self.fisher[c_task] = dict()
-        #            self.params[c_task] = dict()
-                    
-                    # -- Loop through the extracted models parameters and calculate fisher and params -- #
-        #            for name, param in model.named_parameters():
-        #                print(param.grad is None)
-        #                self.fisher[c_task][name] = param.grad.data.clone().pow(2)
-                     
+        super().initialize(training, force_load_plans, num_epochs, prev_trainer_path)
+        
         # -- If this trainer has already trained on other tasks, then extract the fisher and params -- #
-        # -- Set fisher and params accordingly -- #
-        for task in self.mh_network.heads.keys()[:-1]:    # Skip the current task we're currently training on
-            # -- Activate the model accordingly to task -- #
-            self.mh_network.assemble_model(task)
-            # -- Set the network to the assembled model that is then used for prediction -- #
-            self.network = self.mh_network.model
+        if prev_trainer_path is not None and self.already_trained_on[str(self.fold)]['fisher_at'] is not None\
+                                         and self.already_trained_on[str(self.fold)]['params_at'] is not None:
+            self.fisher = load_pickle(self.already_trained_on[str(self.fold)]['fisher_at'])
+            self.params = load_pickle(self.already_trained_on[str(self.fold)]['params_at'])
 
-            # -- Initialize the task in fisher and params -- #
-            self.fisher[task] = dict()
-            self.params[task] = dict()
-            
-            # -- Loop through the models parameters and calculate fisher and params -- #
-            for name, param in self.network.named_parameters():
-                print(param.grad is None)
-                self.fisher[task][name] = param.grad.data.clone().pow(2)
-                self.params[task][name] = param.data.clone()
-
-        # -- Reset the network to the current task -- #
-        self.network = self.mh_network.assemble_model(self.task)
-
+            # -- Put data on GPU since the data is moved to CPU before it is stored -- #
+            for task in self.fisher.keys():
+                for key in self.fisher[task].keys():
+                    to_cuda(self.fisher[task][key])
+            for task in self.params.keys():
+                for key in self.params[task].keys():
+                    to_cuda(self.params[task][key])
+        
         # -- Reset self.loss from MultipleOutputLoss2 to DC_and_CE_loss so the EWC Loss can be initialized properly -- #
         self.loss = DC_and_CE_loss({'batch_dice': self.batch_dice, 'smooth': 1e-5, 'do_bg': False}, {})
 
         # -- Choose the right loss function (EWC) that will be used during training -- #
         # -- --> Look into the Loss function to see how the approach is implemented -- #
-        # -- Update the network paramaters after each iteration .. -- #
+        # -- Update the network paramaters during each iteration -- #
         self.loss = EWCLoss(self.loss, self.ds_loss_weights,
-                            #self.already_trained_on[str(self.fold)]['finished_training_on'],
-                            self.mh_model.heads.keys()[:-1],    # Skip the current task we're currently training on
                             self.ewc_lambda,
                             self.fisher,
                             self.params,
                             self.network.named_parameters())
 
-    def initialize_network(self):
-        r"""Initialize the network using parent class and extract fisher and param values if a model
-            for initialization was provided.
+    def reinitialize(self, task):
+        r"""This function is used to reinitialize the Multi Head Trainer when a new task is trained for the EWC Trainer.
+            The most important thing here is that it sets the fisher and param values accordingly in the loss.
         """
-        # -- Set a variable that helps to determine how to calculate the fisher and params -- #
-        #fisher_possible = self.trainer is not None
-            
-        # -- Initialize from beginning and start training, since no model is provided -- #
-        super().initialize_network() # --> This updates the corresponding variables automatically since we inherit this class
+        # -- Execute the super function -- # 
+        super().reinitialize(task)
         
-        """
-        # -- Calculate fisher and extract params a trainer was provided, ie. we have a nnUNetTrainerV2 as initialization (pre-trained) -- #
-        if fisher_possible:
-            # -- Extract the task the provided network has been trained on so far -- #
-            task = self.already_trained_on[str(self.fold)]['finished_training_on'][0] # --> Only one task can be in this list at this point
+        # -- Put data on GPU since the data is moved to CPU before it is stored -- #
+        for task in self.fisher.keys():
+            for key in self.fisher[task].keys():
+                to_cuda(self.fisher[task][key])
+        for task in self.params.keys():
+            for key in self.params[task].keys():
+                to_cuda(self.params[task][key])
 
-            # -- Add the task to fisher and params if it does not exist -- #
-            if self.fisher.get(task, None) is None: # If fisher does not exist, params does not exist as well
-                self.fisher[task] = dict()
-                self.params[task] = dict()
+        # -- Update the fisher and param values in the loss function -- #
+        self.loss.update_ewc_params(self.fisher, self.params)
 
-            # -- Set fisher and params in current fold -- #
-            for name, param in self.network.named_parameters():
-                # -- Update the fisher and params dict -- #
-                self.fisher[task][name] = param.grad.data.clone().pow(2)
-                self.params[task][name] = param.data.clone()
-        
-            # -- Set own network to trainer.network to use this pre-trained model if it exists -- #
-            self.network = self.trainer.network
-        """
-
-    
-    def run_training(self, task):
+    def run_training(self, task, output_folder):
         r"""Perform training using ewc trainer. Simply executes training method of parent class (nnUNetTrainerSequential)
             while updating fisher and params dicts.
             NOTE: This class expects that the trainer is already initialized, if not, the calling class will initialize,
@@ -171,24 +136,49 @@ class nnUNetTrainerEWC(nnUNetTrainerMultiHead): # Inherit default trainer class 
                   to train, so it will be 500 and it does not set a prev_trainer. The prev_trainer will be set to None!
                   --> Initialize the trainer using your desired num_epochs and prev_trainer before calling run_training.  
         """
-        # -- Execute the training for the desired epochs -- #
-        ret = super().run_training(task)       # Execute training from parent class --> already_trained_on will be updated there
+        # -- If there is at least one head and the current task is not in the heads, the network has finished on one task -- #
+        # -- In such a case the fisher/param values should exist and should not be empty -- #
+        if len(self.mh_network.heads) > 0 and task not in self.mh_network.heads:
+            assert len(self.fisher) == len(self.mh_network.heads) and len(self.params) == len(self.mh_network.heads),\
+            "The number of tasks in the fisher/param values are not as expected --> should be the same as in the Multi Head network."
 
-        """
-        # -- Update fisher and params in case the training is not finished yet -- #
-        # -- Add the task to fisher and param dicts to store the parameters of the trained model -- #
+        # -- Execute the training for the desired epochs -- #
+        ret = super().run_training(task, output_folder)       # Execute training from parent class --> already_trained_on will be updated there
+        
+        # -- Define the fisher and params after the training -- #
         self.fisher[task] = dict()
         self.params[task] = dict()
         
-        # -- Set fisher and params in current fold from last iteration --> final model parameters -- #
-        for name, param in self.network_params_last_iteration:
-            # -- Update the fisher and params dict -- #
-            if param.grad is None:
-                continue
-            self.fisher[task][name] = param.grad.data.clone().pow(2)
-            self.params[task][name] = param.data.clone()
-        """
+        # -- Run forward and backward pass without optimizer step and extract the gradients -- #
+        # -- --> optimizer step updates the weights -- #
+        # -- This will update the parameters for the current task in self.fisher and self.params -- #
+        self.after_train()
 
+        # -- Put data from GPU to CPU before storing them in files -- #
+        for task in self.fisher.keys():
+            for key in self.fisher[task].keys():
+                self.fisher[task][key].cpu()
+        for task in self.params.keys():
+            for key in self.params[task].keys():
+                self.params[task][key].cpu()
+
+        # -- Dump both dicts as pkl files -- #
+        maybe_mkdir_p(self.ewc_values_path)
+        write_pickle(self.fisher, join(self.ewc_values_path, 'fisher_values.pkl'))
+        write_pickle(self.params, join(self.ewc_values_path, 'param_values.pkl'))
+
+        if self.already_trained_on[str(self.fold)]['fisher_at'] is None or self.already_trained_on[str(self.fold)]['params_at'] is None:
+            # -- Update the already_trained_on file that the values exist if necessary -- #
+            self.already_trained_on[str(self.fold)]['fisher_at'] = join(self.ewc_values_path, 'fisher_values.pkl')
+            self.already_trained_on[str(self.fold)]['params_at'] = join(self.ewc_values_path, 'param_values.pkl')
+            
+            # -- Save the updated dictionary as a json file -- #
+            save_json(self.already_trained_on, join(self.trained_on_path, self.extension+'_trained_on.json'))
+            # -- Update self.init_tasks so the storing works properly -- #
+            self.update_init_args()
+            # -- Resave the final model pkl file so the already trained on is updated there as well -- #
+            self.save_init_args(join(self.output_folder, "model_final_checkpoint.model"))
+        
         return ret  # Finished with training for the specific task
 
     def run_iteration(self, data_generator, do_backprop=True, run_online_evaluation=False):
@@ -199,16 +189,74 @@ class nnUNetTrainerEWC(nnUNetTrainerMultiHead): # Inherit default trainer class 
             first epoch took place which is wrong because it should be always the one of the current iteration.
             It is the same with the loss, we do not calculate the loss once every epoch, but with every iteration (batch).
         """
-        # -- Before running iteration and calculating the loss, update the parameters for the loss in next iteration -- #
-        # -- Do not do this directly after the super().run_iteration, since the super function detaches the value which -- #
-        # -- results in gradients that are all 0 afterwards --> Loss results will not be the same -- #
-        self.loss.update_network_params(self.network.named_parameters())
-
         # -- Run iteration as usual -- #
         loss = super().run_iteration(data_generator, do_backprop, run_online_evaluation)
-
-        # -- Clone the network parameters (generator) so they can be included in the already_trained_on file when training is finished -- #
-        #self.network_params_last_iteration = tee(self.network.named_parameters(), 1)[0]
-
+        
+        # -- After running one iteration and calculating the loss, update the parameters of the loss for the next iteration -- #
+        # -- NOTE: The gradients DO exist even after the loss detaching of the super function, however the loss function -- #
+        # --       does not need them, since they are only necessary for the Fisher values that are calculated once the -- #
+        # --       training is done performing an epoch with no optimizer steps --> see after_train() for that -- #
+        self.loss.update_network_params(self.network.named_parameters())
+        
         # -- Return the loss -- #
         return loss
+
+    def after_train(self):
+        r"""This function needs to be executed once the training of the current task is finished.
+            The function will use the same data to generate the gradients again and setting the
+            models parameters.
+        """
+        # -- Update the log -- #
+        self.print_to_log_file("Running one last epoch without changing the weights to extract Fisher and Parameter values...")
+        start_time = time()
+        #------------------------------------------ Partially copied from original implementation ------------------------------------------#
+        # -- Put the network in train mode and kill gradients -- #
+        self.network.train()
+        self.optimizer.zero_grad()
+
+        # -- Do loop through the data based on the number of batches -- # self.tr_gen
+        for _ in range(self.num_batches_per_epoch):
+            self.optimizer.zero_grad()
+            # -- Extract the data -- #
+            data_dict = next(self.tr_gen)
+            data = data_dict['data']
+            target = data_dict['target']
+
+            # -- Push data to GPU -- #
+            data = maybe_to_torch(data)
+            target = maybe_to_torch(target)
+            if torch.cuda.is_available():
+                data = to_cuda(data)
+                target = to_cuda(target)
+
+            # -- Respect the fact if the user wants to autocast during training -- #
+            if self.fp16:
+                with autocast():
+                    output = self.network(data)
+                    del data
+                    loss = self.loss(output, target)
+                # -- Do backpropagation but do NOT update the weights -- #
+                self.amp_grad_scaler.scale(loss).backward()
+            else:
+                output = self.network(data)
+                del data
+                loss = self.loss(output, target)
+                # -- Do backpropagation but do NOT update the weights -- #
+                loss.backward()
+
+            del target
+
+        # -- Set fisher and params in current fold from last iteration --> final model parameters -- #
+        for name, param in self.network.named_parameters():
+            # -- Update the fisher and params dict -- #
+            if param.grad is None:
+                self.fisher[self.task][name] = torch.tensor([1], device='cuda:0')
+            else:
+                self.fisher[self.task][name] = param.grad.data.clone().pow(2)
+            self.params[self.task][name] = param.data.clone()
+
+        # -- Discard the calculated loss -- #
+        del loss
+        #------------------------------------------ Partially copied from original implementation ------------------------------------------#
+        # -- Update the log -- #
+        self.print_to_log_file("Extraction and saving of Fisher and Parameter values took %.2f seconds" % (time() - start_time))
