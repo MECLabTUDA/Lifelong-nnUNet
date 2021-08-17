@@ -7,6 +7,7 @@ import os
 import torch
 import numpy as np
 from itertools import tee
+from collections import OrderedDict
 from nnunet_ext.paths import default_plans_identifier
 from nnunet.utilities.nd_softmax import softmax_helper
 from nnunet.utilities.tensor_utilities import sum_tensor
@@ -46,13 +47,16 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # -- Store the flag if it is desired to save the validation metrics at every nth epoch as a csv as well -- #
         self.csv = save_csv
 
+        # -- Set trainer_class_name -- #
+        self.trainer_class_name = self.__class__.__name__
+
         # -- Initialize or set self.already_trained_on dictionary to keep track of the trained tasks so far for restoring -- #
         if already_trained_on is not None:
             self.already_trained_on = already_trained_on    # Use provided already_trained on
             # -- If the current fold does not exists initialize it -- #
             if self.already_trained_on.get(str(self.fold), None) is None:
                 self.already_trained_on[str(self.fold)] = {'finished_training_on': list(), 'start_training_on': None, 'finished_validation_on': list(),
-                                                           'used_identifier': self.identifier, 'prev_trainer': ['None'], 'val_metrics_should_exist': False,
+                                                           'used_identifier': self.identifier, 'prev_trainer': [self.trainer_class_name], 'val_metrics_should_exist': False,
                                                            'checkpoint_should_exist': False, 'tasks_at_time_of_checkpoint': list(),
                                                            'active_task_at_time_of_checkpoint': None}  # Add current fold as new entry
             else: # It exists, then check if everything is in it
@@ -65,7 +69,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                     "The provided already_trained_on dictionary does not contain all necessary elements"
         else:
             self.already_trained_on = {str(self.fold): {'finished_training_on': list(), 'start_training_on': None, 'finished_validation_on': list(),
-                                                        'used_identifier': self.identifier, 'prev_trainer': ['None'], 'val_metrics_should_exist': False,
+                                                        'used_identifier': self.identifier, 'prev_trainer': [self.trainer_class_name], 'val_metrics_should_exist': False,
                                                         'checkpoint_should_exist' : False, 'tasks_at_time_of_checkpoint': list(),
                                                         'active_task_at_time_of_checkpoint': None}}
 
@@ -76,16 +80,13 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         self.save_every = save_interval
 
         # -- Initialize subject_names list that is used to store the subject names for every nth evaluation -- #
-        self.subject_names_raw = None # Store the names as is, ie. not cleaned (removed duplicates etc.) --> For evaluation necessary
+        self.subject_names_raw = list() # Store the names as is, ie. not cleaned (removed duplicates etc.) --> For evaluation necessary
 
         # -- Extract network_name that might come in handy at a later stage -- #
         # -- For more details on how self.output_folder is built look at get_default_configuration -- #
         help_path = os.path.normpath(self.output_folder)    # Normalize path in order to avoid errors
         help_path = help_path.split(os.sep) # Split the path using '\' seperator
         self.network_name = help_path[-5]   # 5th element from back is the name of the used network
-
-        # -- Set trainer_class_name -- #
-        self.trainer_class_name = self.__class__.__name__
 
         # -- Set the extension for output file -- #
         self.extension = extension
@@ -197,8 +198,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         pkl_file = checkpoint + ".pkl"
         use_extension = not 'nnUNetTrainerV2' in self.trainer_path
         self.trainer_model = restore_model(pkl_file, checkpoint, train=False, fp16=self.mixed_precision,\
-                                           use_extension=use_extension, extension_type=self.extension)
-                                           
+                                           use_extension=use_extension, extension_type=self.extension)      
         self.trainer_model.initialize(True)
 
         # -- Some sanity checks and loads.. -- #
@@ -214,10 +214,6 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
 
         # -- Check that the trainer type is as expected -- #
         assert isinstance(self.trainer_model, (nnUNetTrainerV2, nnUNetTrainerMultiHead)), "The trainer needs to be nnUNetTrainerV2 or nnUNetTrainerMultiHead.."
-
-        # -- If the trainer is already of Multi Head type, there should also be a pkl file with the sets it has already been trained on ! -- #
-        if not self.trainer_model.__class__.__name__ == nnUNetTrainerV2.__name__:   # If model was trained using nnUNetTrainerV2, the file won't exist
-            self.already_trained_on = load_json(join(self.trained_on_path, self.extension+'_trained_on.json'))
 
         # -- Set mh_network -- #
         # -- Make it to Multi Head Network first and then update the heads if the model was of Multi Head type -- #
@@ -248,6 +244,9 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             Basically the dataloaders are created again with the new task data. This function will only
             be used when training before running the actual training.
         """
+        # -- Add the prev_trainer to the list for the current run -- #
+        self.already_trained_on[str(self.fold)]['prev_trainer'].append(self.trainer_class_name)
+
         # -- Update the log file -- #
         self.print_to_log_file("Updating the Dataloaders for new task \'{}\'.".format(task))
 
@@ -331,10 +330,15 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
 
         # -- Add task to finished_training -- #
         self.update_save_trained_on_json(task, True)
+        # -- Resave the final model pkl file so the already trained on is updated there as well -- #
+        self.save_init_args(join(self.output_folder, "model_final_checkpoint.model"))
 
         # -- When model trained on second task and the self.new_trainer is still not updated, then update it -- #
         if self.new_trainer and len(self.already_trained_on) > 1:
             self.new_trainer = False
+
+        # -- Delete the trainer_model once finished with training -- #
+        self.trainer_model = None
 
         # -- Before returning, reset the self.epoch variable, otherwise the following task will only be trained for the last epoch -- #
         self.epoch = 0
@@ -376,7 +380,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         res = super().on_epoch_end()
 
         # -- If the current epoch can be divided without a rest by self.save_every than its time for a validation -- #
-        if self.epoch % self.save_every == (self.save_every - 1):   # Same as checkpoint saving from nnU-Net
+        if self.epoch % self.save_every == self.save_every - 1:   # Same as checkpoint saving from nnU-Net (NOTE: this is because its 0 based)
             self._perform_validation()
 
         # -- Return the result from the parent class -- #
@@ -398,7 +402,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # -- Add the current trainer_class name to prev_trainer, so the loop does not end in an error -- #
         # -- since this trainer is not yet a prev_trainer.. --> Remove the trainer again after the loop -- #
         # -- because this creates only a view and changes self.already_trained_on as well which we do not want to -- #
-        trained_on_folds['prev_trainer'].append(self.trainer_class_name)
+        #trained_on_folds['prev_trainer'].append(self.trainer_class_name)
         
         # -- NOTE: Since the head is an (ordered) ModuleDict, the current task is the last head, so there -- #
         # --       is nothing to restore at the end. -- #
@@ -426,22 +430,18 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             # -- Create the corresponding dataloaders for train and val (dataset loading and split performed in function) -- #
             self.dl_tr, self.dl_val = self.get_basic_generators()
 
-            # -- Load the dataset for the task from the loop and perform the split on it -- #
-            #self.dataset = load_dataset(folder_with_preprocessed_data)
-            #self.do_split()
-
             # -- Unpack the dataset if desired, since we might have to continue training so we have to unpack if desired -- #
             if self.unpack_data:
                 unpack_dataset(self.folder_with_preprocessed_data)
 
             # -- Extract corresponding self.val_gen --> the used function is extern and does not change any values from self -- #
             self.tr_gen, self.val_gen = get_moreDA_augmentation(self.dl_tr, self.dl_val,
-                                                                self.data_aug_params[
-                                                                    'patch_size_for_spatialtransform'],
+                                                                self.data_aug_params['patch_size_for_spatialtransform'],
                                                                 self.data_aug_params,
                                                                 deep_supervision_scales=self.deep_supervision_scales,
                                                                 pin_memory=self.pin_memory,
                                                                 use_nondetMultiThreadedAugmenter=False)
+
             # -- Update the log -- #
             self.print_to_log_file("Performing validation with validation data from task {}.".format(task))
 
@@ -457,24 +457,24 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                 # -- Run an iteration for each batch in validation generator -- #
                 val_gen_copy = tee(self.val_gen, 1)[0] # <-- Duplicate the generator so the names are extracted correctly during the loop
                 
-                # -- First, extract the subject names so we can map the predictions to the names -- #
-                data = next(val_gen_copy)
-                self.subject_names_raw = data['keys']
-                del val_gen_copy
-
                 # -- Loop through generator based on number of defined batches -- @
                 for _ in range(self.num_val_batches_per_epoch):
+                    # -- First, extract the subject names so we can map the predictions to the names -- #
+                    data = next(val_gen_copy)
+                    self.subject_names_raw.append(data['keys'])
+
                     # -- Run iteration without backprop but online_evaluation to be able to get TP, FP, FN for Dice and IoU -- #
                     _ = self.run_iteration(self.val_gen, False, True)
-            
+                del val_gen_copy
+
             # -- Calculate Dice and IoU --> self.validation_results is already updated once the evaluation is done -- #
             self.finish_online_evaluation_extended(task)
         
         # -- Remove the trainer now from the list again  -- #
-        trained_on_folds['prev_trainer'] = trained_on_folds['prev_trainer'][:-1]
+        #trained_on_folds['prev_trainer'] = trained_on_folds['prev_trainer'][:-1]
 
         # -- Save the dictionary as json file in the corresponding output_folder -- #
-        save_json(self.validation_results, join(self.output_folder, 'val_metrics.json'))
+        save_json(self.validation_results, join(self.output_folder, 'val_metrics.json'), sort_keys=False)
 
         # -- Save as csv if desired as well -- #
         if self.csv:
@@ -541,26 +541,42 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             NOTE: The function name is different from the original one, since it is used in another context
                   than the original one, ie. it is only called in special cases which is why it has a different name.
         """
+        # -- Stack the numpy arrays since they are stored differently depending on the run -- #
+        self.subject_names_raw = np.array(self.subject_names_raw).flatten()
+
+        # -- Reshape the tp, fp, tn lists so the names are flat, but the different mask labels, ie. last dimension is still in tact -- #
+        self.online_eval_tp = np.array(self.online_eval_tp).reshape(-1, np.array(self.online_eval_tp).shape[-1])
+        self.online_eval_fp = np.array(self.online_eval_fp).reshape(-1, np.array(self.online_eval_fp).shape[-1])
+        self.online_eval_fn = np.array(self.online_eval_fn).reshape(-1, np.array(self.online_eval_fn).shape[-1])
+        
         # -- Sum the values for tp, fp and fn per subject to get exactly one value per subject in the end -- #
-        # -- Extract the indexes for every subject since the batches are not unique -- #
-        subject_names, idxs = np.unique(self.subject_names_raw, return_index = True)
+        # -- Extract the unique names -- #
+        subject_names = np.unique(self.subject_names_raw)
+        
         # -- Sum the values per subject name based on the idxs -- #
         tp = list()
         fp = list()
         fn = list()
+
+        # -- Build up a list (following the order of subject_names) that stores the indices for every subject since -- #
+        # -- the self.subject_names_raw list matches every other list like tp, fp, fn -- #
+        idxs = list()
+        for subject in subject_names:
+            # -- Get all indices of elements that match the current subject -- #
+            idxs.append(np.where(self.subject_names_raw == subject))
 
         for subject_idxs in idxs:
             # -- Sum only those values that belong to the subject based on the subject_idxs -- #
             # -- NOTE: self.online_eval_XX dimensions: (nr_batches, subject_names (--> subject_idxs), nr_classes) -- #
             # --       The selection of rows returns all batch results per subject so we only sum them on axis 0 -- #
             # --       so we keep the results per nr_classes in tact on don't sum the array in a whole to a single value -- #
-            tp.append(np.array(self.online_eval_tp)[:, subject_idxs, :].sum(axis=0))
-            fp.append(np.array(self.online_eval_fp)[:, subject_idxs, :].sum(axis=0))
-            fn.append(np.array(self.online_eval_fn)[:, subject_idxs, :].sum(axis=0))
+            tp.append(np.array(self.online_eval_tp)[subject_idxs].sum(axis=0))
+            fp.append(np.array(self.online_eval_fp)[subject_idxs].sum(axis=0))
+            fn.append(np.array(self.online_eval_fn)[subject_idxs].sum(axis=0))
 
         # -- Assign the correct values to corresponding lists and remove the three generated lists
         self.online_eval_tp, self.online_eval_fp, self.online_eval_fn = tp, fp, fn
-        del tp, fp, fn      
+        del tp, fp, fn
 
         # -- Calculate the IoU per class per subject --> use numpy since those operations do not work on conventional lists -- #
         global_iou_per_class_and_subject = list()
@@ -586,8 +602,8 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             store_dict[subject] = dict()
             for class_label in range(len(global_iou_per_class_and_subject[idx])):
                 store_dict[subject]['mask_'+str(class_label+1)] = { 
-                                                                        'IoU': np.float64(global_iou_per_class_and_subject[idx][class_label]),
-                                                                        'Dice': np.float64(global_dc_per_class_and_subject[idx][class_label])
+                                                                    'IoU': np.float64(global_iou_per_class_and_subject[idx][class_label]),
+                                                                    'Dice': np.float64(global_dc_per_class_and_subject[idx][class_label])
                                                                   }
 
         # -- Add the results to self.validation_results based on task, epoch, subject and class-- #
@@ -601,7 +617,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         self.online_eval_tp = []
         self.online_eval_fp = []
         self.online_eval_fn = []
-        self.subject_names_raw = [] # <-- Subject names necessary to map iou and dice per subject
+        self.subject_names_raw = [] # <-- Subject names necessary to map IoU and dice per subject
     #------------------------------------------ Partially copied from original implementation ------------------------------------------#
 
     def validate(self, do_mirroring: bool = True, use_sliding_window: bool = True,
@@ -621,22 +637,10 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         trained_on_folds = self.already_trained_on[str(self.fold)]
 
         # -- Extract the list of tasks the model has already finished training on -- #
-        #trained_on = trained_on_folds.get('finished_training_on', None)
         trained_on = list(self.mh_network.heads.keys())
 
         #  -- If the trained_on_folds raise an error, because at this point the model should have been trained on at least one task -- #
-        #assert trained_on is not None, "Before performing any validation, the model needs to be trained on at least one task."
         assert len(trained_on) != 0, "Before performing any validation, the model needs to be trained on at least one task."
-
-        # -- If it reaches until there, the model has already trained on a previous task, so trained_on exists -- #
-        # -- Make a copy of the variables that will be updated in the upcoming loop -- #
-        # -- Without '[:]' for lists or '.copy()' for dicts both variables will change its values which is not desired -- #
-        #dataset_backup = self.dataset.copy()
-        #dataset_tr_backup = self.dataset_tr.copy()
-        #dataset_val_backup = self.dataset_val.copy()
-        #gt_niftis_folder_backup = self.gt_niftis_folder
-        #dataset_directory_backup = self.dataset_directory
-        #plans_backup = self.plans.copy()
 
         # -- NOTE: Since the head is an (ordered) ModuleDict, the current task is the last head, so there -- #
         # --       is nothing to restore at the end. -- #
@@ -658,9 +662,6 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             # -- Update self.gt_niftis_folder that will be used in validation function so the files can be found -- #
             self.gt_niftis_folder = join(self.dataset_directory, "gt_segmentations")
             
-            #self.print_to_log_file("Somehow the gt_niftis does not work here are they stored: {}.".format(self.gt_niftis_folder))
-
-            
             # -- Extract the folder with the preprocessed data in it -- #
             folder_with_preprocessed_data = join(self.dataset_directory, self.plans['data_identifier'] +
                                                  "_stage%d" % stage)
@@ -680,11 +681,6 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             # -- Before executing validate function, set network in eval mode -- #
             self.network.eval()
 
-            #p = self.network.__dict__
-            #print(p)
-            #raise
-            #self.print_to_log_file("Somehow the gt_niftis does not work here are they stored: {}.".format(self.gt_niftis_folder))
-
             # -- Perform individual validations with updated self.gt_niftis_folder -- #
             ret_joined.append(super().validate(do_mirroring=do_mirroring, use_sliding_window=use_sliding_window, step_size=step_size,
                                                save_softmax=save_softmax, use_gaussian=use_gaussian,
@@ -692,31 +688,18 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                                                all_in_gpu=all_in_gpu, segmentation_export_kwargs=segmentation_export_kwargs,
                                                run_postprocessing_on_folds=run_postprocessing_on_folds))
         
-        # -- Restore variables to the corresponding validation set of the current task and remove backup variables -- #
-        #self.dataset = dataset_backup
-        #self.dataset_tr = dataset_tr_backup
-        #self.dataset_val = dataset_val_backup
-        #self.gt_niftis_folder = gt_niftis_folder_backup
-        #self.dataset_directory = dataset_directory_backup
-        #self.plans = plans_backup
-        #del dataset_backup, dataset_tr_backup, dataset_val_backup, gt_niftis_folder_backup, dataset_directory_backup, plans_backup 
-
-        # -- Restore the network the class is trained on using self.task -- #
-        # -- Activate the current task to train on the right model -- #
-        # -- Set self.network, since the parent classes all use self.network to train -- #
-        # -- NOTE: self.mh_network.model is also updated to self.task split ! -- #
-        #self.network = self.mh_network.assemble_model(self.task)
-
         # -- Add to the already_trained_on that the validation is done for the task the model trained on previously -- #
         self.already_trained_on[str(self.fold)]['finished_validation_on'].append(trained_on[-1])
 
         # -- Remove the additional prev_trainer currently existing in self.already_trained_on -- #
-        self.already_trained_on[str(self.fold)]['prev_trainer'] = self.already_trained_on[str(self.fold)]['prev_trainer'][:-1]
+        #self.already_trained_on[str(self.fold)]['prev_trainer'] = self.already_trained_on[str(self.fold)]['prev_trainer'][:-1]
         
         # -- Save the updated dictionary as a json file -- #
         save_json(self.already_trained_on, join(self.trained_on_path, self.extension+'_trained_on.json'))
         # -- Update self.init_tasks so the storing works properly -- #
         self.update_init_args()
+        # -- Resave the final model pkl file so the already trained on is updated there as well -- #
+        self.save_init_args(join(self.output_folder, "model_final_checkpoint.model"))
 
         # -- At the end reset the log_file, so a new file is created for the next task given the updated output folder -- #
         self.log_file = None
@@ -735,16 +718,13 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             self.already_trained_on[str(self.fold)]['finished_training_on'].append(task)
             # -- Remove the task from start_training_on -- #
             self.already_trained_on[str(self.fold)]['start_training_on'] = None 
-            # -- Update the prev_trainer -- #
-            self.already_trained_on[str(self.fold)]['prev_trainer'].append(self.trainer_class_name)
         else:   # Task started to train
             # -- Add the current task -- #
             self.already_trained_on[str(self.fold)]['start_training_on'] = task
             # -- Update the prev_trainer -- #
             if self.trainer_model is not None: # This is always the case when a pre trained network is used as initialization
-                self.already_trained_on[str(self.fold)]['prev_trainer'][-1:] = [self.trainer_model.__class__.__name__]
-            else: # When using directly the extension with no pre trained network or after first task train when self.trainer_model is set to None
-                self.already_trained_on[str(self.fold)]['prev_trainer'][-1:] = [self.trainer_class_name]
+                self.already_trained_on[str(self.fold)]['prev_trainer'][-1:] = [self.trainer_model.__class__.__name__]  # --> The one from the used trainer
+                self.already_trained_on[str(self.fold)]['prev_trainer'].append(self.trainer_class_name)                 # --> The current trainer we start training with
         # -- Update the used_identifier -- #
         self.already_trained_on[str(self.fold)]['used_identifier'] = self.identifier
 
@@ -760,8 +740,6 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # -- Set the network to the full MultiHead_Module network to save everything in the class not only the current model -- #
         self.network = self.mh_network
 
-        # -- Set the flag in already_trained_on BEFORE creating a checkpoint since this will otherwise be missing -- #
-        #if not self.already_trained_on[str(self.fold)]['checkpoint_should_exist']:
         # -- Set the flag to True -- #
         self.already_trained_on[str(self.fold)]['checkpoint_should_exist'] = True
         # -- Add the current head keys for restoring (is in correct order due to OrderedDict type of heads) -- #
@@ -789,6 +767,21 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         init[12] = self.already_trained_on
         # -- Transform list back to tuple -- #
         self.init_args = tuple(init)
+
+    def save_init_args(self, fname):
+        r"""This function needs to be executed after a finished training, if some arguments are changed once the final mode
+            is stored. Those results need to be updated as well or there might be a problem when trying to restore later on.
+        """
+        #------------------------------------------ Copied from original implementation ------------------------------------------#
+        # -- Save the results in case the script gets interrupted etc. for proper restoring -- #
+        info = OrderedDict()
+        info['init'] = self.init_args
+        info['name'] = self.__class__.__name__
+        info['class'] = str(self.__class__)
+        info['plans'] = self.plans
+        # -- Dump the file -- #
+        write_pickle(info, fname + ".pkl")
+        #------------------------------------------ Copied from original implementation ------------------------------------------#
 
     def load_checkpoint_ram(self, checkpoint, train=True):
         r"""Overwrite the parent function since the stored state_dict is for a Multi Head Trainer, however the
