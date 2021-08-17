@@ -129,8 +129,7 @@ def flattendict(data, delim):
         Extracted from: https://stackoverflow.com/questions/1871524/how-can-i-convert-json-to-csv.
         :param data: Nested dictionary where valueas are dicts of dicts etc.
         :param delim: String indicating the delimeter that is used to concatenate between the different layers
-                      of the nested dict (key1 + delim + key11 + delim + ... + delim + key11111..),
-                      
+                      of the nested dict (key1 + delim + key11 + delim + ... + delim + key11111..)    
     """
     # -- Define result dictionary that will be flat, ie. key is a string and value is of primitive type -- #
     val = {}
@@ -158,7 +157,7 @@ def flatteneddict_to_df(flatteneddict, cols, delim):
         :param cols: List of column names for the DataFrame --> Should have the same length as the extracted elements, ie.
                      splitted key based on delimeter + the value mapped to the key.
         :param delim: String representing the delimeter that has been used during the falltening process of a nested dict.
-        """
+    """
     # -- Check that the number of cols matches as expected -- #
     assert len(cols) == len(list(flatteneddict.keys())[0].split(delim))+1,\
     "The number of columns in the json does not match with the provided list of columns."
@@ -181,7 +180,7 @@ def nestedDictToFlatTable(nested_dict, cols):
         :param nested_dict: The nested dictionary no matter how deep ;)
         :param cols: List of column names for the DataFrame --> Should have the same length as the depth
                      of the provided nested_dict + 1 (all keys + value).
-        """
+    """
     # -- Build the DataFrame from the dictionary and return the Frame -- #
     return flatteneddict_to_df(flattendict(nested_dict, "__"), cols, '__')
 
@@ -190,7 +189,8 @@ def dumpDataFrameToCsv(data, path, name, sep='\t'):
         :param data: A DataFrame.
         :param path: Path as a string indicating where to store the file.
         :param name: String indicating the name of the file.
-        :param sep: String indicating the seperator for the csv file, ie. how to seperate the content."""
+        :param sep: String indicating the seperator for the csv file, ie. how to seperate the content.
+    """
     # -- Check if csv is in the name -- #
     if '.csv' not in name:
         # -- Add it if its missing -- #
