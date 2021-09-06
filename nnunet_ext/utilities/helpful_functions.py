@@ -2,9 +2,12 @@
 #------This module contains useful functions that are used throughout the nnUNet_extensions project.-----#
 ##########################################################################################################
 
+import torch
 import pandas as pd
 from types import ModuleType
 import sys, os, shutil, importlib
+from torch.cuda.amp import autocast
+from nnunet.utilities.to_torch import maybe_to_torch, to_cuda
 from batchgenerators.utilities.file_and_folder_operations import join
 from nnunet_ext.paths import nnUNet_raw_data, nnUNet_cropped_data, preprocessing_output_dir
 
@@ -129,7 +132,8 @@ def flattendict(data, delim):
         Extracted from: https://stackoverflow.com/questions/1871524/how-can-i-convert-json-to-csv.
         :param data: Nested dictionary where valueas are dicts of dicts etc.
         :param delim: String indicating the delimeter that is used to concatenate between the different layers
-                      of the nested dict (key1 + delim + key11 + delim + ... + delim + key11111..)    
+                      of the nested dict (key1 + delim + key11 + delim + ... + delim + key11111..),
+                      
     """
     # -- Define result dictionary that will be flat, ie. key is a string and value is of primitive type -- #
     val = {}
@@ -157,7 +161,7 @@ def flatteneddict_to_df(flatteneddict, cols, delim):
         :param cols: List of column names for the DataFrame --> Should have the same length as the extracted elements, ie.
                      splitted key based on delimeter + the value mapped to the key.
         :param delim: String representing the delimeter that has been used during the falltening process of a nested dict.
-    """
+        """
     # -- Check that the number of cols matches as expected -- #
     assert len(cols) == len(list(flatteneddict.keys())[0].split(delim))+1,\
     "The number of columns in the json does not match with the provided list of columns."
@@ -180,7 +184,7 @@ def nestedDictToFlatTable(nested_dict, cols):
         :param nested_dict: The nested dictionary no matter how deep ;)
         :param cols: List of column names for the DataFrame --> Should have the same length as the depth
                      of the provided nested_dict + 1 (all keys + value).
-    """
+        """
     # -- Build the DataFrame from the dictionary and return the Frame -- #
     return flatteneddict_to_df(flattendict(nested_dict, "__"), cols, '__')
 
@@ -189,8 +193,7 @@ def dumpDataFrameToCsv(data, path, name, sep='\t'):
         :param data: A DataFrame.
         :param path: Path as a string indicating where to store the file.
         :param name: String indicating the name of the file.
-        :param sep: String indicating the seperator for the csv file, ie. how to seperate the content.
-    """
+        :param sep: String indicating the seperator for the csv file, ie. how to seperate the content."""
     # -- Check if csv is in the name -- #
     if '.csv' not in name:
         # -- Add it if its missing -- #
@@ -199,3 +202,71 @@ def dumpDataFrameToCsv(data, path, name, sep='\t'):
     path = os.path.join(path, name)
     # -- Dump the DataFrame using the path and seperator without using the index from the frame -- #
     data.to_csv(path, index=False, sep=sep)
+
+def calculate_target_logits(mh_network, gen, num_batches_per_epoch, fp16, gpu_id=0):
+    r"""This function is used to calculate the target_logits based on a transmitted generator.
+        The function returns a dictionary representing the target_logits based on the mh_network.
+        This function is essential for the LwF Trainer.
+        :param mh_network: A MultiHead Network that is used to generate the target logits with (every head is used)
+        :param gen: The generator for which the target_logits are extracted
+        :param num_batches_per_epoch: Represents the number of batches per epoch
+        :param fp16: Specify if using floating point 16 or not
+        :param gpu_id: Specify the CUDA ID to put the model and data on. If set to -1, the CPU will be used
+        :return: A dictionary with the target_logits (list of tensors) per task (head)
+    """
+    # -- Define where to put the data and model during the calculation -- #
+    if gpu_id == -1:
+        device = 'cpu'
+    else:
+        device = 'cuda:'+str(gpu_id)
+        #torch.cuda.empty_cache()
+
+    # -- Loop through tasks and build the corresponding model to make predictions -- #
+    target_logits = dict()
+    for task in list(mh_network.heads.keys()):
+        # -- Build the corresponding network -- #
+        network = mh_network.assemble_model(task)
+        # -- Put netowrl to CPU or GPU device as desired -- #
+        network.to(device)
+        # -- Set network to eval -- #
+        network.eval()
+        # -- Add the task to the dict -- #
+        target_logits[task] = list()
+
+        # -- Make the predictions and store them in a dictionary to use during the LwF loss -- #
+        #data = tee(gen, 1)[0]
+        for _ in range(num_batches_per_epoch):
+            # -- Extract the current batch from data transform to tensor and push to GPU -- #
+            data_dict = next(gen)
+            x = maybe_to_torch(data_dict['data'])
+            # -- Put data on GPU if no CPU is desired --> currently x is on CPU -- #
+            if device != 'cpu':
+                x = to_cuda(x, gpu_id=gpu_id)
+
+            # -- Make predictions using the loaded model and data -- #
+            if fp16:
+                with autocast():
+                    output = network(x)[0]
+            else:
+                output = network(x)[0]
+                
+            task_logit = output.detach().cpu()
+            del x, output
+
+            # -- Flatten the task logit since it has more than one output tensor based on the network structure -- #
+            #task_logit_flat = list()
+            #for task in task_logit:
+                # -- Append the task to the flat list so the list only contains of tensors -- #
+            #    task_logit_flat.append(task)   # --> Ensure that all tasks are on the same GPU for the loss calculation
+
+            # -- Append the result to target_logits or pred_logits -- #
+            #target_logits[task].extend(task_logit_flat)
+            target_logits[task].extend(task_logit)
+            del task_logit
+
+    # -- Empty the GPU cache if a GPU was used -- #
+    if device != 'cpu':
+        torch.cuda.empty_cache()
+
+    # -- Return the target_logits -- #
+    return target_logits

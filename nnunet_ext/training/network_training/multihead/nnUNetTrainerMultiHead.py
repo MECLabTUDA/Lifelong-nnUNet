@@ -238,14 +238,19 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         
         # -- Set self.network to the model in mh_network --> otherwise the network is not initialized and not in right type -- #
         self.network = self.trainer_model.network    # Does not matter what the model is, will be updated in run_training anyway
-        
+
     def reinitialize(self, task):
         r"""This function is used to reinitialize the Multi Head Trainer when a new task is trained.
             Basically the dataloaders are created again with the new task data. This function will only
             be used when training before running the actual training.
         """
+        # -- Empty the GPU cache -- #
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
         # -- Add the prev_trainer to the list for the current run -- #
-        self.already_trained_on[str(self.fold)]['prev_trainer'].append(self.trainer_class_name)
+        if len(self.mh_network.heads) < len(self.already_trained_on[str(self.fold)]['prev_trainer'])+1:
+            self.already_trained_on[str(self.fold)]['prev_trainer'].append(self.trainer_class_name)
 
         # -- Update the log file -- #
         self.print_to_log_file("Updating the Dataloaders for new task \'{}\'.".format(task))
@@ -322,6 +327,9 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # -- Activate the model based on task --> self.mh_network.active_task is now set to task as well -- #
         self.network = self.mh_network.assemble_model(task)
         
+        # -- Delete the trainer_model (used for restoring) -- #
+        self.trainer_model = None
+
         # -- Run the training from parent class -- #
         ret = super().run_training()
 
@@ -336,9 +344,6 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # -- When model trained on second task and the self.new_trainer is still not updated, then update it -- #
         if self.new_trainer and len(self.already_trained_on) > 1:
             self.new_trainer = False
-
-        # -- Delete the trainer_model once finished with training -- #
-        self.trainer_model = None
 
         # -- Before returning, reset the self.epoch variable, otherwise the following task will only be trained for the last epoch -- #
         self.epoch = 0
@@ -722,7 +727,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             # -- Add the current task -- #
             self.already_trained_on[str(self.fold)]['start_training_on'] = task
             # -- Update the prev_trainer -- #
-            if self.trainer_model is not None: # This is always the case when a pre trained network is used as initialization
+            if self.trainer_model is not None and len(self.already_trained_on[str(self.fold)]['prev_trainer']) == 1: # This is always the case when a pre trained network is used as initialization
                 self.already_trained_on[str(self.fold)]['prev_trainer'][-1:] = [self.trainer_model.__class__.__name__]  # --> The one from the used trainer
                 self.already_trained_on[str(self.fold)]['prev_trainer'].append(self.trainer_class_name)                 # --> The current trainer we start training with
         # -- Update the used_identifier -- #

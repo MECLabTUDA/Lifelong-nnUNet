@@ -2,6 +2,8 @@
 #---------------------Corresponding deep_supervision.py file for nnUNet extensions.---------------------#
 #########################################################################################################
 
+import torch
+import torch.nn as nn
 import torch.nn.functional as F
 from nnunet.training.loss_functions.deep_supervision import MultipleOutputLoss2
 
@@ -87,6 +89,8 @@ class MultipleOutputLossLWF(MultipleOutputLoss2):
         self.loss = loss
         self.pred_logits = pred_logits        # Should contain results for each previous trainer
         self.target_logits = target_logits    # Should contain results for each previous trainer
+        if len(self.target_logits) > 0:
+            self._target_logits_to_cuda()
         self.lwf_temperature = lwf_temperature
         # -- Compute the scales -- #
         self.scale = [item.size(-1) for item in self.target_logits]
@@ -97,8 +101,18 @@ class MultipleOutputLossLWF(MultipleOutputLoss2):
         # -- Update the logits -- #
         self.pred_logits = pred_logits
         self.target_logits = target_logits
+        self._target_logits_to_cuda()
         # -- Compute the scales -- #
         self.scale = [item.size(-1) for item in self.target_logits]
+
+    def _target_logits_to_cuda(self):
+        r"""This function puts the target_logits on the same GPU as the pred_logits."""
+        # -- Extracte the current device of the pred_logits -- #
+        device = self.pred_logits[0].device
+
+        # -- Put self.target_logit onto the same device -- #
+        for logit in self.target_logits:
+            logit.to(device)
 
     def _distillation_loss(self, y, teacher_scores, scale):
         """Computes the distillation loss (cross-entropy).
@@ -108,10 +122,12 @@ class MultipleOutputLossLWF(MultipleOutputLoss2):
         \delta_y{xentropy(y, t)} = \delta_y{kl_div(y, t)}.
         scale is required as kl_div normalizes by nelements and not batch size.
         """
-        # -- Calculate the loss for the one prediction -- #
-        dist_loss = F.kl_div(F.log_softmax(y / self.lwf_temperature), F.softmax(teacher_scores / self.lwf_temperature)) * scale
+        # -- Calculate the loss -- #
+        dist_loss = F.kl_div(F.log_softmax(y.to(torch.float)/self.lwf_temperature, dim=1),
+                             F.log_softmax(teacher_scores.to(torch.float)/self.lwf_temperature, dim=1),
+                             reduction='batchmean', log_target=True)# * scale --> if log_target = False, then log(target) is done..
         
-        # -- return the calculated distillation loss -- #
+        # -- Return the calculated distillation loss -- #
         return dist_loss
 
     def forward(self, x, y):
@@ -122,9 +138,9 @@ class MultipleOutputLossLWF(MultipleOutputLoss2):
         # -- Update the loss as proposed in the paper and return this loss to the calling function instead -- #
         # -- Loop through the models that have been trained on previous tasks -- #
         # -- Compute distillation loss for each old task and add it to the current loss -- #
-        for idx in range(len(self.target_logits)):  # --> Use target, since pred has one element more, ie. the current task
+        for idx, t_logit in enumerate(self.target_logits): # --> Use target, since pred has one element more, ie. the current task
             # -- loss = loss + dist_loss -- #
-            loss += self._distillation_loss(self.pred_logits[idx], self.target_logits[idx], self.scale[idx])
+            loss += self._distillation_loss(self.pred_logits[idx], t_logit, self.scale[idx])
         
         # -- Return the updated loss value -- #
         return loss

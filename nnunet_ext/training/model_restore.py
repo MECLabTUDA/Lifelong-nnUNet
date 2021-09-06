@@ -57,6 +57,7 @@ def restore_model(pkl_file, checkpoint=None, train=False, fp16=True, use_extensi
 
     # -- Set the trainer -- #
     trainer = tr(*init)
+    trainer.initialize(train)
 
     # -------------------- From nnUNet implementation (modifed, but same output) -------------------- #
     if fp16 is not None:

@@ -218,8 +218,8 @@ def run_training(extension='multihead'):
     cuda = args.device
 
     # -- Assert if less than 2 GPUs are provided when using LwF -- #
-    if extension == 'lwf':
-        assert len(cuda) > 1, "For the LwF Trainer, at least two GPUs need to be provided."
+    #if extension == 'lwf':
+        #assert len(cuda) > 1, "For the LwF Trainer, at least two GPUs need to be provided."
 
     # -- Assert if device value is ot of predefined range and create string to set cuda devices -- #
     for idx, c in enumerate(cuda):
@@ -379,85 +379,117 @@ def run_training(extension='multihead'):
                 # -- Check if all tasks have been trained on so far, if so, this fold is finished with training, else it is not -- #
                 run_tasks = running_task_list
                 # -- Ensure that the length of those lists is equal -- #
-                assert len(all_tasks) == len(run_tasks),\
-                    "When trying to train on a new fold, the tasks to train on should be of the same length as all tasks since nothing is trained yet."
-                    
+                #assert len(all_tasks) == len(run_tasks),\
+                #    "When trying to train on a new fold, the tasks to train on should be of the same length as all tasks since nothing is trained yet."
+                
                 # -- If the lists are equal, continue with the next fold, if not, specify the right task in the following steps -- #
-                if np.array(np.array(all_tasks) == np.array(run_tasks)).all()\
-                   and np.array(np.array(all_tasks) == trained_on_folds.get('finished_validation_on', np.array(list()))).all():  # Use numpy because lists return true if at least one match in both lists!
-                    # -- Update the user that the current fold is finished with training -- #
-                    print("Fold {} has been trained on all tasks --> move on to the next fold..".format(t_fold))
-                    # -- Treat the last fold as initialization, so set init_seq to True -- #
-                    init_seq = True
-                    continue    # Continue with next fold
-
-                # -- If the validation is not done yet, do only the validation of the last task -- #
+                try:
+                    if np.array(np.array(all_tasks) == np.array(run_tasks)).all()\
+                        and np.array(np.array(all_tasks) == trained_on_folds.get('finished_validation_on', np.array(list()))).all():  # Use numpy because lists return true if at least one match in both lists!
+                        # -- Update the user that the current fold is finished with training -- #
+                        print("Fold {} has been trained on all tasks --> move on to the next fold..".format(t_fold))
+                        # -- Treat the last fold as initialization, so set init_seq to True -- #
+                        init_seq = True
+                        continue    # Continue with next fold
+                    # -- In this case the training stopped after a task was finished but not every task is trained -- #
+                    else:
+                        # -- Set began_with to None so it will be catched in the corresponding section to continue training -- #
+                        began_with = None
+                except ValueError: # --> The arrays do not match, ie. not finished on all tasks and validation is missing
+                    # -- Set began_with to None so it will be catched in the corresponding section to continue training -- #
+                    began_with = None
+                
+                """# -- If the validation is not done yet, do only the validation of the last task -- #
                 if np.array(np.array(all_tasks) == np.array(run_tasks)).all():
                     # -- Update the user that the current fold is finished with training -- #
                     print("Fold {} has been trained on all tasks however the validation is still missing..".format(t_fold))
                     # -- Set validation_only to True, so the trainer will be build in the following and only validated -- #
                     validation_only = True
+                    # -- Add only the first and last task since the validation of the last task is missing -- #
+                    #tasks = [task[0]]
+                    #tasks.append(running_task_list[-1])
                     # -- Remove the last task from the running_task_list because we want to do validation on this task -- #
-                    running_task_list = running_task_list[:-1]
+                    #running_task_list = running_task_list[:-1]
+                    # -- Set everything for the upcoming loop and break the current one -- #
+                    began_with = tasks[0]
+                    init_seq = True"""
                 
             # -- If we began with training but nothing is finished yet, then continue from where we left -- #
             #if began_with != -1:
 
             # -- If this list is empty, the trainer did not train on any task --> Start directly with the first task as -c would not have been set -- #
             if began_with != -1: #and len(running_task_list) != 0: # At this point began_with is either a task or -1 but not None
-                if len(running_task_list) != 0:
-                    # -- Substract the tasks from the tasks list --> Only use the tasks that are in tasks but not in finished_with -- #
-                    remove_tasks = tasks[:]
-                    for task in tasks:
-                        # -- If the task has already been trained, remove the entry from the tasks dictionary -- #
-                        if task in running_task_list:
-                            prev_task = task    # Keep track to insert it at the end again
-                            remove_tasks.remove(task)
-                    # -- Reset the tasks so everything is as expected -- #
-                    tasks = remove_tasks
-                    del remove_tasks
-
-                    # -- Only when we want to train change tasks and running_task_list -- #
-                    if not validation_only:
-                        # -- Insert the previous task to the beginning of the list to ensure that the model will be initialized the right way -- #
-                        tasks.insert(0, prev_task)
-                        # -- Remove the prev_task in running_task_list, since this is now the first in tasks --> otherwise this is redundant and raises error -- #
-                        running_task_list.remove(prev_task)
-                    
-                    # -- Treat the last fold as initialization, so set init_seq to True by keeping continue_learning to True  -- #
+                if began_with is None:  # --> Only the case when training is finished but validation on last task is missing
+                    # -- Update the user that the current fold is finished with training -- #
+                    print("Fold {} has been trained on all tasks however the validation is still missing..".format(t_fold))
+                    # -- Set validation_only to True, so the trainer will be build in the following and only validated -- #
+                    validation_only = True
+                    # -- Add only the first and last task since the validation of the last task is missing -- #
+                    #tasks = [task[0]]
+                    tasks = tasks[-1:]
+                    # -- Remove the last task from the running_task_list because we want to do validation on this task -- #
+                    running_task_list = running_task_list[:-1]
+                    # -- Set everything for the upcoming loop and break the current one -- #
+                    began_with = tasks[0]
                     init_seq = True
-                
-                # -- ELSE -- #
-                # -- If running_task_list is empty, the training failed at very first task, -- #
-                # -- so nothing needs to be changed, simply continue with the training -- #
-                
-                # -- Set the prev_trainer and the init_identifier so the trainer will be build correctly -- #
-                prev_trainer = ext_map.get(already_trained_on[str(t_fold)]['prev_trainer'][-1], None)
-                init_identifier = already_trained_on[str(t_fold)]['used_identifier']
+                    # -- Set the prev_trainer and the init_identifier so the trainer will be build correctly -- #
+                    prev_trainer = ext_map.get(already_trained_on[str(t_fold)]['prev_trainer'][-1], None)
+                    init_identifier = already_trained_on[str(t_fold)]['used_identifier']
 
-                # -- Set began_with to first task since at this point it is either a task or it can be None if previous fold was not trained in full -- #
-                began_with = tasks[0]
+                else:
+                    if len(running_task_list) != 0:
+                        # -- Substract the tasks from the tasks list --> Only use the tasks that are in tasks but not in finished_with -- #
+                        remove_tasks = tasks[:]
+                        for task in tasks:
+                            # -- If the task has already been trained, remove the entry from the tasks dictionary -- #
+                            if task in running_task_list:
+                                prev_task = task    # Keep track to insert it at the end again
+                                remove_tasks.remove(task)
+                        # -- Reset the tasks so everything is as expected -- #
+                        tasks = remove_tasks
+                        del remove_tasks
 
-                # -- Ensure that seed and sample portion is not changed when using rehearsal method --- #
-                if extension == 'rehearsal':
-                    assert seed == int(trained_on_folds['used_seed']),\
-                        "To continue training on the fold {} the same seed, ie. \'{}\' needs to be provided, not \'{}\'.".format(t_fold, trained_on_folds['used_seed'], seed)
-                    assert samples == float(trained_on_folds['used_sample_portion']),\
-                        "To continue training on the fold {} the same portion of samples for previous tasks should be used, ie. \'{}\' needs to be provided, "\
-                        "not \'{}\'.".format(t_fold, trained_on_folds['used_sample_portion'], samples)
-            
-                # -- Ensure that ewc_lambda is not changed when using EWC method --- #
-                if extension == 'ewc':
-                    assert ewc_lambda == float(trained_on_folds['used_ewc_lambda']),\
-                        "To continue training on the fold {} the same ewc_lambda, ie. \'{}\' needs to be provided, not \'{}\'.".format(t_fold, trained_on_folds['used_ewc_lambda'], ewc_lambda)
-            
-                # -- Ensure that lwf_temperature is not changed when using LWF method --- #
-                if extension == 'lwf':
-                    assert lwf_temperature == float(trained_on_folds['used_lwf_temperature']),\
-                        "To continue training on the fold {} the same lwf_temperature, ie. \'{}\' needs to be provided, not \'{}\'.".format(t_fold, trained_on_folds['used_lwf_temperature'], lwf_temperature)
-            
-                # -- Update the user that the fold for training has been found -- #
-                print("Fold {} has not been trained on all tasks --> continue the training with task {}..".format(t_fold, began_with))
+                        # -- Only when we want to train change tasks and running_task_list -- #
+                        if not validation_only:
+                            # -- Insert the previous task to the beginning of the list to ensure that the model will be initialized the right way -- #
+                            tasks.insert(0, prev_task)
+                            # -- Remove the prev_task in running_task_list, since this is now the first in tasks --> otherwise this is redundant and raises error -- #
+                            #running_task_list.remove(prev_task)
+                        
+                        # -- Treat the last fold as initialization, so set init_seq to True by keeping continue_learning to True  -- #
+                        init_seq = True
+                    
+                    # -- ELSE -- #
+                    # -- If running_task_list is empty, the training failed at very first task, -- #
+                    # -- so nothing needs to be changed, simply continue with the training -- #
+                    
+                    # -- Set the prev_trainer and the init_identifier so the trainer will be build correctly -- #
+                    prev_trainer = ext_map.get(already_trained_on[str(t_fold)]['prev_trainer'][-1], None)
+                    init_identifier = already_trained_on[str(t_fold)]['used_identifier']
+
+                    # -- Set began_with to first task since at this point it is either a task or it can be None if previous fold was not trained in full -- #
+                    began_with = tasks[0]
+
+                    # -- Ensure that seed and sample portion is not changed when using rehearsal method --- #
+                    if extension == 'rehearsal':
+                        assert seed == int(trained_on_folds['used_seed']),\
+                            "To continue training on the fold {} the same seed, ie. \'{}\' needs to be provided, not \'{}\'.".format(t_fold, trained_on_folds['used_seed'], seed)
+                        assert samples == float(trained_on_folds['used_sample_portion']),\
+                            "To continue training on the fold {} the same portion of samples for previous tasks should be used, ie. \'{}\' needs to be provided, "\
+                            "not \'{}\'.".format(t_fold, trained_on_folds['used_sample_portion'], samples)
+                
+                    # -- Ensure that ewc_lambda is not changed when using EWC method --- #
+                    if extension == 'ewc':
+                        assert ewc_lambda == float(trained_on_folds['used_ewc_lambda']),\
+                            "To continue training on the fold {} the same ewc_lambda, ie. \'{}\' needs to be provided, not \'{}\'.".format(t_fold, trained_on_folds['used_ewc_lambda'], ewc_lambda)
+                
+                    # -- Ensure that lwf_temperature is not changed when using LWF method --- #
+                    if extension == 'lwf':
+                        assert lwf_temperature == float(trained_on_folds['used_lwf_temperature']),\
+                            "To continue training on the fold {} the same lwf_temperature, ie. \'{}\' needs to be provided, not \'{}\'.".format(t_fold, trained_on_folds['used_lwf_temperature'], lwf_temperature)
+                
+                    # -- Update the user that the fold for training has been found -- #
+                    print("Fold {} has not been trained on all tasks --> continue the training with task {}..".format(t_fold, began_with))
             
             # -- began_with == -1 or no tasks to train --> nothing to restore -- #
             else:   # Start with new fold, use init_seq that is provided from argument parser
@@ -484,9 +516,10 @@ def run_training(extension='multihead'):
                 assert t == began_with, "Training should be continued, however the wrong task is used --> user has changed order of the tasks.."
 
             # -- Update running task list and create running task which are all (trained tasks and current task joined) for output folder name -- #
-            running_task_list.append(t)
+            if t not in running_task_list:
+                running_task_list.append(t)
             running_task = join_texts_with_char(running_task_list, char_to_join_tasks)
-            
+
             # -- Extract the configurations and check that trainer_class is not None -- #
             # -- NOTE: Each task will be saved as new folder using the running_task that are all previous and current task joined together. -- #
             # -- NOTE: Perform preprocessing and planning before ! -- #
@@ -661,6 +694,7 @@ def run_training(extension='multihead'):
             #already_trained_on = trainer.already_trained_on
 
             # -- Reset validation_only in case it has been set during -c in the beginning -- #
+            #validation_only = False # --> Perform it only for one task ?
             validation_only = args.validation_only
 
         
