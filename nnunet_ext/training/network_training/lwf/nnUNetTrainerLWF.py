@@ -9,11 +9,12 @@
 # -- The original implementation from https://github.com/lizhitwo/LearningWithoutForgetting -- #
 # -- refers to the one that is used in this class, so when citing, cite both -- #
 
-import copy, torch
 from time import time
+import copy, torch
 from itertools import tee
 from torch.cuda.amp import autocast
 from nnunet_ext.paths import default_plans_identifier
+from nnunet.utilities.nd_softmax import softmax_helper
 from nnunet.utilities.to_torch import maybe_to_torch, to_cuda
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet.training.loss_functions.dice_loss import DC_and_CE_loss
@@ -49,7 +50,7 @@ class nnUNetTrainerLWF(nnUNetTrainerMultiHead): # Inherit default trainer class 
             else: # It exists, then check if everything is in it
                 # -- Define a list of all expected keys that should be in the already_trained_on dict for the current fold -- #
                 keys = ['used_lwf_temperature', 'freeze_run_finished', 'ftasks_at_time_of_checkpoint',\
-                        'factive_task_at_time_of_checkpoint']
+                        'factive_task_at_time_of_checkpoint', 'freezed_model_at']
                 assert all(key in self.already_trained_on[str(self.fold)] for key in keys),\
                     "The provided already_trained_on dictionary does not contain all necessary elements"
         else:
@@ -58,6 +59,7 @@ class nnUNetTrainerLWF(nnUNetTrainerMultiHead): # Inherit default trainer class 
             self.already_trained_on[str(self.fold)]['freeze_run_finished'] = False
             self.already_trained_on[str(self.fold)]['ftasks_at_time_of_checkpoint'] = list()
             self.already_trained_on[str(self.fold)]['factive_task_at_time_of_checkpoint'] = None
+            self.already_trained_on[str(self.fold)]['freezed_model_at'] = None
 
         # -- Update self.init_tasks so the storing works properly -- #
         self.init_args = (split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
@@ -70,7 +72,7 @@ class nnUNetTrainerLWF(nnUNetTrainerMultiHead): # Inherit default trainer class 
 
         # -- Define a flag that is used in self.run_iteration(..) to identify how to perform the iteration -- #
         self.freeze_run = not self.already_trained_on[str(self.fold)]['freeze_run_finished']
-
+        
         # -- Define the running idx to keep track at which batch we are -- #
         self.batch_idx = 0
 
@@ -94,28 +96,33 @@ class nnUNetTrainerLWF(nnUNetTrainerMultiHead): # Inherit default trainer class 
         # -- --> Look into the Loss function to see how the approach is implemented -- #
         # -- NOTE: The predictions of the previous models need to be updated after each iteration -- #
         self.LwFloss = LwFloss(loss_base, self.ds_loss_weights, list(), list(), self.lwf_temperature)
-
-        # -- Load everything if freeze_run is finished -- #
-        if self.already_trained_on[str(self.fold)]['freeze_run_finished']:
-            # -- Update the target_logits -- #
-            self._load_model_and_update_target_logits()
             
+    """
     def reinitialize(self, task):
         # -- Execute the super function -- # 
         super().reinitialize(task)
 
-        # -- Reset the freeze_run flag -- #
-        self.freeze_run = True
-        # -- Set the flag to True -- #
-        self.already_trained_on[str(self.fold)]['freeze_run_finished'] = False
-        # -- Add the current head keys for restoring (is in correct order due to OrderedDict type of heads) -- #
-        self.already_trained_on[str(self.fold)]['ftasks_at_time_of_checkpoint'] = list()
-        # -- Add the current active task for restoring -- #
-        self.already_trained_on[str(self.fold)]['factive_task_at_time_of_checkpoint'] = None
-        # -- Save the updated dictionary as a json file -- #
-        save_json(self.already_trained_on, join(self.trained_on_path, self.extension+'_trained_on.json'))
-        # -- Update self.init_tasks so the storing works properly -- #
-        self.update_init_args()
+        # -- Only reset the LwF relevant attributes if the task is totally new and not already in the head -- #
+        # -- It can also be the case after a restore that freezed train is done but the LwF missing and -- #
+        # -- then during restore the self.task is not task if it is not the first task and this will then -- #
+        # -- lead to restoring problems -- #
+        if self.already_trained_on[str(self.fold)]['freezed_model_at'].count(task) < 2: # Only 2 if freezed is really trained and the model stored
+        #if task not in self.mh_network.heads:
+            # -- Reset the freeze_run flag -- #
+            self.freeze_run = True
+            # -- Set the flag to False -- #
+            self.already_trained_on[str(self.fold)]['freeze_run_finished'] = False
+            # -- Add the current head keys for restoring (is in correct order due to OrderedDict type of heads) -- #
+            self.already_trained_on[str(self.fold)]['ftasks_at_time_of_checkpoint'] = list()
+            # -- Add the current active task for restoring -- #
+            self.already_trained_on[str(self.fold)]['factive_task_at_time_of_checkpoint'] = None
+            # -- Add the current path of the freezed_model -- #
+            self.already_trained_on[str(self.fold)]['freezed_model_at'] = None
+            # -- Save the updated dictionary as a json file -- #
+            save_json(self.already_trained_on, join(self.trained_on_path, self.extension+'_trained_on.json'))
+            # -- Update self.init_tasks so the storing works properly -- #
+            self.update_init_args()
+    """
             
     def run_training(self, task, output_folder):
         r"""Perform training using LwF Trainer. Simply executes training method of parent class
@@ -144,13 +151,15 @@ class nnUNetTrainerLWF(nnUNetTrainerMultiHead): # Inherit default trainer class 
 
         # -- Register the task if it does not exist in one of the heads -- #
         if task not in self.mh_network.heads:
-            self.mh_network.add_new_task(task)
+            self.mh_network.add_new_task(task, use_init=True)
 
         # -- Delete the trainer_model (used for restoring) -- #
         self.trainer_model = None
 
         # -- If only one head exists, this is the very first task to train, so train it conventionally --> nothing to do with LwF -- #
         if len(self.mh_network.heads) == 1:
+            # -- Set everything correct in case of restoring -- #
+            self.already_trained_on[str(self.fold)]['freeze_run_finished'] = True
             # -- Set the correct freeze_run and loss -- #
             self.freeze_run = False
             self.loss = self.loss_orig
@@ -159,8 +168,14 @@ class nnUNetTrainerLWF(nnUNetTrainerMultiHead): # Inherit default trainer class 
             ret = super().run_training(task, output_folder)
             self.freeze_run = True
         else:
+            # -- If the model was initialized on task A but we are training on a later task, restore the model correctly -- #
+            if self.already_trained_on[str(self.fold)]['freeze_run_finished']:
+                self._load_model_and_update_target_logits()
+                # -- Update the log -- #
+                self.print_to_log_file("Start training on task {} using LwF method.".format(task))
+                
             # -- If we have to continue with the freeze run, then do so -- #
-            if self.freeze_run:
+            elif self.freeze_run:
                 # -- Activate the model based on task freezing the body accordingly -- #
                 self.network = self.mh_network.assemble_model(task, freeze_body=True)
                 # -- Train this task for n epochs without updating the body while using the standard loss function (not LwF one) -- #
@@ -184,38 +199,40 @@ class nnUNetTrainerLWF(nnUNetTrainerMultiHead): # Inherit default trainer class 
                 self.all_val_losses_tr_mode = []
                 self.all_val_eval_metrics = []
                 self.validation_results = dict()
-
-            # -- Set freeze_run to false, so we can train the whole body again -- #
-            self.freeze_run = False
-
-            # -- Store this mh_network for restoring purposes since the generators are not the same once the algorithm -- #
-            # -- starts from the beginning --> so do not store the target_logits but the network and during restoring -- #
-            # -- calculate the target_logits again -- #
-            # -- Set the network to the full MultiHead_Module network to save everything in the class not only the current model -- #
-            self.print_to_log_file("Store the finished model for restoring purposes as freezed_model since the other model will be overwritten during the following LwF training")
-            self.network = self.mh_network
-            # -- Set the flag to True -- #
-            self.already_trained_on[str(self.fold)]['freeze_run_finished'] = True
-            # -- Add the current head keys for restoring (is in correct order due to OrderedDict type of heads) -- #
-            self.already_trained_on[str(self.fold)]['ftasks_at_time_of_checkpoint'] = list(self.mh_network.heads.keys())
-            # -- Add the current active task for restoring -- #
-            self.already_trained_on[str(self.fold)]['factive_task_at_time_of_checkpoint'] = self.mh_network.active_task
-            # -- Save the updated dictionary as a json file -- #
-            save_json(self.already_trained_on, join(self.trained_on_path, self.extension+'_trained_on.json'))
-            # -- Update self.init_tasks so the storing works properly -- #
-            self.update_init_args()
-            # -- Use grand parent class to save checkpoint for MultiHead_Module model consisting of self.model, self.body and self.heads -- #
-            super(nnUNetTrainerV2, self).save_checkpoint(join(self.output_folder, "model_freezed.model"), False)
-            # -- Reset network to the assembled model to continue training however unfreeze the body now -- #
-            self.network = self.mh_network.assemble_model(task, freeze_body=False)
             
-            # -- Update the log -- #
-            self.print_to_log_file("Calculate the target_logits before training..")
-            start_time = time()
-            # -- Calculate the target_logits -- #
-            self.target_logits = calculate_target_logits(self.mh_network, self.tr_gen, self.num_batches_per_epoch, self.fp16)
-            # -- Update the log -- #
-            self.print_to_log_file("Calculation of the target_logits took %.2f seconds" % (time() - start_time))
+                # -- Set freeze_run to false, so we can train the whole body again -- #
+                self.freeze_run = False
+
+                # -- Store this mh_network for restoring purposes since the generators are not the same once the algorithm -- #
+                # -- starts from the beginning --> so do not store the target_logits but the network and during restoring -- #
+                # -- calculate the target_logits again -- #
+                # -- Set the network to the full MultiHead_Module network to save everything in the class not only the current model -- #
+                self.print_to_log_file("Store the finished model for restoring purposes as freezed_model since the other model will be overwritten during the following LwF training")
+                self.network = self.mh_network
+                # -- Set the flag to True -- #
+                self.already_trained_on[str(self.fold)]['freeze_run_finished'] = True
+                # -- Add the current head keys for restoring (is in correct order due to OrderedDict type of heads) -- #
+                self.already_trained_on[str(self.fold)]['ftasks_at_time_of_checkpoint'] = list(self.mh_network.heads.keys())
+                # -- Add the current active task for restoring -- #
+                self.already_trained_on[str(self.fold)]['factive_task_at_time_of_checkpoint'] = self.mh_network.active_task
+                # -- Save the updated dictionary as a json file -- #
+                save_json(self.already_trained_on, join(self.trained_on_path, self.extension+'_trained_on.json'))
+                # -- Update self.init_tasks so the storing works properly -- #
+                self.update_init_args()
+                # -- Use grand parent class to save checkpoint for MultiHead_Module model consisting of self.model, self.body and self.heads -- #
+                super(nnUNetTrainerV2, self).save_checkpoint(join(self.output_folder, "model_freezed.model"), False)
+                # -- Add the current path for restoring purposes -- #
+                self.already_trained_on[str(self.fold)]['freezed_model_at'] = join(self.output_folder, "model_freezed.model")
+                # -- Reset network to the assembled model to continue training however unfreeze the body now -- #
+                self.network = self.mh_network.assemble_model(task, freeze_body=False)
+
+                # -- Update the log -- #
+                self.print_to_log_file("Calculate the target_logits before training..")
+                start_time = time()
+                # -- Calculate the target_logits -- #
+                self.target_logits = calculate_target_logits(self.mh_network, self.tr_gen, self.num_batches_per_epoch, self.fp16)
+                # -- Update the log -- #
+                self.print_to_log_file("Calculation of the target_logits took %.2f seconds" % (time() - start_time))
 
             # -- Put model into train mode -- #
             self.network.train()
@@ -227,8 +244,17 @@ class nnUNetTrainerLWF(nnUNetTrainerMultiHead): # Inherit default trainer class 
             # -- Train for n epochs -- #
             ret = super().run_training(task, output_folder)
 
+        # -- Reset everything for next task since the information is no longer necessary -- #
         # -- Reset the val_metrics_exist flag since the training is finished and restoring will fail otherwise -- #
         self.already_trained_on[str(self.fold)]['val_metrics_should_exist'] = False
+        # -- Set the flag to False -- #
+        self.already_trained_on[str(self.fold)]['freeze_run_finished'] = False
+        # -- Add the current head keys for restoring (is in correct order due to OrderedDict type of heads) -- #
+        self.already_trained_on[str(self.fold)]['ftasks_at_time_of_checkpoint'] = list()
+        # -- Add the current active task for restoring -- #
+        self.already_trained_on[str(self.fold)]['factive_task_at_time_of_checkpoint'] = None
+        # -- Add the current path of the freezed_model -- #
+        self.already_trained_on[str(self.fold)]['freezed_model_at'] = None
 
         # -- Add task to finished_training -- #
         self.update_save_trained_on_json(task, True)
@@ -271,6 +297,8 @@ class nnUNetTrainerLWF(nnUNetTrainerMultiHead): # Inherit default trainer class 
                 for task in list(self.mh_network.heads.keys()):
                     # -- Build the current network -- #
                     self.network = self.mh_network.assemble_model(task)
+                    # -- Remove the softmax layer at the end by replacing the corresponding element with an identity function -- #
+                    self.network.inference_apply_nonlin = lambda x: x
                     # -- Set network to eval -- #
                     self.network.eval()
                     # -- Create a copy from the data_generator so the data_generator won't be touched. -- #
@@ -292,9 +320,10 @@ class nnUNetTrainerLWF(nnUNetTrainerMultiHead): # Inherit default trainer class 
                         
                     pred_logits = output.detach().cpu()
                     del x, output
-                    
                     # -- Update the LwF loss -- #
                     self.loss.update_logits(pred_logits, self.target_logits[task][self.batch_idx % 250])  # Use modulo since self.batch_idx is a running number
+                    # -- Add the softmax layer again by replacing the corresponding element with softmax_helper -- #
+                    self.network.inference_apply_nonlin = softmax_helper
                     # -- Put model into train mode -- #
                     self.network.train()
                     # -- Run iteration as usual and return the loss -- #
@@ -356,19 +385,23 @@ class nnUNetTrainerLWF(nnUNetTrainerMultiHead): # Inherit default trainer class 
             # -- Use parent class to save checkpoint for MultiHead_Module model consisting of self.model, self.body and self.heads -- #
             super().save_checkpoint(fname, save_optimizer)
 
+    """
     def load_checkpoint_ram(self, checkpoint, train=True):
-        r"""Overwrite the parent class, since we want to restore the original network as well along with the current running
+        rOverwrite the parent class, since we want to restore the original network as well along with the current running
             model.
-        """
-        if self.freeze_run:
+        
+        #if self.freeze_run:
             # -- Restore the running model network first using super class -- #
-            super(nnUNetTrainerV2, self).load_checkpoint_ram(checkpoint, train)
-        else:
-            # -- Restore the running model network first using super class -- #
-            super().load_checkpoint_ram(checkpoint, train)
+        #    super(nnUNetTrainerV2, self).load_checkpoint_ram(checkpoint, train)
+        #else:
+        # -- Restore the running model network first using super class -- #
+        super().load_checkpoint_ram(checkpoint, train)
+        
+        #if not self.freeze_run and self.already_trained_on[str(self.fold)]['freezed_model_at'] is not None:  # Only then self.freeze_run makes sense
             # -- Load the freezed model and calculate the target_logits -- #
-            self._load_model_and_update_target_logits()
-
+            #self._load_model_and_update_target_logits()
+    """
+    
     def _load_model_and_update_target_logits(self):
         r"""This function is used to restore the MultiHead Module with the freezed body to calculate the
             target_logits.
@@ -380,8 +413,8 @@ class nnUNetTrainerLWF(nnUNetTrainerMultiHead): # Inherit default trainer class 
         # -- Set the network to the full MultiHead_Module network to restore everything -- #
         self.network = mh_network_cpy
         # -- Use parent class to save checkpoint for MultiHead_Module model consisting of self.model, self.body and self.heads -- #
-        saved_model = torch.load(join(self.output_folder, "model_freezed.model"), map_location=torch.device('cpu'))
-        super().load_checkpoint_ram(saved_model, False)
+        saved_model = torch.load(self.already_trained_on[str(self.fold)]['freezed_model_at'], map_location=torch.device('cpu'))
+        super(nnUNetTrainerV2, self).load_checkpoint_ram(saved_model, False)
         # -- Update the log -- #
         self.print_to_log_file("Calculate the target_logits..")
         start_time = time()

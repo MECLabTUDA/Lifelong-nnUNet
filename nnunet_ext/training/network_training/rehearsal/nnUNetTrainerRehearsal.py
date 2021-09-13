@@ -54,16 +54,13 @@ class nnUNetTrainerRehearsal(nnUNetTrainerMultiHead): # Inherit default trainer 
                           deterministic, fp16, save_interval, already_trained_on, use_progress, identifier, extension,
                           tasks_list_with_char, samples_per_ds, seed, mixed_precision)
 
-        # -- Initialize self.splitted_dataset_val that holds for each task a sample validation set and the corresponding -- #
-        # -- dataset_directory. For validation it is important to be able to distinguish between it since the -- #
-        # -- corresponding paths need to be set the right way -- #
-        #self.splitted_dataset_val = dict()
-
     #------------------------------------------ Partially copied from original implementation ------------------------------------------#
     def get_basic_generators(self):
         r"""Calculate the joined dataset for the rehearsal training task.
         """
-        
+        # -- Perform super call -- #
+        #_, dl_val = super().get_basic_generators()
+
         # -- Set the random seed based on self.seed -- #
         random.seed(self.seed)
 
@@ -75,21 +72,20 @@ class nnUNetTrainerRehearsal(nnUNetTrainerMultiHead): # Inherit default trainer 
         # -- Without '[:]' for lists or '.copy()' for dicts both variables will change its values which is not desired -- #
         dataset_fused = self.dataset.copy()
         dataset_tr_fused = self.dataset_tr.copy()
-        #dataset_val_fused = self.dataset_val.copy()
-
+        
         # -- Get the data regarding the current fold  -- #
         trained_on_folds = self.already_trained_on[str(self.fold)]
 
         # -- Extract the existing heads -- #
         try:
-            tasks_in_head = list(self.mh_network.heads.keys())[:-1]
+            tasks_in_head = list(self.mh_network.heads.keys())#[:-1]
         except: # Not even trained on one task, ie. self.mh_network does not exist yet
             tasks_in_head = list()
 
         # -- Check if the model already finished on some tasks before trying to load something -- #
         if len(tasks_in_head) != 0: # Exclude the task we're currently training on --> Note that heads is an ordered ModuleDict
             # -- Create backup for restoring the data of the current task after the previous data has been loaded etc. -- #
-            dataset_tr_backup = self.dataset_tr.copy()
+            #dataset_tr_backup = self.dataset_tr.copy()
             dataset_val_backup = self.dataset_val.copy()
             dataset_directory_backup = self.dataset_directory   # Since this is a string, it won't update the reference as it would if it is a list
 
@@ -127,15 +123,10 @@ class nnUNetTrainerRehearsal(nnUNetTrainerMultiHead): # Inherit default trainer 
 
                 # -- Extract random sample from train and validation set -- #
                 sample_tr = random.sample(self.dataset_tr.items(), round(len(self.dataset_tr) * self.samples))
-                #sample_val = random.sample(self.dataset_val.items(), round(len(self.dataset_val) * self.samples))
-
-                # -- Add the extracted validation datasets to self.splitted_dataset_val since its needed for validation later on -- #
-                #self.splitted_dataset_val[task] = [OrderedDict(sample_val), self.dataset_directory, plans_file]
-
+                
                 # -- Extend the fused datasets -- #
                 dataset_fused.update(self.dataset)
                 dataset_tr_fused.update(sample_tr)
-                #dataset_val_fused.update(sample_val)
 
             # -- Restore the data from backup and delete unnecessary variables -- #
             # -- NOTE: Do not restore self.dataset, since it has to include all data that will be used -- #
@@ -143,7 +134,8 @@ class nnUNetTrainerRehearsal(nnUNetTrainerMultiHead): # Inherit default trainer 
             self.dataset_tr = dataset_tr_fused#dataset_tr_backup
             self.dataset_val = dataset_val_backup
             self.dataset_directory = dataset_directory_backup
-            del dataset_tr_backup, dataset_val_backup, dataset_directory_backup
+            del dataset_val_backup, dataset_directory_backup
+            #del dataset_tr_backup, dataset_val_backup, dataset_directory_backup
 
             # -- Update the log -- #
             self.print_to_log_file("Succesfully build dataset for rehearsal training, moving on with training."
@@ -166,7 +158,7 @@ class nnUNetTrainerRehearsal(nnUNetTrainerMultiHead): # Inherit default trainer 
                                   pad_mode="constant", pad_sides=self.pad_all_sides, memmap_mode='r')
         
         # -- Remove all fused variables -- #
-        del dataset_fused, dataset_tr_fused#, dataset_val_fused
+        del dataset_fused, dataset_tr_fused
 
         # -- Reset the seed for random to default -- #
         random.seed()

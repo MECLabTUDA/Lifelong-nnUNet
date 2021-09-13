@@ -31,14 +31,15 @@ setup(name='nnunet_ext',
           'console_scripts': [
               'nnUNet_dataset_label_mapping = nnunet_ext.experiment_planning.dataset_label_mapping:main',# Use when the labels of the masks need to be changed based on a mapping file
               'nnUNet_delete_tasks = nnunet_ext.scripts.delete_specified_task:main',           # Use for deleting preprocessed and planned data or after clean up when a test failed
-              'nnUNet_train_multihead = nnunet_ext.run.run_training_multihead:main',           # Use for multi head training --> same as sequential training
-              'nnUNet_train_sequential = nnunet_ext.run.run_training_multihead:main',          # Use for sequential training
+              'nnUNet_train_multihead = nnunet_ext.run.run_training_multihead:main',           # Use for multi head training
+              'nnUNet_train_sequential = nnunet_ext.run.run_training_sequential:main',         # Use for sequential training --> transfer learning using n tasks
               'nnUNet_train_rehearsal = nnunet_ext.run.run_training_rehearsal:main',           # Use for rehearsal training
               'nnUNet_train_ewc = nnunet_ext.run.run_training_ewc:main',                       # Use for EWC training
               'nnUNet_train_lwf = nnunet_ext.run.run_training_lwf:main',                       # Use for LWF training
+              'nnUNet_evaluate = nnunet_ext.run.run_evaluation:main',                        # Use for evaluation of any method
           ],
       },
       keywords=['deep learning', 'image segmentation', 'medical image analysis',
                 'medical image segmentation', 'nnU-Net', 'nnunet', 'CL', 'Continual Learning',
-                'Elastic Weight Consolidation', 'Learning Without Forgetting', 'nnU-Net extensions']
+                'Elastic Weight Consolidation', 'Learning without Forgetting', 'nnU-Net extensions']
       )

@@ -6,10 +6,9 @@
 from nnunet_ext.run.run_training import run_training
 
 def main():
-    r"""Run training for Sequential Trainer --> this is equivalent to the MultiHead Trainer, internally there
-        does not exist a Sequential Trainer.
+    r"""Run training for Sequential Trainer --> this is equivalent to transfer learning of n tasks.
     """
-    run_training(extension='multihead')
+    run_training(extension='sequential')
 
 if __name__ == "__main__":
     main()

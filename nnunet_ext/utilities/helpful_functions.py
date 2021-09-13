@@ -219,13 +219,14 @@ def calculate_target_logits(mh_network, gen, num_batches_per_epoch, fp16, gpu_id
         device = 'cpu'
     else:
         device = 'cuda:'+str(gpu_id)
-        #torch.cuda.empty_cache()
 
     # -- Loop through tasks and build the corresponding model to make predictions -- #
     target_logits = dict()
     for task in list(mh_network.heads.keys()):
         # -- Build the corresponding network -- #
         network = mh_network.assemble_model(task)
+        # -- Remove the softmax layer at the end by replacing the corresponding element with an identity function -- #
+        network.inference_apply_nonlin = lambda x: x
         # -- Put netowrl to CPU or GPU device as desired -- #
         network.to(device)
         # -- Set network to eval -- #
@@ -234,7 +235,6 @@ def calculate_target_logits(mh_network, gen, num_batches_per_epoch, fp16, gpu_id
         target_logits[task] = list()
 
         # -- Make the predictions and store them in a dictionary to use during the LwF loss -- #
-        #data = tee(gen, 1)[0]
         for _ in range(num_batches_per_epoch):
             # -- Extract the current batch from data transform to tensor and push to GPU -- #
             data_dict = next(gen)
@@ -253,14 +253,7 @@ def calculate_target_logits(mh_network, gen, num_batches_per_epoch, fp16, gpu_id
             task_logit = output.detach().cpu()
             del x, output
 
-            # -- Flatten the task logit since it has more than one output tensor based on the network structure -- #
-            #task_logit_flat = list()
-            #for task in task_logit:
-                # -- Append the task to the flat list so the list only contains of tensors -- #
-            #    task_logit_flat.append(task)   # --> Ensure that all tasks are on the same GPU for the loss calculation
-
-            # -- Append the result to target_logits or pred_logits -- #
-            #target_logits[task].extend(task_logit_flat)
+            # -- Append the result to target_logits -- #
             target_logits[task].extend(task_logit)
             del task_logit
 

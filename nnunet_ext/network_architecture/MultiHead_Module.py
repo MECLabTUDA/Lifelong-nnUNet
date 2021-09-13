@@ -391,9 +391,6 @@ class MultiHead_Module(nn.Module):
                 # -- Set requires_grad accordingly -- #
                 param.requires_grad = requires_grad
 
-        # -- Return the modified model -- #
-        #return model
-
     def _join_body_head_recursively(self, body, head, parents=list()):
         r"""This function is used to join a body with a head in a recursive manner. This function
             is only used internally when assembling a model given a specific task.
@@ -424,7 +421,7 @@ class MultiHead_Module(nn.Module):
         # -- Return the updated body, head and parent without the current node -- #
         return body, parents[:-1]
     
-    def add_new_task(self, task, model=None):
+    def add_new_task(self, task, use_init, model=None):
         r"""Use this function to add the initial module from on the first split.
             Specify the task name with which it will be registered in the ModuleDict.
             :param task: Task name of the new task (key for the ModuleDict)
@@ -438,8 +435,13 @@ class MultiHead_Module(nn.Module):
         if model is None:
             # -- Add the latest task -- #
             self.heads[task] = self.heads[list(self.heads.keys())[-1]]
-            # -- Load the state_dict from the very first split -- #
-            self.heads[task].load_state_dict(self.state_init)
+            
+            if use_init:
+                # -- Load the state_dict from the very first split -- #
+                self.heads[task].load_state_dict(self.state_init)
+            
+            # -- ELSE: The head has the state_dict from the last trained head --> used for transfer learning -- #
+
         else:
             # -- Register the provided model -- #
             self.heads[task] = copy.deepcopy(model)
@@ -458,7 +460,7 @@ class MultiHead_Module(nn.Module):
         for task in list_of_tasks:
             # -- Add the task to the head if it does not exist-- #
             if task not in self.heads:
-                self.add_new_task(task)
+                self.add_new_task(task, use_init=True)
 
         # -- Remove all heads that are not in the list_of_tasks -- #
         for task in self.heads.keys():
