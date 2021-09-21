@@ -58,9 +58,6 @@ class nnUNetTrainerRehearsal(nnUNetTrainerMultiHead): # Inherit default trainer 
     def get_basic_generators(self):
         r"""Calculate the joined dataset for the rehearsal training task.
         """
-        # -- Perform super call -- #
-        #_, dl_val = super().get_basic_generators()
-
         # -- Set the random seed based on self.seed -- #
         random.seed(self.seed)
 
@@ -78,14 +75,13 @@ class nnUNetTrainerRehearsal(nnUNetTrainerMultiHead): # Inherit default trainer 
 
         # -- Extract the existing heads -- #
         try:
-            tasks_in_head = list(self.mh_network.heads.keys())#[:-1]
+            tasks_in_head = list(self.mh_network.heads.keys())
         except: # Not even trained on one task, ie. self.mh_network does not exist yet
             tasks_in_head = list()
 
         # -- Check if the model already finished on some tasks before trying to load something -- #
         if len(tasks_in_head) != 0: # Exclude the task we're currently training on --> Note that heads is an ordered ModuleDict
             # -- Create backup for restoring the data of the current task after the previous data has been loaded etc. -- #
-            #dataset_tr_backup = self.dataset_tr.copy()
             dataset_val_backup = self.dataset_val.copy()
             dataset_directory_backup = self.dataset_directory   # Since this is a string, it won't update the reference as it would if it is a list
 
@@ -135,7 +131,6 @@ class nnUNetTrainerRehearsal(nnUNetTrainerMultiHead): # Inherit default trainer 
             self.dataset_val = dataset_val_backup
             self.dataset_directory = dataset_directory_backup
             del dataset_val_backup, dataset_directory_backup
-            #del dataset_tr_backup, dataset_val_backup, dataset_directory_backup
 
             # -- Update the log -- #
             self.print_to_log_file("Succesfully build dataset for rehearsal training, moving on with training."

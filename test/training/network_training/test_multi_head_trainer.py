@@ -131,7 +131,7 @@ def test_multi_head_trainer(ext_map=None, args_f=None):
     # -- Generate the mapping files for those tasks, whereas the label mapping is not changed -- #
     log_file = print_to_log_file(log_file, output_folder, "Start creating the mapping files and storing them at: {}".format(mapping_folder))
     # -- Define the list of tasks to load the correct dataset.json file -- #
-    tasks = ['Task04_Hippocampus', 'Task05_Prostate', 'Task02_Heart']
+    tasks = ['Task04_Hippocampus', 'Task02_Heart']#, 'Task05_Prostate'
     # -- Loop through those tasks, load the dataset.json file and build a mapping file -- #
     for task in tasks:
         # -- Load the dataset file -- #
@@ -159,15 +159,15 @@ def test_multi_head_trainer(ext_map=None, args_f=None):
     p = default_num_threads
     no_pp = False
     # -- Plan and preprocess those datasets
-    dataset_label_mapping(False, tasks_in_path=tasks_in_path, tasks_out_ids=tasks_out_ids, mapping_files_path=mapping_files_path,
+    dataset_label_mapping(False, tasks_in_path=tasks_in_path, tasks_out_ids=tasks_out_ids, mapping_files_path=mapping_files_path, name=None,
                           channels=channels, p=p, no_pp=no_pp)
 
     # -- Prepare to plan and preprocess the prostate dataset -- #
-    tasks_in_path = [join(os.path.dirname(os.path.realpath(old_nnUNet_raw_data)), 'Task05_Prostate')]
-    mapping_files_path = [join(mapping_folder, 'Task05_Prostate.json')]
+    # tasks_in_path = [join(os.path.dirname(os.path.realpath(old_nnUNet_raw_data)), 'Task05_Prostate')]
+    # mapping_files_path = [join(mapping_folder, 'Task05_Prostate.json')]
     # -- Plan and preprocess the prostate dataset -- #
-    dataset_label_mapping(False, tasks_in_path=tasks_in_path, tasks_out_ids=[-33], mapping_files_path=mapping_files_path,
-                          channels=[0], p=p, no_pp=no_pp)
+    # dataset_label_mapping(False, tasks_in_path=tasks_in_path, tasks_out_ids=[-33], mapping_files_path=mapping_files_path, name=None
+    #                       channels=[0], p=p, no_pp=no_pp)
     
     # -- Update the log file for the last time -- #
     execution_time = time() - start_time

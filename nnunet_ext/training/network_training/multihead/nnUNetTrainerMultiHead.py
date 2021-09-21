@@ -4,7 +4,7 @@
 #########################################################################################################
 
 import numpy as np
-import os, torch
+import os, torch, copy
 from itertools import tee
 from collections import OrderedDict
 from nnunet_ext.paths import default_plans_identifier
@@ -27,7 +27,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
     def __init__(self, split, task, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
                  identifier=default_plans_identifier, extension='multihead', tasks_list_with_char=None, mixed_precision=True,
-                 save_csv=True):
+                 save_csv=True, del_log=False):
         r"""Constructor of Multi Head Trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
         """
         # -- Initialize using parent class -- #
@@ -50,6 +50,9 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
 
         # -- Set trainer_class_name -- #
         self.trainer_class_name = self.__class__.__name__
+
+        # -- Set if the log should be removed or not -- #
+        self.del_log = del_log
 
         # -- Initialize or set self.already_trained_on dictionary to keep track of the trained tasks so far for restoring -- #
         if already_trained_on is not None:
@@ -147,16 +150,9 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # -- Further the trainer needs to be of class nnUNetTrainerV2 or nnUNetTrainerMultiHead for this method, nothing else. -- #
         # -- Set prev_trainer_path correctly as class instance and not a string -- #
         self.trainer_path = prev_trainer_path
-
-        # -- Create backup of the current already_trained_on, since those contain important information -- #
-        # -- of the current run and will be overwritten during initialize -- #
-        #already_trained_on_backup = copy.deepcopy(self.already_trained_on)
         
         # -- Initialize using super class -- #
         super().initialize(training, force_load_plans) # --> This updates the corresponding variables automatically since we inherit this class
-        
-        # -- Restore the backup dictionary so everything is up to date again -- #
-        #self.already_trained_on = already_trained_on_backup
 
         # -- Set nr_epochs to provided number -- #
         self.max_num_epochs = num_epochs
@@ -212,16 +208,17 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         self.trainer_model = restore_model(pkl_file, checkpoint, train=False, fp16=self.mixed_precision,\
                                            use_extension=use_extension, extension_type=self.extension)      
         self.trainer_model.initialize(True)
-        # -- Delete the created log_file from the restored model and set it to None since we don't need it -- #
-        os.remove(self.trainer_model.log_file)
-        self.trainer_model.log_file = None
+        # -- Delete the created log_file from the restored model and set it to None since we don't need it (eg. during eval) -- #
+        if self.del_log:
+            os.remove(self.trainer_model.log_file)
+            self.trainer_model.log_file = None
 
         print("Updating the Loss based on the provided previous trainer")
         # -- Update the number of outputs in the self class as well, otherwise the default might be used which might lead to an error during the training -- #
         self.net_num_pool_op_kernel_sizes = self.trainer_model.net_num_pool_op_kernel_sizes
         # -- Update the patch_size as well or the validation after an epoch might fail -- #
         self.patch_size = self.trainer_model.patch_size
-        
+
         #------------------------------------------ Partially copied from original implementation ------------------------------------------#
         ################# Here we wrap the loss for deep supervision ############
         # we need to know the number of outputs of the network
@@ -291,7 +288,6 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
 
         # -- Add the prev_trainer to the list for the current run -- #
         while len(self.already_trained_on[str(self.fold)]['prev_trainer']) < len(self.mh_network.heads)+1:
-        #if len(self.mh_network.heads) < len(self.already_trained_on[str(self.fold)]['prev_trainer'])+1:
             self.already_trained_on[str(self.fold)]['prev_trainer'].append(self.trainer_class_name)
 
         # -- Update the log file -- #
@@ -434,7 +430,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # -- Return the result from the parent class -- #
         return res
 
-    def _perform_validation(self, use_tasks=None, call_for_eval=False, multihead=True):
+    def _perform_validation(self, use_tasks=None, call_for_eval=False):
         r"""This function performs a full validation on all previous tasks and the current task.
             The Dice and IoU will be calculated and the results will be stored in 'val_metrics.json'.
             use_tasks can be a list of task_ids that should be used for the validation --> can be used when
@@ -447,14 +443,8 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             :param call_for_eval: Boolean indicating if this function is called from extern (True), ie. after training is
                                   is finished for evaluation purposes (so to say a misuse of this function). If it is set
                                   to False, the already_trained_on json file will be reset, so specify this if the function
-                                  is used in the context of an evaluation.
-            :param multihead: Boolean indicating if the model that is used is an original extension, ie. based on
-                              MultiHead Trainer of a simple nn-UNet Trainer in the form of an MultiHead Trainer.
-                              This is important to distinguish how to build the network for the validation.
-                              If this is set to false, then a nn-UNet trainer has been used and simply transaformed
-                              to a MultiHead Trainer so this function can be used for conventional nn-UNet Trainers
-                              as well. In this case, the user needs to assemble/set the trainers network, self.network
-                              correctly before calling this function.
+                                  is used in the context of an evaluation. Further if set to False, the head for validation
+                                  will be selected based on the task that the model gets validated on.
             NOTE: Have a look at nnunet_ext/run/run_evaluation.py to see how this function can be 'misused' for evaluation purposes.
         """
         # -- Ensure that evaluation is performed per subject not per batch as usual -- #
@@ -469,11 +459,6 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         else:
             # -- Use the provided tasks -- #
             tasks = use_tasks[:]
-
-        # -- Add the current trainer_class name to prev_trainer, so the loop does not end in an error -- #
-        # -- since this trainer is not yet a prev_trainer.. --> Remove the trainer again after the loop -- #
-        # -- because this creates only a view and changes self.already_trained_on as well which we do not want to -- #
-        #trained_on_folds['prev_trainer'].append(self.trainer_class_name)
         
         # -- NOTE: Since the head is an (ordered) ModuleDict, the current task is the last head, so there -- #
         # --       is nothing to restore at the end. -- #
@@ -521,7 +506,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             # -- Activate the current task to train on the right model -- #
             # -- Set self.network, since the parent classes all use self.network to train -- #
             # -- NOTE: self.mh_network.model is also updated to task split ! -- #
-            if multihead:
+            if not call_for_eval:
                 self.network = self.mh_network.assemble_model(task)
             # -- ELSE: nn-UNet is used to perform evaluation, ie. external call, so there are -- #
             # --       no heads except one so omit it --> NOTE: The calling function needs to ensure -- #
@@ -530,15 +515,16 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             # -- For evaluation, no gradients are necessary so do not use them -- #
             with torch.no_grad():
                 # -- Put current network into evaluation mode -- #
-                #self.network.eval()
+                self.network.eval()
                 # -- Run an iteration for each batch in validation generator -- #
                 val_gen_copy = tee(self.val_gen, 1)[0] # <-- Duplicate the generator so the names are extracted correctly during the loop
                 
-                # -- Loop through generator based on number of defined batches -- @
+                # -- Loop through generator based on number of defined batches -- #
                 for _ in range(self.num_val_batches_per_epoch):
                     # -- First, extract the subject names so we can map the predictions to the names -- #
-                    data = next(val_gen_copy)
+                    data = copy.deepcopy(next(val_gen_copy))
                     self.subject_names_raw.append(data['keys'])
+                    del data
 
                     # -- Run iteration without backprop but online_evaluation to be able to get TP, FP, FN for Dice and IoU -- #
                     _ = self.run_iteration(self.val_gen, False, True)
@@ -549,9 +535,6 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
 
         # -- Put current network into train mode again -- #
         self.network.train()
-
-        # -- Remove the trainer now from the list again  -- #
-        #trained_on_folds['prev_trainer'] = trained_on_folds['prev_trainer'][:-1]
 
         # -- Save the dictionary as json file in the corresponding output_folder -- #
         save_json(self.validation_results, join(self.output_folder, 'val_metrics.json'), sort_keys=False)
@@ -872,7 +855,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # -- For all tasks, create a corresponding head, otherwise the restoring would not work due to mismatching weights -- #
         self.mh_network.add_n_tasks_and_activate(self.already_trained_on[str(self.fold)]['tasks_at_time_of_checkpoint'],
                                                  self.already_trained_on[str(self.fold)]['active_task_at_time_of_checkpoint'])
-        
+
         # -- Set the network to the full MultiHead_Module network to restore everything -- #
         self.network = self.mh_network
 

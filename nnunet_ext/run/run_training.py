@@ -15,7 +15,6 @@ from nnunet.utilities.task_name_id_conversion import convert_id_to_task_name
 from nnunet_ext.utilities.helpful_functions import delete_dir_con, join_texts_with_char, move_dir
 
 # -- Import the trainer classes -- #
-from nnunet.training.network_training.nnUNetTrainerV2 import nnUNetTrainerV2
 from nnunet_ext.training.network_training.ewc.nnUNetTrainerEWC import nnUNetTrainerEWC # Own implemented class
 from nnunet_ext.training.network_training.lwf.nnUNetTrainerLWF import nnUNetTrainerLWF # Own implemented class
 from nnunet_ext.training.network_training.multihead.nnUNetTrainerMultiHead import nnUNetTrainerMultiHead # Own implemented class
@@ -31,8 +30,7 @@ def run_training(extension='multihead'):
     # -- Create argument parser and add standard arguments -- #
     parser = argparse.ArgumentParser()
     parser.add_argument("network")
-    #parser.add_argument("network_trainer")  # Can only be a multi head, sequential, rehearsal, ewc or lwf
-    
+
     # -- nnUNet arguments untouched --> Should not intervene with extension code, everything should work -- #
     parser.add_argument("-val", "--validation_only", help="Use this if you want to only run the validation. This will validate each model "
                                                           "of the sequential pipeline, so they should have been saved and not deleted.",
@@ -164,7 +162,6 @@ def run_training(extension='multihead'):
     # -- Extract parser (nnUNet) arguments -- #
     args = parser.parse_args()
     network = args.network
-    #network_trainer = args.network_trainer
     network_trainer = str(trainer_map[extension]).split('.')[-1][:-2]
     validation_only = args.validation_only
     plans_identifier = args.p
@@ -553,9 +550,9 @@ def run_training(extension='multihead'):
                                         already_trained_on=already_trained_on, **(args_f[trainer_class.__name__]))
                 trainer.initialize(not validation_only, num_epochs=num_epochs, prev_trainer_path=prev_trainer_path)
                 
-                # NOTE: Trainer has only waits and heads of first task at this point!!!!!!!!!!!!
+                # NOTE: Trainer has only weights and heads of first task at this point!!!!!!!!!!!!
                 # --> Add the heads and load the state_dict from the latest model and not all_tasks[0]
-                # since this is only used for initialization
+                #     since this is only used for initialization
                 
             # -- Nothing needs to be done with the trainer, since it makes everything by itself, for instance -- #
             # -- if the task we train on does not exist at the later point, it simply initializes it as a new head -- #
@@ -639,6 +636,4 @@ def run_training(extension='multihead'):
         init_seq = args.init_seq
         prev_trainer = args.initialize_with_network_trainer
 
-    # -- Reset cuda device as environment variable, otherwise other GPUs might not be available ! -- #
-    del os.environ["CUDA_VISIBLE_DEVICES"]
 #------------------------------------------- Inspired by original implementation -------------------------------------------#

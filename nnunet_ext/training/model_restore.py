@@ -8,9 +8,10 @@ from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet.training.model_restore import recursive_find_python_class
 from nnunet.training.network_training.nnUNetTrainer import nnUNetTrainer
 
-def restore_model(pkl_file, checkpoint=None, train=False, fp16=True, use_extension=False, extension_type='multihead'):
-    """ This function is modified to work for the nnU-Net extension. When using this to restore Multi head Network always
-        set train to True.
+def restore_model(pkl_file, checkpoint=None, train=False, fp16=True, use_extension=False, extension_type='multihead', del_log=False):
+    """ This function is modified to work for the nnU-Net extension as well and ensures a correct loading of trainers
+        for both (conventional and extension). Use del_log when using this for evaluation to remove the then created log_file
+        during intialization.
         This is a utility function to load any nnUNet trainer from a pkl. It will recursively search
         nnunet.trainig.network_training for the file that contains the trainer and instantiate it with the arguments saved in the pkl file. If checkpoint
         is specified, it will furthermore load the checkpoint file in train/test mode (as specified by train).
@@ -57,15 +58,29 @@ def restore_model(pkl_file, checkpoint=None, train=False, fp16=True, use_extensi
 
     # -- Set the trainer -- #
     trainer = tr(*init)
+    trainer.del_log = del_log
     trainer.initialize(train)
 
     # -------------------- From nnUNet implementation (modifed, but same output) -------------------- #
     if fp16 is not None:
         trainer.fp16 = fp16
+    
+    # -- Backup the patch_size before loading the plans -- #
+    patch_size = trainer.patch_size
 
+    # -- NOTE: This loads the plan file from the current task! The patch size is high likely to change -- #
+    # --       which is why we created a backup to reset the patch size after plans processing --> we -- #
+    # --       do not change the plans file since this is based on the data and if we initialize a MH with -- #
+    # --       this task, we want it to fit to the initialized data, however for every following trainer, -- #
+    # --       the patch size can not change since the model structure is not fit for it and thus fail during -- #
+    # --       the forward pass in the skip connections! Keep this in mind -- # 
     trainer.process_plans(info['plans'])
+    
+    # -- Restore the patch size -- #
+    trainer.patch_size = patch_size
     
     if checkpoint is not None:
         trainer.load_checkpoint(checkpoint, train)
+
     return trainer
     # -------------------- From nnUNet implementation (modifed, but same output) -------------------- #
