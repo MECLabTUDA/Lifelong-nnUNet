@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import os, itertools
 from time import time
+import torch.nn as nn
 from collections import OrderedDict
 from nnunet_ext.paths import default_plans_identifier
 from nnunet_ext.training.model_restore import restore_model
@@ -51,7 +52,7 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
         r"""This function performs the actual evaluation given the transmitted tasks.
             :param folds: List of integer values specifying the folds on which the evaluation should be performed.
             :param tasks: List with tasks following the Task_XXX structure/name for direct loading.
-            :param use_head: A task specifying which head to use --> if it is set to None, the last trained head will be used.
+            :param use_head: A task specifying which head to use --> if it is set to None, the last trained head will be used if necessary.
         """
         # ---------------------------------------------
         # Evaluate for each task and all provided folds
@@ -70,7 +71,6 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
             # -- Create the directory if it does not exist -- #
             maybe_mkdir_p(output_path)
 
-            
             # -- Load the trainer for evaluation -- #
             print("Loading trainer and setting the network for evaluation")
             # -- Do not add the addition of fold_X to the path -- #
@@ -116,7 +116,6 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
             # -- Set the head based on the users input -- #
             if use_head is None:
                 use_head = list(trainer.mh_network.heads.keys())[-1]
-            trainer.network = trainer.mh_network.assemble_model(use_head)
             
             # -- Create a new log_file in the evaluation folder based on changed output_folder -- #
             trainer.print_to_log_file("The {} model trained on {} will be used for this evaluation with the {} head.".format(self.network_trainer, ', '.join(self.tasks_list_with_char[0]), use_head))
@@ -124,8 +123,16 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
             trainer.print_to_log_file("Start performing evaluation on fold {} for the following tasks: {}.\n".format(t_fold, ', '.join(tasks)))
             start_time = time()
 
-            # -- Run validation of the trainer while not updating the head of the model based on the task -- #
-            trainer._perform_validation(use_tasks=tasks, call_for_eval=True)
+            # -- Delete all heads except the last one if it is a Sequential Trainer, since then always the last head should be used -- #
+            if 'TrainerSequential' in self.network_trainer:
+                # -- Create new heads dict that only contains the last head -- #
+                last_name = list(trainer.mh_network.heads.keys())[-1]
+                last_head = trainer.mh_network.heads[last_name]
+                trainer.mh_network.heads = nn.ModuleDict()
+                trainer.mh_network.heads[last_name] = last_head
+
+            # -- Run validation of the trainer while updating the head of the model based on the task/use_head -- #
+            trainer._perform_validation(use_tasks=tasks, use_head=use_head, call_for_eval=True)
 
             # -- Update the log file -- #
             trainer.print_to_log_file("Finished with the evaluation on fold {}. The results can be found at: {} or {}.\n".format(t_fold, join(trainer.output_folder, 'val_metrics.csv'), join(trainer.output_folder, 'val_metrics.json')))
@@ -140,7 +147,7 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
             eval_metrics = data['metric'].unique()
             eval_masks = data['seg_mask'].unique()
             # -- Define dataframe to summarize the resultss -- #
-            summary = pd.DataFrame([], columns = ['trainer', 'network', 'overall train order', 'trained on', 'trained on fold', 'eval on head', 'eval on task', 'metric', 'seg mask', 'mean +/- std', 'mean +/- std [in %]', 'checkpoint'])
+            summary = pd.DataFrame([], columns = ['trainer', 'network', 'overall train order', 'trained on', 'trained on fold', 'used head for eval', 'eval on task', 'metric', 'seg mask', 'mean +/- std', 'mean +/- std [in %]', 'checkpoint'])
             row = OrderedDict()
             # -- Add values -- #
             row['trainer'] = self.network_trainer
@@ -148,13 +155,13 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
             row['overall train order'] = ' -- '.join(self.tasks_list_with_char[0])
             row['trained on'] = ' -- '.join(self.model_list_with_char[0])
             row['trained on fold'] = t_fold
-            row['eval on head'] = use_head
+            row['used head for eval'] = None
             row['eval on task'] = None
             row['metric'] = None
             row['seg mask'] = None
             row['mean +/- std'] = None
             row['mean +/- std [in %]'] = None
-            row['checkpoint'] = join(trainer_path, use_head, "model_final_checkpoint.model")
+            row['checkpoint'] = join(trainer_path, "model_final_checkpoint.model")
             # -- Define the path for the summary file -- #
             output_file = join(trainer.output_folder, 'summarized_val_metrics.txt')
             # -- Loop through the data and calculate the mean and std values -- #
@@ -170,6 +177,10 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
                     out.write("Evaluation performed for fold {}, task {} using segmentation mask {} and {} as metric:\n".format(t_fold, combi[0], combi[2].split('_')[-1], combi[1]))
                     out.write("mean (+/- std):\t {} +/- {}\n\n".format(mean, std))
                     # -- Update the row values -- #
+                    if combi[0] in trainer.mh_network.heads:
+                        row['used head for eval'] = combi[0]
+                    else:
+                        row['used head for eval'] = use_head
                     row['eval on task'] = combi[0]
                     row['metric'] = combi[1]
                     row['seg mask'] = combi[2]

@@ -251,7 +251,7 @@ def calculate_target_logits(mh_network, gen, num_batches_per_epoch, fp16, gpu_id
             else:
                 output = network(x)[0]
                 
-            task_logit = copy.deepcopy(output.detach().cpu())
+            task_logit = copy.deepcopy(output.detach().cpu())   # --> To cut any links or references
             del x, output
 
             # -- Append the result to target_logits -- #

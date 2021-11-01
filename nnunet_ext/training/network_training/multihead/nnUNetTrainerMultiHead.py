@@ -3,8 +3,8 @@
 #----------inspired by original implementation (--> nnUNetTrainerV2), copied code is marked as such.----#
 #########################################################################################################
 
+import os, torch
 import numpy as np
-import os, torch, copy
 from itertools import tee
 from collections import OrderedDict
 from nnunet_ext.paths import default_plans_identifier
@@ -22,6 +22,9 @@ from nnunet.training.dataloading.dataset_loading import load_dataset, unpack_dat
 from nnunet.training.data_augmentation.data_augmentation_moreDA import get_moreDA_augmentation
 from nnunet_ext.utilities.helpful_functions import join_texts_with_char, nestedDictToFlatTable, dumpDataFrameToCsv
 
+# -- Add this since default option file_descriptor has a limitation on the number of open files. -- #
+# -- Default config might cause the runtime error: RuntimeError: received 0 items of ancdata -- #
+torch.multiprocessing.set_sharing_strategy('file_system')
 
 class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class for 2D, 3D low resolution and 3D full resolution U-Net 
     def __init__(self, split, task, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
@@ -430,7 +433,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # -- Return the result from the parent class -- #
         return res
 
-    def _perform_validation(self, use_tasks=None, call_for_eval=False):
+    def _perform_validation(self, use_tasks=None, use_head=None, call_for_eval=False):
         r"""This function performs a full validation on all previous tasks and the current task.
             The Dice and IoU will be calculated and the results will be stored in 'val_metrics.json'.
             use_tasks can be a list of task_ids that should be used for the validation --> can be used when
@@ -440,6 +443,8 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                               are present in self.mh_network --> The tasks need to exist and preprocessed to be used
                               however the tasks do not have to be the tasks that were used for training, ie. corresponding
                               to the heads.
+            :param use_head: Specify the head that should be used if the task to perform validation/evaluation on does
+                             not exist --> should only be used when the function is called for evaluation purposes
             :param call_for_eval: Boolean indicating if this function is called from extern (True), ie. after training is
                                   is finished for evaluation purposes (so to say a misuse of this function). If it is set
                                   to False, the already_trained_on json file will be reset, so specify this if the function
@@ -506,8 +511,14 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             # -- Activate the current task to train on the right model -- #
             # -- Set self.network, since the parent classes all use self.network to train -- #
             # -- NOTE: self.mh_network.model is also updated to task split ! -- #
-            if not call_for_eval:
+            #if not call_for_eval:
+            #    self.network = self.mh_network.assemble_model(task)
+            #else:
+            if task in self.mh_network.heads:
                 self.network = self.mh_network.assemble_model(task)
+            else:
+                assert use_head is not None, "The task to perform validation/evaluation on is not in the head and no head_name that should be used instead (use_head) is provided."
+                self.network = self.mh_network.assemble_model(use_head)
             # -- ELSE: nn-UNet is used to perform evaluation, ie. external call, so there are -- #
             # --       no heads except one so omit it --> NOTE: The calling function needs to ensure -- #
             # --       that self.network is assembled correctly ! -- #
@@ -522,9 +533,8 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                 # -- Loop through generator based on number of defined batches -- #
                 for _ in range(self.num_val_batches_per_epoch):
                     # -- First, extract the subject names so we can map the predictions to the names -- #
-                    data = copy.deepcopy(next(val_gen_copy))
+                    data = next(val_gen_copy)
                     self.subject_names_raw.append(data['keys'])
-                    del data
 
                     # -- Run iteration without backprop but online_evaluation to be able to get TP, FP, FN for Dice and IoU -- #
                     _ = self.run_iteration(self.val_gen, False, True)

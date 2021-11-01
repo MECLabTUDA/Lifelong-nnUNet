@@ -1,4 +1,3 @@
-
 # nnU-Net Continual Learning extension: Change mask labels for dataset given a mapping file
 
 This is a general description on how to change the masks of a desired dataset based on a provided mapping file using the nnU-Net extension.
@@ -137,7 +136,7 @@ Last but not least, let's assume the dataset has 5 channels and only the first a
 						    [-ln <name(s)> -p <number(s)> --no_pp]
 ```
 
-If `--no_pp` or `--disable_plan_ preprocess_task` is not set, the function will run the nnU-Nets pipeline configuration and preprocessing using the 
+If `--no_pp` or `--disable_plan_preprocess_task` is not set, the function will run the nnU-Nets pipeline configuration and preprocessing using the 
 ```bash
 nnUNet_plan_and_preprocess -t <task_id_from_task_out>
 ```

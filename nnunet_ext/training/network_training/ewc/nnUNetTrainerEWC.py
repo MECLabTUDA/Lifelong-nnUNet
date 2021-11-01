@@ -143,7 +143,7 @@ class nnUNetTrainerEWC(nnUNetTrainerMultiHead): # Inherit default trainer class 
             "The number of tasks in the fisher/param values are not as expected --> should be the same as in the Multi Head network."
 
         # -- Execute the training for the desired epochs -- #
-        ret = super().run_training(task, output_folder)       # Execute training from parent class --> already_trained_on will be updated there
+        ret = super().run_training(task, output_folder)#, transfer=True)       # Execute training from parent class --> already_trained_on will be updated there
         
         # -- Define the fisher and params after the training -- #
         self.fisher[task] = dict()
