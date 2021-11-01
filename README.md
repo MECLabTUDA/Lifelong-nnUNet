@@ -18,13 +18,9 @@ The supported nnUNet version is specified in the [requirements.txt](requirements
 
 ## Introduction
 
-This branch currently includes the following methods for Continual Learning:
-* Sequential Training
-* Rehearsal Training
-* Elastic Weight Consolidation
-* Learning Without Forgetting
+This branch provides a new, combined architecture, which combines the Vision Transformer (ViT) from [Dosovitskiy et al.](https://arxiv.org/pdf/2010.11929.pdf) with the [original nnUNet](https://github.com/MIC-DKFZ/nnUNet) architecture. This architecture can for instance be used for training and even be combined with one of the other branches provided in this repository, e.g. OOD Detection or Continual Learning branch.
 
-For instructions on how to run these please see [here](documentation/continual_learning.md).
+For instructions on how to use the provided architecture, please see [here](documentation/ViT_U-Net.md).
 
 
 ## Installation
