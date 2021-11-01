@@ -38,7 +38,7 @@ mh_network = MultiHead_Module(Generic_UNet, split_at = 'seg_outputs', task = 'Ta
 As mentioned in the beginning, the Multi-Head Network consists of a shared body and task specific heads. The easiest way to describe the Architecture is visually (image extracted from [here](https://arxiv.org/pdf/1606.09282.pdf) and modified accordingly):
 
 <p align="center">
-    <img src="references/MH_Architecture.png" width="475" height="175" title="Multi-Head Architecture extracted from [here](https://arxiv.org/pdf/1606.09282.pdf) and modified accordingly"/>
+    <img src="references/MH_architecture.png" width="475" height="175" title="Multi-Head Architecture extracted from [here](https://arxiv.org/pdf/1606.09282.pdf) and modified accordingly"/>
 </p>
 
 ### How to define the split path
@@ -56,7 +56,7 @@ mh_network = MultiHead_Module(Generic_UNet, split_at = 'conv_blocks_context.0.bl
 The following image shows how the split is performed on a sample network:
 
 <p align="center">
-    <img src="references/example_split.png" width="1000" height="400" title="Multi-Head Architecture split_at explained"/>
+    <img src="references/Example_split.png" width="1000" height="400" title="Multi-Head Architecture split_at explained"/>
 </p>
 
 Keep in mind that we implemented a path optimizer which removes all blank spaces, but also shortens the path to the barest minimum in such a way, that the computational complexity is reduced. A very drastic example *-- based on the image --* would be the split path `conv_blocks_context.0.blocks.0.conv` which can be easily reduced to the simple `conv_blocks_context` path thus reducing (computational wise) the recursion depth from 4 to 0.
