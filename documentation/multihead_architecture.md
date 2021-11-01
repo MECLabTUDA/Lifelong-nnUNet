@@ -1,8 +1,8 @@
 # nnU-Net Continual Learning extension: Multi-Head Architecture
 
-This is a general description on how to use the Multi-Head Architecture that enables the training on a stream of datasets resulting in task specific heads. The idea is to use either a pre-trained or freshly initialized *-- given the provided arguments --* `Generic_UNet` and split the network into a shared body and task specific head. Whenever the network is trained on a new dataset, a new head will be added and trained correspondingly. The implementation can be found [here](https://github.com/camgbus/Lifelong-nnUNet/blob/continual_learning/nnunet_ext/network_architecture/MultiHead_Module.py).
+This is a general description on how to use the Multi-Head Architecture that enables the training on a stream of datasets resulting in task specific heads. The idea is to use either a pre-trained or freshly initialized *-- given the provided arguments --* `Generic_UNet` and split the network into a shared body and task specific head. Whenever the network is trained on a new dataset, a new head should be added and trained correspondingly. The implementation of the corresponding Trainer can be found [here](https://github.com/camgbus/Lifelong-nnUNet/blob/continual_learning/nnunet_ext/training/network_training/multihead/nnUNetTrainerMultiHead.py).
 
-In the following, the module will be further discussed. Note that the module was developed in such a way that it is not limited to the use of a `Generic_UNet` since any network inheriting `nn.Module` can be used to be split.
+In the following, the Multi-Head Architecture and provided Module will be further discussed. Note that the module was developed in such a way that it is not limited to the use of a `Generic_UNet` since any network inheriting `nn.Module` can be used to be split.
 
 ### Initialize a Multi-Head Network
 For the initialization of a Multi-Head Network, the following arguments have to be provided:
@@ -23,7 +23,7 @@ mh_network = MultiHead_Module(Generic_UNet, split_at = 'seg_outputs', task = 'Ta
                               prev_trainer = None, **config_args)
 ```
 
-If a pre-trained network should be used, than the corresponding code snippets would look like the following:
+If a pre-trained network should be used, then the corresponding code snippet would look like the following:
 
 ```python
 from nnunet.network_architecture.generic_UNet import Generic_UNet
@@ -42,7 +42,7 @@ As mentioned in the beginning, the Multi-Head Network consists of a shared body 
 </p>
 
 ### How to define the split path
-As previously mentioned, the split path needs to be provided in form of a dot notation `('.')`. In the examples so far, no deeper path has been specified. However the depth of a path is not restricted and one might even split the network on a ReLU layer e.g. As long as the path exists in the Network and does not lead to the very first element in the Network, any path can be used, a more complex example would be the following *-- out of simplicity a pre-trained network is used here --*:
+As previously mentioned, the split path needs to be provided in form of a dot notation `('.')`. In the examples so far, no deeper path has been specified. However the depth of a path is not restricted and one might even split the network on a ReLU layer e.g.; as long as the path exists in the Network and does not lead to the very first element in the Network, any path can be used. A more complex example would be the following *-- out of simplicity a pre-trained network is used from here on --*:
 
 ```python
 from nnunet.network_architecture.generic_UNet import Generic_UNet
@@ -59,10 +59,10 @@ The following image shows how the split is performed on a sample network:
     <img src="references/Example_split.png" width="1000" height="400" title="Multi-Head Architecture split_at explained"/>
 </p>
 
-Keep in mind that we implemented a path optimizer which removes all blank spaces, but also shortens the path to the barest minimum in such a way, that the computational complexity is reduced. A very drastic example *-- based on the image --* would be the split path `conv_blocks_context.0.blocks.0.conv` which can be easily reduced to the simple `conv_blocks_context` path thus reducing (computational wise) the recursion depth from 4 to 0.
+Keep in mind that we implemented a path optimizer which removes all blank spaces, but also shortens the path to the barest minimum *-- if possible --* in such a way, that the computational complexity is reduced. A very drastic example *-- based on the image above --* would be the split path `conv_blocks_context.0.blocks.0.conv` which can be easily reduced to the simple `conv_blocks_context` path thus reducing *-- computational wise --* the recursion depth from 4 to 0.
 
 ### How assemble a model
-The assembly of the shared body with a specific head is provided through the `assemble_model(...)` function. When using this function, the head to assemble the body with needs to be specified its name. Further, one can specify if the body needs to be frozen or not. This will be very helpful when implementing methods like the LwF Trainer, where a training part is specifically performed with freezed body parameters that are not updated during training. The following example shows how to assemble a model using the shared body and the head called *Task_A* with a freezed body:
+The assembly of the shared body with a specific head is provided through the `assemble_model(...)` function. When using this function, the head to assemble the body with needs to be specified using its name. Further, one can specify if the body needs to be frozen or not. This will be very helpful when implementing methods like the [LwF Trainer](https://github.com/camgbus/Lifelong-nnUNet/blob/continual_learning/documentation/lwf_training.md), where a training part is specifically performed with freezed body parameters that are not updated during training. The following example shows how to assemble a model using the shared body and the head called *Task_A* with a frozen body:
 
 ```python
 from nnunet.network_architecture.generic_UNet import Generic_UNet
@@ -74,11 +74,11 @@ mh_network = MultiHead_Module(Generic_UNet, split_at = 'conv_blocks_context.0.bl
 task_a_model = mh_network.assemble_model(task = 'Task_A', freeze_body = True)
 ```
 
-If the body should not be freezed, then the flag `freeze_body` can be set to False.
+If the body should not be frozen, then the flag `freeze_body` can be set to False.
 
 
 ### Adding a new head
-A new head can be easily introduced by using the provided `add_new_task(...)` function. For this, one has to specify the name of the task as well as the initialization type. This means whether the previous head should be used as the initialization of the new head or not. If not, then the very first head from the initial split will be used as initialization. This is important to know, especially if a pre-trained network is used. In such a case, the head will not be randomly initialized but with the head that results from the initial split (which is at this point task specific so to say since its a pre-trained network). The following shows an example where the previous head *Task_A* is used as the initialization of the new head *Task_B*:
+A new head can be easily introduced by using the provided `add_new_task(...)` function. For this, one has to specify the name of the task as well as the initialization type. This means whether the previous head should be used as the initialization of the new head or not. If not, then the very first head from the initial split will be used as initialization. This is important to know, especially if a pre-trained network is used. In such a case, the head will not be randomly initialized but with the head that results from the initial split *-- which is at this point task specific so to say since its a pre-trained network --*. The following shows an example where the previous head *Task_A* is used as the initialization of the new head *Task_B*:
 
 ```python
 from nnunet.network_architecture.generic_UNet import Generic_UNet
@@ -87,11 +87,12 @@ from nnunet_ext.network_architecture.MultiHead_Module import MultiHead_Module
 model = torch.load(...) # Load some pre-trained network of type Generic_UNet
 mh_network = MultiHead_Module(Generic_UNet, split_at = 'conv_blocks_context.0.blocks.1', task = 'Task_A',
                               prev_trainer = model)
-mh_network.add_new_task(task = 'Task_A', use_init = False, model = None)
+mh_network.add_new_task(task = 'Task_B', use_init = False, model = None)
 ```
 
-Note that it is also possible to provide ones own specific PyTorch model if a completely new head should be introduced. For this, the `model` flag should be used while providing the model that should be used as the head instead of setting the flag to None.
+Note that it is also possible to provide ones own specific PyTorch model if a completely new head should be introduced. For this, the `model` flag should be used while providing the model instead of setting the flag to None.
 
 ### Further Informations
 For the presented Multi-Head Architecture, an extensive PyTest has been developed and can be found [here](https://github.com/camgbus/Lifelong-nnUNet/blob/continual_learning/test/network_architecture/test_MultiHead_Module.py). Since the module is a general implementation and rather complex than simple, especially the splitting and assembling process, one should always make sure that the Module performs as expected before actually using it, especially when using a very deep split path.
+
 Additional functions that are not covered in this documentation can be found in the actual implementation, along with extensive descriptions and comments, [see here](https://github.com/camgbus/Lifelong-nnUNet/blob/continual_learning/nnunet_ext/network_architecture/MultiHead_Module.py).
