@@ -31,7 +31,7 @@ def get_default_configuration(network, task, running_task, network_trainer, task
     if search_in is None:
         if extension_type is None: # Should only be None when using the Generic_ViT_UNet
             search_in = (nnunet_ext.__path__[0], "training", "network_training")
-            base_module = 'nnunet_ext.training.network_training.'
+            base_module = 'nnunet_ext.training.network_training'
         else:
             search_in = (nnunet_ext.__path__[0], "training", "network_training", extension_type)
             base_module = 'nnunet_ext.training.network_training.' + extension_type
