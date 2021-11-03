@@ -17,6 +17,8 @@ def get_default_configuration(network, task, running_task, network_trainer, task
                               search_in=None, base_module=None, extension_type='multihead'):
     r"""This function extracts paths to the plans_file, specifies the output_folder_name, dataset_directory, batch_dice, stage, and trainer_class.
         The extension type specifies which nnUNet extension will be used (multihead, rehearsal, etc.).
+        When using the Generic_Vit_UNet (and only then), the running_task, tasks_joined_name and extension_type
+        should be set to None!
     """
     # -- If network_trainer is actual trainer than transform it into a string -- #
     if not isinstance(network_trainer, str):
@@ -27,8 +29,12 @@ def get_default_configuration(network, task, running_task, network_trainer, task
     
     # -- If search_in not provided set it with base_module -- #
     if search_in is None:
-        search_in = (nnunet_ext.__path__[0], "training", "network_training", extension_type)
-        base_module = 'nnunet_ext.training.network_training.' + extension_type
+        if extension_type is None: # Should only be None when using the Generic_ViT_UNet
+            search_in = (nnunet_ext.__path__[0], "training", "network_training")
+            base_module = 'nnunet_ext.training.network_training.'
+        else:
+            search_in = (nnunet_ext.__path__[0], "training", "network_training", extension_type)
+            base_module = 'nnunet_ext.training.network_training.' + extension_type
 
     # -- If the trainer to extract is of not one from the provided extension, then search in nnU-Net module -- #
     if is_classic_trainer:
@@ -60,7 +66,10 @@ def get_default_configuration(network, task, running_task, network_trainer, task
     trainer_class = recursive_find_python_class([join(*search_in)], network_trainer,
                                                 current_module=base_module)
                                                 
-    output_folder_name = join(network_training_output_dir, network, tasks_joined_name, running_task, network_trainer + "__" + plans_identifier)
+    if tasks_joined_name is None or running_task is None: # Should only be None when using the Generic_ViT_UNet
+        output_folder_name = join(network_training_output_dir, network, task, network_trainer + "__" + plans_identifier)
+    else:
+        output_folder_name = join(network_training_output_dir, network, tasks_joined_name, running_task, network_trainer + "__" + plans_identifier)
 
     # -- Copy the model to nnunet_ext folder if it is not of sequential origin -- #
     if is_classic_trainer:
