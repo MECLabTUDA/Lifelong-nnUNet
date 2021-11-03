@@ -64,7 +64,10 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
                 trainer_path = join(network_training_output_dir_orig, self.network, self.tasks_joined_name, self.network_trainer+'__'+self.plans_identifier, 'fold_'+str(t_fold))
                 output_path = join(evaluation_output_dir, self.network, self.tasks_joined_name, self.network_trainer+'__'+self.plans_identifier)
                 output_path = output_path.replace('nnUNet_ext', 'nnUNet')
-            else:
+            elif 'ViTUNet' in self.network_trainer:
+                trainer_path = join(network_training_output_dir_orig, self.network, self.tasks_joined_name, self.network_trainer+'__'+self.plans_identifier, 'fold_'+str(t_fold))
+                output_path = join(evaluation_output_dir, self.network, self.tasks_joined_name, self.network_trainer+'__'+self.plans_identifier)
+            else:   # Any other extension like CL extension for example (using MH Architecture)
                 trainer_path = join(network_training_output_dir, self.network, self.tasks_joined_name, self.model_joined_name, self.network_trainer+'__'+self.plans_identifier, 'fold_'+str(t_fold))
                 output_path = join(evaluation_output_dir, self.network, self.tasks_joined_name, self.model_joined_name, self.network_trainer+'__'+self.plans_identifier)
 
@@ -76,7 +79,7 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
             # -- Do not add the addition of fold_X to the path -- #
             checkpoint = join(trainer_path, "model_final_checkpoint.model")
             pkl_file = checkpoint + ".pkl"
-            use_extension = not 'nnUNetTrainerV2' in trainer_path
+            use_extension = (not 'nnUNetTrainerV2' in trainer_path) and (not 'ViTUNet' in trainer_path)
             trainer = restore_model(pkl_file, checkpoint, train=False, fp16=self.mixed_precision,\
                                     use_extension=use_extension, extension_type=self.extension, del_log=True) 
             trainer.initialize(False)
@@ -87,7 +90,7 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
 
             
             # -- If this is a conventional nn-Unet Trainer, then make a MultiHead Trainer out of it, so we can use the _perform_validation function -- #
-            if 'nnUNetTrainerV2' in trainer_path:
+            if not use_extension:
                 # -- Ensure that use_model only contains one task for the conventional Trainer -- #
                 assert len(self.tasks_list_with_char[0]) == 1, "When trained with {}, only one task could have been used for training, not {} since this is no extension.".format(self.network_trainer, len(self.use_model))
                 # -- Store the epoch of the trainer to set it correct after initialization of the MultiHead Trainer -- #
@@ -110,7 +113,7 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
             trainer.output_folder = join(output_path, 'fold_'+str(t_fold))
             trainer.csv = self.save_csv
                 
-            # -- Adapt the already_trained_on with only the prev_trainer part since this is necessary for the validatio part -- #
+            # -- Adapt the already_trained_on with only the prev_trainer part since this is necessary for the validation part -- #
             trainer.already_trained_on[str(t_fold)]['prev_trainer'] = [nnUNetTrainerMultiHead.__name__]*len(tasks)
                 
             # -- Set the head based on the users input -- #
