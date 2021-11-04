@@ -54,6 +54,10 @@ def run_evaluation():
     parser.add_argument('-store_csv', required=False, default=False, action="store_true",
                         help='Set this flag if the validation data and any other data if applicable should be stored'
                             ' as a .csv file as well. Default: .csv are not created.')
+    parser.add_argument("-v", "--version", action='store', type=int, nargs=1, default=[1],
+                        help='Select the ViT input building version. Currently there are only three'+
+                            ' possibilities: 1, 2 or 3.'+
+                            ' Default: version one will be used. For more references wrt, to the versions, see the docs.')
 
     # -- Build mapping for network_trainer to corresponding extension name -- #
     ext_map = {'nnUNetTrainerMultiHead': 'multihead', 'nnUNetTrainerSequential': 'sequential',
@@ -93,6 +97,12 @@ def run_evaluation():
     # -- Set cuda device as environment variable, otherwise other GPUs will be used as well ! -- #
     os.environ["CUDA_VISIBLE_DEVICES"] = cuda
 
+    # -- Extract the desired version, only considered in case of ViT Trainer -- #
+    version = args.version
+    if isinstance(version, list):    # When the version gets returned as a list, extract the number to avoid later appearing errors
+        version = version[0]
+    assert version in [1, 2, 3], 'We only provide three versions, namely 1, 2 or 3, but not {}..'.format(version)
+    
     
     # -------------------------------
     # Transform tasks to task names
@@ -146,7 +156,7 @@ def run_evaluation():
     # Evaluate for each task and all provided folds
     # ---------------------------------------------
     evaluator = Evaluator(network, network_trainer, (tasks_for_folder, char_to_join_tasks), (use_model_w_tasks, char_to_join_tasks), 
-                          plans_identifier, mixed_precision, ext_map[network_trainer], save_csv)
+                          version, plans_identifier, mixed_precision, ext_map[network_trainer], save_csv)
     evaluator.evaluate_on(fold, evaluate_on_tasks, use_head)
 
 

@@ -7,6 +7,7 @@ import nnunet, nnunet_ext
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet.training.model_restore import recursive_find_python_class
 from nnunet.training.network_training.nnUNetTrainer import nnUNetTrainer
+from nnunet_ext.training.network_training.nnViTUNetTrainer import nnViTUNetTrainer
 
 def restore_model(pkl_file, checkpoint=None, train=False, fp16=True, use_extension=False, extension_type='multihead', del_log=False):
     """ This function is modified to work for the nnU-Net extension as well and ensures a correct loading of trainers
@@ -28,10 +29,9 @@ def restore_model(pkl_file, checkpoint=None, train=False, fp16=True, use_extensi
     name = info['name']
     
     # -- Reset arguments if a Generic_ViT_UNet is used -- #
-    if use_extension and 'ViTUNet' in pkl_file:
+    if use_extension and nnViTUNetTrainer.__name__ in pkl_file:
         # Only occurs during evaluation when building a MH network which sets a wrong extension_type
         extension_type = None
-
     
     # -- Set search_in and base_module given the current arguments -- #
     if use_extension:   # -- Extension search in nnunet_ext
@@ -47,8 +47,6 @@ def restore_model(pkl_file, checkpoint=None, train=False, fp16=True, use_extensi
 
     # -- Search for the trainer class based on search_in, name of the trainer and base_module -- #
     tr = recursive_find_python_class([join(*search_in)], name, current_module=base_module)
-
-    print(use_extension, extension_type, tr)
 
     # -------------------- From nnUNet implementation (modifed, but same output) -------------------- #
     if tr is None:

@@ -11,20 +11,22 @@ import torch.nn as nn
 from collections import OrderedDict
 from nnunet_ext.paths import default_plans_identifier
 from nnunet_ext.training.model_restore import restore_model
-from nnunet.run.default_configuration import get_default_configuration as get_default_configuration_orig
 from nnunet_ext.run.default_configuration import get_default_configuration
 from nnunet_ext.paths import network_training_output_dir, evaluation_output_dir
 from batchgenerators.utilities.file_and_folder_operations import maybe_mkdir_p, join
 from nnunet.paths import network_training_output_dir as network_training_output_dir_orig
 from nnunet_ext.utilities.helpful_functions import join_texts_with_char, dumpDataFrameToCsv
+from nnunet.run.default_configuration import get_default_configuration as get_default_configuration_orig
 
 # -- Import the trainer classes -- #
-from nnunet_ext.training.network_training.multihead.nnUNetTrainerMultiHead import nnUNetTrainerMultiHead # Own implemented class
+from nnunet_ext.training.network_training.nnViTUNetTrainer import nnViTUNetTrainer
+from nnunet_ext.training.network_training.multihead.nnUNetTrainerMultiHead import nnUNetTrainerMultiHead
+from nnunet_ext.training.network_training.multihead.nnUNetTrainerSequential import nnUNetTrainerSequential
 
 class Evaluator():  # Do not inherit the one from the nnunet implementation since ours is different
     r"""Class that can be used to perform an Evaluation on any nnUNet related Trainer.
     """
-    def __init__(self, network, network_trainer, tasks_list_with_char, model_list_with_char,
+    def __init__(self, network, network_trainer, tasks_list_with_char, model_list_with_char, version=1,
                  plans_identifier=default_plans_identifier, mixed_precision=True, extension='multihead', save_csv=True):
         r"""Constructor for evaluator.
         """
@@ -40,6 +42,10 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
         self.save_csv = save_csv
         # -- Set tasks_joined_name for validation dataset building -- #
         self.tasks_joined_name = join_texts_with_char(self.tasks_list_with_char[0], self.tasks_list_with_char[1])
+        # -- If ViT trainer, build the version correctly for finding the correct checkpoint later in restoring -- #
+        if nnViTUNetTrainer.__name__ in self.network_trainer:
+            # -- Set the desired network version -- #
+            self.version = 'V' + str(version)
 
     def reinitialize(self, network, network_trainer, tasks_list_with_char, model_list_with_char,
                      plans_identifier=default_plans_identifier, mixed_precision=True, extension='multihead', save_csv=True):
@@ -65,7 +71,7 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
                 trainer_path = join(network_training_output_dir_orig, self.network, self.tasks_joined_name, self.network_trainer+'__'+self.plans_identifier, 'fold_'+str(t_fold))
                 output_path = join(evaluation_output_dir, self.network, self.tasks_joined_name, self.network_trainer+'__'+self.plans_identifier)
                 output_path = output_path.replace('nnUNet_ext', 'nnUNet')
-            elif 'ViTUNet' in self.network_trainer:
+            elif nnViTUNetTrainer.__name__ in self.network_trainer:
                 trainer_path = join(network_training_output_dir, self.network, self.tasks_joined_name, self.network_trainer+'__'+self.plans_identifier, 'fold_'+str(t_fold))
                 output_path = join(evaluation_output_dir, self.network, self.tasks_joined_name, self.network_trainer+'__'+self.plans_identifier)
             else:   # Any other extension like CL extension for example (using MH Architecture)
@@ -74,7 +80,6 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
 
             # -- Create the directory if it does not exist -- #
             maybe_mkdir_p(output_path)
-
 
             # -- Load the trainer for evaluation -- #
             print("Loading trainer and setting the network for evaluation")
@@ -91,7 +96,7 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
             trainer.log_file = None
 
             # -- If this is a conventional nn-Unet Trainer, then make a MultiHead Trainer out of it, so we can use the _perform_validation function -- #
-            if not use_extension or 'ViTUNet' in trainer_path:
+            if not use_extension or nnViTUNetTrainer.__name__ in trainer_path:
                 # -- Ensure that use_model only contains one task for the conventional Trainer -- #
                 assert len(self.tasks_list_with_char[0]) == 1, "When trained with {}, only one task could have been used for training, not {} since this is no extension.".format(self.network_trainer, len(self.use_model))
                 # -- Store the epoch of the trainer to set it correct after initialization of the MultiHead Trainer -- #
@@ -107,6 +112,8 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
                     plans_file, prev_trainer_path, dataset_directory, batch_dice, stage, \
                     _ = get_default_configuration(self.network, self.tasks_list_with_char[0][0], None, self.network_trainer, None,
                                                   self.plans_identifier, extension_type=None)
+                    # -- Modify prev_trainer_path based on desired version -- #
+                    prev_trainer_path = prev_trainer_path.replace(nnViTUNetTrainer.__name__, nnViTUNetTrainer.__name__+self.version)
                 # -- Build a simple MultiHead Trainer so we can use the perform validation function without re-coding it -- #
                 trainer = nnUNetTrainerMultiHead('seg_outputs', self.tasks_list_with_char[0][0], plans_file, t_fold, output_folder=output_path,\
                                                 dataset_directory=dataset_directory, tasks_list_with_char=(self.tasks_list_with_char[0], self.tasks_list_with_char[1]),\
@@ -134,7 +141,7 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
             start_time = time()
 
             # -- Delete all heads except the last one if it is a Sequential Trainer, since then always the last head should be used -- #
-            if 'TrainerSequential' in self.network_trainer:
+            if nnUNetTrainerSequential.__name__ in self.network_trainer:
                 # -- Create new heads dict that only contains the last head -- #
                 last_name = list(trainer.mh_network.heads.keys())[-1]
                 last_head = trainer.mh_network.heads[last_name]

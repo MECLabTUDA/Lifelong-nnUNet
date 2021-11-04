@@ -18,6 +18,7 @@ from nnunet_ext.run.default_configuration import get_default_configuration
 from nnunet.training.network_training.nnUNetTrainerV2 import nnUNetTrainerV2
 from nnunet_ext.network_architecture.MultiHead_Module import MultiHead_Module
 from nnunet.training.loss_functions.deep_supervision import MultipleOutputLoss2
+from nnunet_ext.training.network_training.nnViTUNetTrainer import nnViTUNetTrainer
 from nnunet.training.dataloading.dataset_loading import load_dataset, unpack_dataset
 from nnunet.training.data_augmentation.data_augmentation_moreDA import get_moreDA_augmentation
 from nnunet_ext.utilities.helpful_functions import join_texts_with_char, nestedDictToFlatTable, dumpDataFrameToCsv
@@ -266,7 +267,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                                            num_classes=self.num_classes, num_pool=len(self.net_num_pool_op_kernel_sizes))
 
         if not self.trainer_model.__class__.__name__ == nnUNetTrainerV2.__name__\
-        and not self.trainer_model.__class__.__name__ == 'nnViTUNetTrainer': # Do not use isinstance, since nnUNetTrainerMultiHead is instance of nnUNetTrainerV2 
+        and not self.trainer_model.__class__.__name__ == nnViTUNetTrainer.__name__: # Do not use isinstance, since nnUNetTrainerMultiHead is instance of nnUNetTrainerV2 
             # -- Ensure that the split that has been previously used and the current one are equal -- #
             # -- NOTE: Do this after initialization, since the splits might be different before but still lead to the same level after -- #
             # -- Split simplification. -- #

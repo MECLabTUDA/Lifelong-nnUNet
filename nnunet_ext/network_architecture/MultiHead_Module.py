@@ -26,7 +26,7 @@ class MultiHead_Module(nn.Module):
                                  with this variable. NOTE: The type needs be equal to the provided class_object.
             :param *args, **kwargs: Provide all further positional and keyword arguments that are necessary by the class_object
                                     class when performing an initialization. NOTE: This needs to be done correctly, since
-                                    if it is not, class_object has missing/too much positional arguments and will fail during
+                                    if it is not, class_object has missing/too much positional arguemnts and will fail during
                                     runtime in initialization. This is only necessary when prev_trainer is not provided or None.
             NOTE: The model that can be accessed using self.model represents the running model, and is of the same type as 
                   class_object. 'self' btw is a MultiHead_Module consisting of a body (self.body), heads (self.heads) and
@@ -376,6 +376,7 @@ class MultiHead_Module(nn.Module):
     def _set_requires_grad(self, requires_grad):
         r"""This function is used to freeze/unfreeeze all layers in the body so when training, the body weights are/ are not
             changed during backpropagation.
+            :param model: The model for which the body will be freezed/unfreezed.
             :param requires_grad: Specifies if the gradients are required or not. If set to false, the body will be freezed.
                                   If set to True, the body will not be freezed and the weights are updated during
                                   optimizer.step() again.
@@ -424,10 +425,8 @@ class MultiHead_Module(nn.Module):
         r"""Use this function to add the initial module from on the first split.
             Specify the task name with which it will be registered in the ModuleDict.
             :param task: Task name of the new task (key for the ModuleDict)
-            :param use_init: nn.Module that represent the new task. If this is None, the new head
+            :param model: nn.Module that represent the new task. If this is None, the new head
                           is a copy from the very first splitted head during initialization
-            :param model: Provide a specific model that should be used as the head.
-                          If that is not desired, simply set it to None.
             NOTE: If the task already exists, it will be overwritten. If the user provides
                   a model, than ensure that it works with the forward function from the
                   class_object. If this does not map than an error will be thrown later on.
