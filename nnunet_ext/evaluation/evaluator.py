@@ -11,7 +11,8 @@ import torch.nn as nn
 from collections import OrderedDict
 from nnunet_ext.paths import default_plans_identifier
 from nnunet_ext.training.model_restore import restore_model
-from nnunet.run.default_configuration import get_default_configuration
+from nnunet.run.default_configuration import get_default_configuration as get_default_configuration_orig
+from nnunet_ext.run.default_configuration import get_default_configuration
 from nnunet_ext.paths import network_training_output_dir, evaluation_output_dir
 from batchgenerators.utilities.file_and_folder_operations import maybe_mkdir_p, join
 from nnunet.paths import network_training_output_dir as network_training_output_dir_orig
@@ -65,7 +66,7 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
                 output_path = join(evaluation_output_dir, self.network, self.tasks_joined_name, self.network_trainer+'__'+self.plans_identifier)
                 output_path = output_path.replace('nnUNet_ext', 'nnUNet')
             elif 'ViTUNet' in self.network_trainer:
-                trainer_path = join(network_training_output_dir_orig, self.network, self.tasks_joined_name, self.network_trainer+'__'+self.plans_identifier, 'fold_'+str(t_fold))
+                trainer_path = join(network_training_output_dir, self.network, self.tasks_joined_name, self.network_trainer+'__'+self.plans_identifier, 'fold_'+str(t_fold))
                 output_path = join(evaluation_output_dir, self.network, self.tasks_joined_name, self.network_trainer+'__'+self.plans_identifier)
             else:   # Any other extension like CL extension for example (using MH Architecture)
                 trainer_path = join(network_training_output_dir, self.network, self.tasks_joined_name, self.model_joined_name, self.network_trainer+'__'+self.plans_identifier, 'fold_'+str(t_fold))
@@ -74,12 +75,13 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
             # -- Create the directory if it does not exist -- #
             maybe_mkdir_p(output_path)
 
+
             # -- Load the trainer for evaluation -- #
             print("Loading trainer and setting the network for evaluation")
             # -- Do not add the addition of fold_X to the path -- #
             checkpoint = join(trainer_path, "model_final_checkpoint.model")
             pkl_file = checkpoint + ".pkl"
-            use_extension = (not 'nnUNetTrainerV2' in trainer_path) and (not 'ViTUNet' in trainer_path)
+            use_extension = not 'nnUNetTrainerV2' in trainer_path
             trainer = restore_model(pkl_file, checkpoint, train=False, fp16=self.mixed_precision,\
                                     use_extension=use_extension, extension_type=self.extension, del_log=True) 
             trainer.initialize(False)
@@ -88,9 +90,8 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
             os.remove(trainer.log_file)
             trainer.log_file = None
 
-            
             # -- If this is a conventional nn-Unet Trainer, then make a MultiHead Trainer out of it, so we can use the _perform_validation function -- #
-            if not use_extension:
+            if not use_extension or 'ViTUNet' in trainer_path:
                 # -- Ensure that use_model only contains one task for the conventional Trainer -- #
                 assert len(self.tasks_list_with_char[0]) == 1, "When trained with {}, only one task could have been used for training, not {} since this is no extension.".format(self.network_trainer, len(self.use_model))
                 # -- Store the epoch of the trainer to set it correct after initialization of the MultiHead Trainer -- #
@@ -99,12 +100,18 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
                 # -- NOTE: We can use the get_default_configuration from nnunet and not nnunet_ext since the information -- #
                 # --       we need can be extracted from there as well without as much 'knowledge' since we do not need -- #
                 # --       everything for a MultiHead Trainer -- #
-                plans_file, prev_trainer_path, dataset_directory, batch_dice, stage, \
-                _ = get_default_configuration(self.network, self.tasks_list_with_char[0][0], self.network_trainer, self.plans_identifier)
+                if 'nnUNetTrainerV2' in trainer_path:
+                    plans_file, prev_trainer_path, dataset_directory, batch_dice, stage, \
+                    _ = get_default_configuration_orig(self.network, self.tasks_list_with_char[0][0], self.network_trainer, self.plans_identifier)
+                else:   # ViT_U-Net
+                    plans_file, prev_trainer_path, dataset_directory, batch_dice, stage, \
+                    _ = get_default_configuration(self.network, self.tasks_list_with_char[0][0], None, self.network_trainer, None,
+                                                  self.plans_identifier, extension_type=None)
                 # -- Build a simple MultiHead Trainer so we can use the perform validation function without re-coding it -- #
                 trainer = nnUNetTrainerMultiHead('seg_outputs', self.tasks_list_with_char[0][0], plans_file, t_fold, output_folder=output_path,\
                                                 dataset_directory=dataset_directory, tasks_list_with_char=(self.tasks_list_with_char[0], self.tasks_list_with_char[1]),\
                                                 batch_dice=batch_dice, stage=stage, already_trained_on=None)
+                
                 trainer.initialize(False, num_epochs=0, prev_trainer_path=prev_trainer_path)
                 # -- Reset the epoch -- #
                 trainer.epoch = epoch

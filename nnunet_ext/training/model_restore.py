@@ -27,16 +27,28 @@ def restore_model(pkl_file, checkpoint=None, train=False, fp16=True, use_extensi
     init = info['init']
     name = info['name']
     
+    # -- Reset arguments if a Generic_ViT_UNet is used -- #
+    if use_extension and 'ViTUNet' in pkl_file:
+        # Only occurs during evaluation when building a MH network which sets a wrong extension_type
+        extension_type = None
+
+    
     # -- Set search_in and base_module given the current arguments -- #
     if use_extension:   # -- Extension search in nnunet_ext
-        search_in = (nnunet_ext.__path__[0], "training", "network_training", extension_type)
-        base_module = 'nnunet_ext.training.network_training.' + extension_type
+        if extension_type is None: # Should only be None when using the Generic_ViT_UNet
+            search_in = (nnunet_ext.__path__[0], "training", "network_training")
+            base_module = 'nnunet_ext.training.network_training'
+        else:
+            search_in = (nnunet_ext.__path__[0], "training", "network_training", extension_type)
+            base_module = 'nnunet_ext.training.network_training.' + extension_type
     else:   # -- No extension search in nnunet
         search_in = (nnunet.__path__[0], "training", "network_training")
         base_module = 'nnunet.training.network_training'
 
     # -- Search for the trainer class based on search_in, name of the trainer and base_module -- #
     tr = recursive_find_python_class([join(*search_in)], name, current_module=base_module)
+
+    print(use_extension, extension_type, tr)
 
     # -------------------- From nnUNet implementation (modifed, but same output) -------------------- #
     if tr is None:
@@ -46,7 +58,7 @@ def restore_model(pkl_file, checkpoint=None, train=False, fp16=True, use_extensi
             tr = recursive_find_python_class([search_in], name, current_module="meddec.model_training")
         except ImportError:
             pass
-
+        
     if tr is None:
         raise RuntimeError("Could not find the model trainer specified in checkpoint in nnunet.trainig.network_training. If it "
                            "is not located there, please move it or change the code of restore_model. Your model "

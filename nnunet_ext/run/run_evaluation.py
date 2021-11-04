@@ -58,7 +58,7 @@ def run_evaluation():
     # -- Build mapping for network_trainer to corresponding extension name -- #
     ext_map = {'nnUNetTrainerMultiHead': 'multihead', 'nnUNetTrainerSequential': 'sequential',
                'nnUNetTrainerRehearsal': 'rehearsal', 'nnUNetTrainerEWC': 'ewc', 'nnUNetTrainerLWF': 'lwf',
-               'nnUNetTrainerV2': 'standard', 'nnViTUNetTrainer': 'vitunet'}
+               'nnUNetTrainerV2': 'standard', 'nnViTUNetTrainer': None, 'nnViTUNetTrainerCascadeFullRes': None}
 
 
     # -------------------------------

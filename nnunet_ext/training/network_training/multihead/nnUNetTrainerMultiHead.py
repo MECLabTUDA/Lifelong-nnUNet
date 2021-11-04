@@ -265,7 +265,8 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                                            input_channels=self.num_input_channels, base_num_features=self.base_num_features,\
                                            num_classes=self.num_classes, num_pool=len(self.net_num_pool_op_kernel_sizes))
 
-        if not self.trainer_model.__class__.__name__ == nnUNetTrainerV2.__name__: # Do not use isinstance, since nnUNetTrainerMultiHead is instance of nnUNetTrainerV2 
+        if not self.trainer_model.__class__.__name__ == nnUNetTrainerV2.__name__\
+        and not self.trainer_model.__class__.__name__ == 'nnViTUNetTrainer': # Do not use isinstance, since nnUNetTrainerMultiHead is instance of nnUNetTrainerV2 
             # -- Ensure that the split that has been previously used and the current one are equal -- #
             # -- NOTE: Do this after initialization, since the splits might be different before but still lead to the same level after -- #
             # -- Split simplification. -- #
