@@ -21,7 +21,8 @@ class nnViTUNetTrainerCascadeFullRes(nnUNetTrainerV2CascadeFullRes): # Inherit d
         self.version = 'V' + str(version)
 
         # -- Update the output_folder accordingly -- #
-        output_folder = output_folder.replace(self.__class__.__name__, self.__class__.__name__+self.version)
+        if self.version not in output_folder:
+            output_folder = output_folder.replace(self.__class__.__name__, self.__class__.__name__+self.version)
 
         # -- Initialize using parent class -- #
         super().__init__(plans_file, fold, output_folder, dataset_directory, batch_dice, stage,
@@ -40,7 +41,7 @@ class nnViTUNetTrainerCascadeFullRes(nnUNetTrainerV2CascadeFullRes): # Inherit d
 
         # -- Update self.init_tasks so the storing works properly -- #
         self.init_args = (plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
-                          deterministic, previous_trainer, fp16, save_interval, use_progress, self.version,
+                          deterministic, previous_trainer, fp16, save_interval, use_progress, version,
                           split_gpu)
 
     def process_plans(self, plans):
