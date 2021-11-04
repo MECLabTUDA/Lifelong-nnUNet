@@ -5,6 +5,7 @@
 
 import torch
 import torch.nn as nn
+from operator import attrgetter
 from nnunet.utilities.nd_softmax import softmax_helper
 from nnunet.network_architecture.initialization import InitWeights_He
 from nnunet.training.network_training.nnUNetTrainerV2 import nnUNetTrainerV2
@@ -16,9 +17,16 @@ torch.multiprocessing.set_sharing_strategy('file_system')
 
 class nnViTUNetTrainer(nnUNetTrainerV2): # Inherit default trainer class for 2D, 3D low resolution and 3D full resolution U-Net 
     def __init__(self, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
-                 unpack_data=True, deterministic=True, fp16=False, save_interval=5, use_progress=True):
+                 unpack_data=True, deterministic=True, fp16=False, save_interval=5, use_progress=True, version=1,
+                 split_gpu=False):
         r"""Constructor of ViT_U-Net Trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
         """
+        # -- Set the desired network version -- #
+        self.version = 'V' + str(version)
+
+        # -- Update the output_folder accordingly -- #
+        output_folder = output_folder.replace(self.__class__.__name__, self.__class__.__name__+self.version)
+
         # -- Initialize using parent class -- #
         super().__init__(plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic, fp16)
 
@@ -28,9 +36,14 @@ class nnViTUNetTrainer(nnUNetTrainerV2): # Inherit default trainer class for 2D,
         # -- Set use_prograss_bar if desired so a progress will be shown in the terminal -- #
         self.use_progress_bar = use_progress
 
+        # -- Define if the model should be split onto multiple GPUs -- #
+        self.split_gpu = split_gpu
+        if self.split_gpu:
+            assert torch.cuda.device_count() > 1, 'When trying to split the models on multiple GPUs, then please provide more than one..'
+
         # -- Update self.init_tasks so the storing works properly -- #
         self.init_args = (plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
-                          deterministic, fp16, save_interval, use_progress)
+                          deterministic, fp16, save_interval, use_progress, self.version, split_gpu)
 
     def process_plans(self, plans):
         r"""Modify the original function. This just reduces the batch_size by half.
@@ -75,10 +88,15 @@ class nnViTUNetTrainer(nnUNetTrainerV2): # Inherit default trainer class for 2D,
                                     self.conv_per_stage, 2, conv_op, norm_op, norm_op_kwargs, dropout_op,
                                     dropout_op_kwargs,
                                     net_nonlin, net_nonlin_kwargs, True, False, lambda x: x, InitWeights_He(1e-2),
-                                    self.net_num_pool_op_kernel_sizes, self.net_conv_kernel_sizes, False, True, True)
+                                    self.net_num_pool_op_kernel_sizes, self.net_conv_kernel_sizes, False, True, True,
+                                    vit_version=self.version, split_gpu=self.split_gpu)
         
-        #------------------------------------------ Copied from original implementation ------------------------------------------#
+        #------------------------------------------ Modified from original implementation ------------------------------------------#
         if torch.cuda.is_available():
             self.network.cuda()
+            # -- When the user wants to split the network, put everything defined in network.split_names onto second GPU -- #
+            if self.split_gpu:
+                for name in self.network.split_names:
+                    getattr(self.network, name).to(1)
         self.network.inference_apply_nonlin = softmax_helper
-        #------------------------------------------ Copied from original implementation ------------------------------------------#
+        #------------------------------------------ Modified from original implementation ------------------------------------------#

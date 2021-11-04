@@ -89,6 +89,13 @@ def main():
                         help='Try to train the model on the GPU device with <DEVICE> ID. '+
                             ' Valid IDs: 0, 1, ..., 7. A List of IDs can be provided as well.'+
                             ' Default: Only GPU device with ID 0 will be used.')
+    parser.add_argument('--use_mult_gpus', action='store_true', default=False,
+                        help='If this is set, the ViT model will be placed onto a second GPU. '+
+                             'When this is set, more than one GPU needs to be provided when using -d.')
+    parser.add_argument("-v", "--version", action='store', type=int, nargs=1, default=[1],
+                        help='Select the ViT input building version. Currently there are only three'+
+                            ' possibilities: 1, 2 or 3.'+
+                            ' Default: version one will be used. For more references wrt, to the versions, see the docs.')
     parser.add_argument('-num_epochs', action='store', type=int, nargs=1, required=False, default=500,
                         help='Specify the number of epochs to train the model.'
                             ' Default: Train for 500 epochs.')
@@ -115,8 +122,14 @@ def main():
     run_mixed_precision = not fp32
     val_folder = args.val_folder
     
+    # -- Extract the desired version -- #
+    version = args.version
+    if isinstance(version, list):    # When the version gets returned as a list, extract the number to avoid later appearing errors
+        version = version[0]
+    assert version in [1, 2, 3], 'We only provide three versions, namely 1, 2 or 3, but not {}..'.format(version)
+    
     save_interval = args.save_interval
-    if isinstance(save_interval, list):    # When the num_epochs get returned as a list, extract the number to avoid later appearing errors
+    if isinstance(save_interval, list):    # When the save_interval gets returned as a list, extract the number to avoid later appearing errors
         save_interval = save_interval[0]
 
     # -- Extract the arguments specific for all trainers from argument parser -- #
@@ -124,7 +137,7 @@ def main():
     fold = args.fold
     
     num_epochs = args.num_epochs    # The number of epochs to train a task
-    if isinstance(num_epochs, list):    # When the num_epochs get returned as a list, extract the number to avoid later appearing errors
+    if isinstance(num_epochs, list):    # When the num_epochs gets returned as a list, extract the number to avoid later appearing errors
         num_epochs = num_epochs[0]
 
     cuda = args.device
@@ -136,7 +149,12 @@ def main():
     cuda = join_texts_with_char(cuda, ',')
     
     # -- Set cuda device as environment variable, otherwise other GPUs will be used as well ! -- #
-    os.environ["CUDA_VISIBLE_DEVICES"] = cuda   
+    os.environ["CUDA_VISIBLE_DEVICES"] = cuda
+
+    # -- Check if the user wants to split the network onto multiple GPUs -- #
+    split_gpu = args.use_mult_gpus
+    if split_gpu:
+        assert len(cuda) > 1, 'When trying to split the models on multiple GPUs, then please provide more than one..'
 
 
     # -------------------------------
@@ -179,7 +197,8 @@ def main():
     # -- Build the corresponding Trainer (using Generic_ViT_UNet architecture) -- #
     trainer = trainer_class(plans_file, fold, output_folder=output_folder_name, dataset_directory=dataset_directory,
                             batch_dice=batch_dice, stage=stage, unpack_data=decompress_data,
-                            deterministic=deterministic, fp16=run_mixed_precision, save_interval=save_interval)
+                            deterministic=deterministic, fp16=run_mixed_precision, save_interval=save_interval,
+                            version=version, split_gpu=split_gpu)
     
     # -- Disable the saving of checkpoints if desired -- #                        
     if args.disable_saving:

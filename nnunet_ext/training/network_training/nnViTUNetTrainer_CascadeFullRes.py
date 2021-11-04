@@ -14,9 +14,15 @@ torch.multiprocessing.set_sharing_strategy('file_system')
 class nnViTUNetTrainerCascadeFullRes(nnUNetTrainerV2CascadeFullRes): # Inherit default trainer class for 2D, 3D low resolution and 3D full resolution U-Net 
     def __init__(self, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
                  unpack_data=True, deterministic=True, previous_trainer="nnViTUNetTrainer",
-                 fp16=False, save_interval=5, use_progress=True):
+                 fp16=False, save_interval=5, use_progress=True, version=1, split_gpu=False):
         r"""Constructor of ViT_U-Net Trainer for full resolution cascaded nnU-Nets.
         """
+        # -- Set the desired network version -- #
+        self.version = 'V' + str(version)
+
+        # -- Update the output_folder accordingly -- #
+        output_folder = output_folder.replace(self.__class__.__name__, self.__class__.__name__+self.version)
+
         # -- Initialize using parent class -- #
         super().__init__(plans_file, fold, output_folder, dataset_directory, batch_dice, stage,
                          unpack_data, deterministic, previous_trainer, fp16)
@@ -27,9 +33,15 @@ class nnViTUNetTrainerCascadeFullRes(nnUNetTrainerV2CascadeFullRes): # Inherit d
         # -- Set use_prograss_bar if desired so a progress will be shown in the terminal -- #
         self.use_progress_bar = use_progress
 
+        # -- Define if the model should be split onto multiple GPUs -- #
+        self.split_gpu = split_gpu
+        if self.split_gpu:
+            assert torch.cuda.device_count() > 1, 'When trying to split the models on multiple GPUs, then please provide more than one..'
+
         # -- Update self.init_tasks so the storing works properly -- #
         self.init_args = (plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
-                          deterministic, previous_trainer, fp16, save_interval, use_progress)
+                          deterministic, previous_trainer, fp16, save_interval, use_progress, self.version,
+                          split_gpu)
 
     def process_plans(self, plans):
         r"""Modify the original function. This just reduces the batch_size by half.

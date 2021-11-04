@@ -24,7 +24,7 @@ class Generic_ViT_UNet(Generic_UNet):
                  weightInitializer=InitWeights_He(1e-2), pool_op_kernel_sizes=None, conv_kernel_sizes=None,
                  upscale_logits=False, convolutional_pooling=False, convolutional_upsampling=False,
                  max_num_features=None, basic_block=ConvDropoutNormNonlin, seg_output_use_bias=False,
-                 use_pret_vit=False, vit_arch=None, vit_type='base', use_skip=0):
+                 use_pret_vit=False, vit_arch=None, vit_type='base', vit_version='V1', split_gpu=False):
         r"""This function represents the constructor of the Generic_ViT_UNet architecture. It basically uses the
             Generic_UNet class from the nnU-Net Framework as initialization since the presented architecture is
             based on this network. If a pretrained ViT architecture should be used, then set the use_pret_vit flag
@@ -34,6 +34,13 @@ class Generic_ViT_UNet(Generic_UNet):
             which we do not make ensure, leading to errors if the user makes it wrong!
             If this flag is set to False, the ViT will be initialized in a Generic (not pre-defined, pretrained way) and then used.
             For this, the vit_type needs to be set, which can be one of three possibilities: {'base', 'large', 'huge'} (case insensitive).
+            If the ViT will be initialized from scratch, the user can specify how the input of the ViT will look like
+            given three versions {'V1', 'V2', 'V3'}:
+                V1: use first skip connection as input for ViT and use the result from ViT as Decoder input (original skips are intact)
+                V2: use first and last downsampled element (fused) as input for ViT and use the result from ViT as Decoder input (original skips are intact)
+                V3: use all skip connections (fused) as input of ViT and use the result from ViT as Decoder input (original skips are intact)
+            split_gpu is used to put the ViT architecture onto a second GPU and everything else onto the first one. Use this if
+            the training does not start because of Cuda out of Memory error. In this case the model is too large for one GPU.
         """
         # -- Initialize using parent class --> gives us a generic U-Net we need to alter to create our combined architecture -- #
         super(Generic_ViT_UNet, self).__init__(input_channels, base_num_features, num_classes, num_pool, num_conv_per_stage,
@@ -46,6 +53,11 @@ class Generic_ViT_UNet(Generic_UNet):
         # -- Define the patch_size since this is crucial for the ViT but not for the Generic_UNet -- #  
         assert isinstance(patch_size, list) and all(isinstance(n, int) for n in patch_size), 'Please provide the patch_size in form of a list of integers..'
         self.img_size = patch_size
+
+        # -- Define if the model should be split onto multiple GPUs -- #
+        self.split_gpu = split_gpu
+        if self.split_gpu:
+            assert torch.cuda.device_count() > 1, 'When trying to split the models on multiple GPUs, then please provide more than one..'
 
         # -- Check if the user wants a pre-trained ViT Architecture -- #
         if use_pret_vit:
@@ -64,10 +76,16 @@ class Generic_ViT_UNet(Generic_UNet):
             vit_type = vit_type.lower()
             assert vit_type in self.ViT_types, 'Please provide one of the following three types: \'base\', \'large\' or \'huge\'. You provided \'{}\''.format(vit_type)
             
-            # -- Define the skip connection to use as input for the ViT -- #
-            #self.use_skip = len(self.conv_blocks_context) - 2  # Version 1: use last skip connection and replace the skip connection with result from ViT but not as input of Decoder
-            self.use_skip = 0                                   # Version 2: use first skip connection as input for ViT and use the result from ViT as Decoder input (original skips are intact)
-
+            # -- Define the skip connection to use as input for the ViT and the Version -- #
+            self.use_skip = 0
+            self.version = vit_version.title()  # Ensure that V is always Capital
+            # -- Check that the version is as expected -- #
+            assert self.version in ['V1', 'V2', 'V3'],\
+                'Please provide a correct version, we currently only provide three in total, i.e. V1, V2 or V3; but not {}.'.format(vit_version)
+            
+            # -- Define the dictionary to use the correct version to prepare ViT input without doing al the ifs -- #
+            self.prepare = {'V1': '_get_ViT_inputV1', 'V2': '_get_ViT_inputV2', 'V3': '_get_ViT_inputV3'}
+            
             # -- Simulate a run to extract the size of the skip connections, we need -- #
             self.skip_sizes = list()
             # -- Define a random sample with the provided image size -- #
@@ -132,9 +150,6 @@ class Generic_ViT_UNet(Generic_UNet):
             # -- If the user wants a freshly initialized ViT, then do so, but generically -- #
             self.ViT = VisionTransformer(**custom_config)
         
-        # -- Put the ViT into train mode -- #
-        #self.ViT.train()
-
         # -- Create copies of the different parts and delete them all again -- #
         conv_blocks_localization = self.conv_blocks_localization
         conv_blocks_context = self.conv_blocks_context
@@ -152,6 +167,9 @@ class Generic_ViT_UNet(Generic_UNet):
         self.tu = tu
         self.seg_outputs = seg_outputs
 
+        # -- Define the list of names in case the network gets split onto multiple GPUs -- #
+        self.split_names = ['ViT']
+
 
     def forward(self, x):
         r"""This function represents the forward function of the presented Generic_ViT_UNet architecture.
@@ -168,63 +186,28 @@ class Generic_ViT_UNet(Generic_UNet):
 
         x = self.conv_blocks_context[-1](x)
         #------------------------------------------ Copied from original implementation ------------------------------------------#
+
         # -- Copy the size of the input for the transformer -- #
         size = x.size()
-        
-        # -- Version 1: use last skip connection and replace the skip connection with result from ViT but not as input of Decoder -- #
-        # -- Copy the size of the input for the transformer -- #
-        #backup_x = x
 
-        # -- Version 2: use first skip connection as input for ViT and use the result from ViT as Decoder input (original skips are intact) -- #
-        # -- Define input for ViT -- #
-        # ViT_in = skips[self.use_skip]
-
-        # -- Version 3: use first and last downsampled element (fused) as input for ViT and use the result from ViT as Decoder input (original skips are intact) -- #
-        # -- Upsample the last element completely (without using skips) so it has the same shape as the first skip connection -- #
-        deconv_skip = x
-        for u in range(len(self.tu)):
-            deconv_skip = self.tu[u](deconv_skip)
-        # -- Fuse the first skip connection with the upsampled result (followed as shown here: https://elib.dlr.de/134066/1/IGARSS2018.pdf) -- #
-        ViT_in = skips[self.use_skip] + deconv_skip
-
-        # -- Version 4: use all skip connections (fused) as input of ViT and use the result from ViT as Decoder input (original skips are intact) -- #
-        # ViT_in = torch.zeros(skips[self.use_skip].size()).to(device=x.device)
-        
-        # # -- Add last output from conv_blocks_context -- #
-        # deconv_skip = x
-        # for u in range(len(self.tu)):
-        #     deconv_skip = self.tu[u](deconv_skip)
-        # # -- Add it to ViT_in -- #
-        # ViT_in += deconv_skip
-
-        # # -- Upsample all skip elements completely (without using skips) so it has the same shape as the first skip connection -- #
-        # for idx, skip in enumerate(reversed(skips)):
-        #     deconv_skip = skip
-        #     for u in range(idx+1, len(self.tu)):
-        #         deconv_skip = self.tu[u](deconv_skip)
-        #     # -- Fuse all upsampled results (followed as shown here: https://elib.dlr.de/134066/1/IGARSS2018.pdf) -- #
-        #     ViT_in += deconv_skip
-
-
+        # -- Prepare input for ViT based on users input -- #
+        # -- Put ViT_in to GPU 1, where the whole other parts ViT and the rest are -- #
+        if self.split_gpu:
+            ViT_in = getattr(self, self.prepare[self.version])(skips, x).to(1)
+        else:
+            ViT_in = getattr(self, self.prepare[self.version])(skips, x)
 
         # -- Pass the result from conv_blocks through ViT -- #
         x = self.ViT(ViT_in)
 
-
-
-        # -- Version 1: use last skip connection and replace the skip connection with result from ViT but not as input of Decoder -- #
-        # -- Reshape result from ViT to input of self.tu[0] -- #
-        #skips[self.use_skip] = x.reshape(skips[self.use_skip].size())
-        #x = backup_x
-
-        # -- Version 2: use first skip connection as input for ViT and use the result from ViT as Decoder input (original skips are intact) -- #
-        # -- Version 3: use first and last downsampled element (fused) as input for ViT and use the result from ViT as Decoder input (original skips are intact) -- #
-        # -- Version 4: use all skip connections (fused) as input of ViT and use the result from ViT as Decoder input (original skips are intact) -- #
         # -- Reshape result from ViT to input of self.tu[0] -- #
         x = x.reshape(size)
 
+        # -- Put x back to GPU 0 where the nnU-Net is located (only ViT is on GPU 1) -- #
+        if self.split_gpu:
+            x = x.to(0)
 
-        #------------------------------------------ Copied from original implementation ------------------------------------------#
+        #------------------------------------------ Modified from original implementation ------------------------------------------#
         # -- Combine the upsampling process with skip connections -- #
         for u in range(len(self.tu)):
             x = self.tu[u](x)
@@ -237,4 +220,52 @@ class Generic_ViT_UNet(Generic_UNet):
                                               zip(list(self.upscale_logits_ops)[::-1], seg_outputs[:-1][::-1])])
         else:
             return seg_outputs[-1]
-        #------------------------------------------ Copied from original implementation ------------------------------------------#
+        #------------------------------------------ Modified from original implementation ------------------------------------------#
+
+
+    def _get_ViT_inputV1(self, skips, *args):
+        r"""This function is used to automatically prepare the input for the ViT based on Version 1.
+            It returns the very first skip connection which should be directly used as an input for the ViT.
+        """
+        # -- Version 1: use first skip connection as input for ViT and use the result from ViT as Decoder input (original skips are intact) -- #
+        # -- Return the first skip connection -- #
+        return skips[self.use_skip]
+
+
+    def _get_ViT_inputV2(self, skips, last_context):
+        r"""This function is used to automatically prepare the input for the ViT based on Version 2.
+            It returns the fusion of the very first skip connection and last_context.
+        """
+        # -- Version 2: use first and last downsampled element (fused) as input for ViT and use the result from ViT as Decoder input (original skips are intact) -- #
+        # -- Upsample the last element completely (without using skips) so it has the same shape as the first skip connection -- #
+        deconv_skip = last_context
+        for u in range(len(self.tu)):
+            deconv_skip = self.tu[u](deconv_skip)
+        # -- Fuse the first skip connection with the upsampled result (followed as shown here: https://elib.dlr.de/134066/1/IGARSS2018.pdf) -- #
+        return skips[self.use_skip] + deconv_skip
+
+
+    def _get_ViT_inputV3(self, skips, last_context):
+        r"""This function is used to automatically prepare the input for the ViT based on Version 3.
+        It returns the fusion of all skip connections and last_context.
+        """
+        # -- Version 3: use all skip connections (fused) as input of ViT and use the result from ViT as Decoder input (original skips are intact) -- #
+        ViT_in = torch.zeros(skips[self.use_skip].size()).to(device=last_context.device)
+        
+        # -- Add last output from conv_blocks_context -- #
+        deconv_skip = last_context
+        for u in range(len(self.tu)):
+            deconv_skip = self.tu[u](deconv_skip)
+        # -- Add it to ViT_in -- #
+        ViT_in += deconv_skip
+
+        # -- Upsample all skip elements completely (without using skips) so it has the same shape as the first skip connection -- #
+        for idx, skip in enumerate(reversed(skips)):
+            deconv_skip = skip
+            for u in range(idx+1, len(self.tu)):
+                deconv_skip = self.tu[u](deconv_skip)
+            # -- Fuse all upsampled results (followed as shown here: https://elib.dlr.de/134066/1/IGARSS2018.pdf) -- #
+            ViT_in += deconv_skip
+
+        # -- Return the fused result -- #
+        return ViT_in
