@@ -2,9 +2,9 @@
 
 This repository aims to extend the popular [nnUNet](https://github.com/MIC-DKFZ/nnUNet) framework with methods that allow for a safer on-the-wild use. This includes functionality for continual learning, out-of-distribution detection and self-supervision. 
 
-Currently, each of these functionalities is found under a specific branch, such as the `continual_learning` branch you are currently at.
+Currently, each of these functionalities is found under a specific branch, such as the `ViT_U-Net` branch you are currently at.
 
-The supported nnUNet version is specified in the [requirements.txt](requirements.txt) file. Please note that, at times, files are replicated from this version and adapted as needed. If you wish to use a newer nnUNet version, please make sure that all adapted files are consistent with that version. For the current `continual_learning` branch, this does not apply, ie. no files are replicated.
+The supported nnUNet version is specified in the [requirements.txt](requirements.txt) file. Please note that, at times, files are replicated from this version and adapted as needed. If you wish to use a newer nnUNet version, please make sure that all adapted files are consistent with that version.
 
 
 ## Table Of Contents
