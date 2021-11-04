@@ -251,7 +251,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         else:
             # -- If no fold_ in output_folder, everything is fine -- #
             plans_dir = self.trainer_model.output_folder
-            
+        
         assert isfile(join(plans_dir, "plans.pkl")), "Folder with saved model weights must contain a plans.pkl file.."
 
         # -- Check that the trainer type is as expected -- #
