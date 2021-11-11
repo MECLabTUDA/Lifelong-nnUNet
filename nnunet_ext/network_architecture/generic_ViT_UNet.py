@@ -3,14 +3,13 @@
 ###############################################################################################################
 
 import numpy as np
-import torch, timm
+import torch
 from torch import nn
 from torch.autograd import Variable
-from timm.models.crossvit import PatchEmbed
 from nnunet.utilities.nd_softmax import softmax_helper
-from timm.models.vision_transformer import VisionTransformer
-from nnunet.network_architecture.generic_UNet import ConvDropoutNormNonlin, Generic_UNet
 from nnunet.network_architecture.initialization import InitWeights_He
+from nnunet.network_architecture.generic_UNet import ConvDropoutNormNonlin, Generic_UNet
+from nnunet_ext.network_architecture.vision_transformer import PatchEmbed, VisionTransformer
 
 class Generic_ViT_UNet(Generic_UNet):
     r"""This class is a Module that can be used for any segmentation task. It represents a generic combination of the
@@ -24,23 +23,17 @@ class Generic_ViT_UNet(Generic_UNet):
                  weightInitializer=InitWeights_He(1e-2), pool_op_kernel_sizes=None, conv_kernel_sizes=None,
                  upscale_logits=False, convolutional_pooling=False, convolutional_upsampling=False,
                  max_num_features=None, basic_block=ConvDropoutNormNonlin, seg_output_use_bias=False,
-                 use_pret_vit=False, vit_arch=None, vit_type='base', vit_version='V1', split_gpu=False):
+                vit_version='V1', vit_type='base', split_gpu=False):
         r"""This function represents the constructor of the Generic_ViT_UNet architecture. It basically uses the
             Generic_UNet class from the nnU-Net Framework as initialization since the presented architecture is
-            based on this network. If a pretrained ViT architecture should be used, then set the use_pret_vit flag
-            to True and provide the name of the pretrained ViT network (vit_arch), according to:
-            https://github.com/rwightman/pytorch-image-models/blob/master/timm/models/vision_transformer.py#L54.
-            When using this, keep in mind that the dimensions for the input to the ViT have to fit,
-            which we do not make ensure, leading to errors if the user makes it wrong!
-            If this flag is set to False, the ViT will be initialized in a Generic (not pre-defined, pretrained way) and then used.
-            For this, the vit_type needs to be set, which can be one of three possibilities: {'base', 'large', 'huge'} (case insensitive).
-            If the ViT will be initialized from scratch, the user can specify how the input of the ViT will look like
-            given three versions {'V1', 'V2', 'V3'}:
+            based on this network. The vit_type needs to be set, which can be one of three possibilities:
+            {'base', 'large', 'huge'} (case insensitive). The ViT will be initialized from scratch and the user can
+            specify how the input of the ViT will look like given three versions: {'V1', 'V2', 'V3'}:
                 V1: use first skip connection as input for ViT and use the result from ViT as Decoder input (original skips are intact)
                 V2: use first and last downsampled element (fused) as input for ViT and use the result from ViT as Decoder input (original skips are intact)
                 V3: use all skip connections (fused) as input of ViT and use the result from ViT as Decoder input (original skips are intact)
             split_gpu is used to put the ViT architecture onto a second GPU and everything else onto the first one. Use this if
-            the training does not start because of Cuda out of Memory error. In this case the model is too large for one GPU.
+            the training does not start because of CUDA out of Memory error. In this case the model is too large for one GPU.
         """
         # -- Initialize using parent class --> gives us a generic U-Net we need to alter to create our combined architecture -- #
         super(Generic_ViT_UNet, self).__init__(input_channels, base_num_features, num_classes, num_pool, num_conv_per_stage,
@@ -59,96 +52,77 @@ class Generic_ViT_UNet(Generic_UNet):
         if self.split_gpu:
             assert torch.cuda.device_count() > 1, 'When trying to split the models on multiple GPUs, then please provide more than one..'
 
-        # -- Check if the user wants a pre-trained ViT Architecture -- #
-        if use_pret_vit:
-            # -- Check that the name exists otherwise throw an AssertionError -- #
-            assert vit_arch is not None and vit_arch in timm.list_models(filter='vit*', module='vision_transformer', pretrained=True),\
-            'The provided architecture does not exist, i.e. there are no weights and biases that are known under your provided name \'{}\', please correct it.'.format(vit_arch)
-            # -- Load the pretrained network and put it in train mode -- #
-            self.ViT = timm.create_model(vit_arch, pretrained=True)
-        else:
-            # -- Define the three ViT type architecture variants based on original paper as shown here:
-            # -- https://arxiv.org/pdf/2010.11929.pdf or https://theaisummer.com/vision-transformer/ -- #
-            self.ViT_types = {'base': {'embed_size': 768, 'head': 12, 'layers': 12, 'num_classes': 3072},
-                              'large': {'embed_size': 1024, 'head': 16, 'layers': 24, 'num_classes': 4096},
-                              'huge': {'embed_size': 1280, 'head': 16, 'layers': 32, 'num_classes': 5120}}
-            # -- Make sure the provided type is within the pre-defined bound -- #
-            vit_type = vit_type.lower()
-            assert vit_type in self.ViT_types, 'Please provide one of the following three types: \'base\', \'large\' or \'huge\'. You provided \'{}\''.format(vit_type)
-            
-            # -- Define the skip connection to use as input for the ViT and the Version -- #
-            self.use_skip = 0
-            self.version = vit_version.title()  # Ensure that V is always Capital
-            # -- Check that the version is as expected -- #
-            assert self.version in ['V1', 'V2', 'V3'],\
-                'Please provide a correct version, we currently only provide three in total, i.e. V1, V2 or V3; but not {}.'.format(vit_version)
-            
-            # -- Define the dictionary to use the correct version to prepare ViT input without doing al the ifs -- #
-            self.prepare = {'V1': '_get_ViT_inputV1', 'V2': '_get_ViT_inputV2', 'V3': '_get_ViT_inputV3'}
-            
-            # -- Simulate a run to extract the size of the skip connections, we need -- #
-            self.skip_sizes = list()
-            # -- Define a random sample with the provided image size -- #
-            if len(self.img_size) == 3:
-                sample = torch.randint(3, tuple(self.img_size), dtype=torch.float).unsqueeze(0).unsqueeze(0)
-            else:
-                #sample = torch.randint(3, tuple(self.img_size), dtype=torch.float).unsqueeze(0)
-                sample = torch.randint(3, tuple(self.img_size), dtype=torch.float).unsqueeze(0).unsqueeze(0)
-                # -- Define a padding -- #
-                padding = Variable(torch.zeros(1, 1, *self.img_size))
-                # -- If necessary add the padding until the number of channels is reached -- #
-                while sample.size()[1] != input_channels:
-                    sample = torch.cat((sample, padding), 1)
-                    
-            # -- Run through context network to get the skip connection sizes -- #
-            for d in range(len(self.conv_blocks_context) - 1):
-                sample = self.conv_blocks_context[d](sample)
-                self.skip_sizes.append(sample.size())
+        # -- Define the three ViT type architecture variants based on original paper as shown here:
+        # -- https://arxiv.org/pdf/2010.11929.pdf or https://theaisummer.com/vision-transformer/ -- #
+        self.ViT_types = {'base': {'embed_size': 768, 'head': 12, 'layers': 12},
+                          'large': {'embed_size': 1024, 'head': 16, 'layers': 24},
+                          'huge': {'embed_size': 1280, 'head': 16, 'layers': 32}}
+        # -- Make sure the provided type is within the pre-defined bound -- #
+        vit_type = vit_type.lower()
+        assert vit_type in self.ViT_types, 'Please provide one of the following three types: \'base\', \'large\' or \'huge\'. You provided \'{}\''.format(vit_type)
+        
+        # -- Define the skip connection to use as input for the ViT and the Version -- #
+        self.use_skip = 0
+        self.version = vit_version.title()  # Ensure that V is always Capital
+        # -- Check that the version is as expected -- #
+        assert self.version in ['V1', 'V2', 'V3'],\
+            'Please provide a correct version, we currently only provide three in total, i.e. V1, V2 or V3; but not {}.'.format(vit_version)
+        
+        # -- Define the dictionary to use the correct version to prepare ViT input without doing al the ifs -- #
+        self.prepare = {'V1': '_get_ViT_inputV1', 'V2': '_get_ViT_inputV2', 'V3': '_get_ViT_inputV3'}
+        
+        # -- Simulate a run to extract the size of the skip connections, we need -- #
+        self.skip_sizes = list()
+        
+        # -- Define a random sample with the provided image size -- #
+        sample = torch.randint(3, tuple(self.img_size), dtype=torch.float).unsqueeze(0).unsqueeze(0)
+        # -- Define a padding -- #
+        padding = Variable(torch.zeros(1, 1, *self.img_size))
+        # -- If necessary add the padding until the number of channels is reached -- #
+        while sample.size()[1] != input_channels:
+            sample = torch.cat((sample, padding), 1)
+                
+        # -- Run through context network to get the skip connection sizes -- #
+        for d in range(len(self.conv_blocks_context) - 1):
+            sample = self.conv_blocks_context[d](sample)
+            self.skip_sizes.append(sample.size())
 
-            # -- Extract the necessary number of classes -- #
-            num_classes_shape = list(self.conv_blocks_context[-1](sample).size())
-            self.num_classesViT = np.prod(num_classes_shape[1:])
+        # -- Extract the necessary number of classes -- #
+        num_classes_shape = list(self.conv_blocks_context[-1](sample).size())
+        self.num_classesViT = np.prod(num_classes_shape[1:])
 
-            # -- Determine the img_size of the feature map that should be used -- #
-            self.img_size = list(self.skip_sizes[self.use_skip][2:])
+        # -- Determine the img_size of the feature map that should be used -- #
+        self.img_size = list(self.skip_sizes[self.use_skip][2:])
 
-            """ For automatic 2D and 3D ...
-            # -- Determine the patch size -- #
-            # -- If size is 4D tensor, then we have 2D image -- #
-            # -- If size is 5D tensor, then we have a 3D volume -- #
-            # -- 4D: [batch_size, channels, height, width] -- #
-            # -- 5D: [batch_size, channels, depth, height, width] -- #
-            if len(self.img_size) == 2:                 # Then 2D image, only height and widht, unsqueeze so it gets 3D
-                self.img_size = [1] + self.img_size     # The depth of the image is 1 in those cases
-            patch_dim = min(min(self.img_size[1:]), 32) # Use 32 since the half of it is 16 as introduced in the ViT paper
-            self.patch_size = (self.img_size[0], patch_dim//2, patch_dim//2)
-            """
-            patch_dim = min(min(self.img_size), 32)
-            self.patch_size = (patch_dim//2, patch_dim//2)
+        # -- Calculate the patch dimension -- #
+        patch_dim = min(min(self.img_size), 32)
+        self.patch_size = (patch_dim//2, patch_dim//2)
 
-            # -- Determine the parameters -- # 
-            custom_config = {
-                'img_size': self.img_size,        # --> 3D image size (depth, height, width), 2D image size (height, width)
-                'patch_size': self.patch_size,    # --> 3D patch size (depth, height, width), 2D image size (height, width)
-                'in_chans': self.skip_sizes[self.use_skip][1],
-                'num_classes':  self.num_classesViT,
-                'embed_dim': self.ViT_types[vit_type]['embed_size'],
-                'depth': self.ViT_types[vit_type]['layers'],
-                'num_heads': self.ViT_types[vit_type]['head'],
-                'mlp_ratio': 4,
-                'qkv_bias': True,
-                'representation_size': None,
-                'distilled': False,
-                'drop_rate': 0,
-                'attn_drop_rate': 0,
-                'drop_path_rate': 0,
-                'embed_layer': PatchEmbed,
-                'norm_layer': None,
-                'act_layer': None,
-                'weight_init': ''
-                }
-            # -- If the user wants a freshly initialized ViT, then do so, but generically -- #
-            self.ViT = VisionTransformer(**custom_config)
+        # -- Determine the parameters -- # 
+        custom_config = {
+            'ViT_2d': len(self.img_size) == 2,
+            'img_size': self.img_size[1:] if len(self.img_size) == 3 else self.img_size,    # --> 3D image size (depth, height, width) --> skip the depth since extra argument
+            'patch_size': self.patch_size,    # --> 2D patch size (height, width)
+            'img_depth': self.img_size[0] if len(self.img_size) == 3 else None,
+            'in_chans': self.skip_sizes[self.use_skip][1],
+            'num_classes':  self.num_classesViT,
+            'embed_dim': self.ViT_types[vit_type]['embed_size'],
+            'depth': self.ViT_types[vit_type]['layers'],
+            'num_heads': self.ViT_types[vit_type]['head'],
+            'mlp_ratio': 4,
+            'qkv_bias': True,
+            'representation_size': None,
+            'distilled': False,
+            'drop_rate': 0,
+            'attn_drop_rate': 0,
+            'drop_path_rate': 0,
+            'embed_layer': PatchEmbed,
+            'norm_layer': None,
+            'act_layer': None,
+            'weight_init': ''
+            }
+        # -- If the user wants a freshly initialized ViT, then do so, but generically -- #
+        self.ViT = VisionTransformer(**custom_config)
         
         # -- Create copies of the different parts and delete them all again -- #
         conv_blocks_localization = self.conv_blocks_localization

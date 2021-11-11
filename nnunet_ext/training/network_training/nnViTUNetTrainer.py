@@ -3,9 +3,8 @@
 #----------inspired by original implementation (--> nnUNetTrainerV2), copied code is marked as such.----#
 #########################################################################################################
 
-import torch
+import os, torch
 import torch.nn as nn
-from operator import attrgetter
 from nnunet.utilities.nd_softmax import softmax_helper
 from nnunet.network_architecture.initialization import InitWeights_He
 from nnunet.training.network_training.nnUNetTrainerV2 import nnUNetTrainerV2
@@ -18,15 +17,21 @@ torch.multiprocessing.set_sharing_strategy('file_system')
 class nnViTUNetTrainer(nnUNetTrainerV2): # Inherit default trainer class for 2D, 3D low resolution and 3D full resolution U-Net 
     def __init__(self, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, use_progress=True, version=1,
-                 split_gpu=False):
+                 vit_type='base', split_gpu=False):
         r"""Constructor of ViT_U-Net Trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
         """
         # -- Set the desired network version -- #
         self.version = 'V' + str(version)
 
+        # -- Create the variable indicating which ViT Architecture to use, base, large or huge -- #
+        self.vit_type = vit_type.lower()
+
         # -- Update the output_folder accordingly -- #
         if self.version not in output_folder:
             output_folder = output_folder.replace(self.__class__.__name__, self.__class__.__name__+self.version)
+
+        # -- Add the vit_type before the fold -- #
+        output_folder = os.path.join(output_folder, self.vit_type)
 
         # -- Initialize using parent class -- #
         super().__init__(plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic, fp16)
@@ -44,7 +49,7 @@ class nnViTUNetTrainer(nnUNetTrainerV2): # Inherit default trainer class for 2D,
 
         # -- Update self.init_tasks so the storing works properly -- #
         self.init_args = (plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
-                          deterministic, fp16, save_interval, use_progress, version, split_gpu)
+                          deterministic, fp16, save_interval, use_progress, version, self.vit_type, split_gpu)
 
     def process_plans(self, plans):
         r"""Modify the original function. This just reduces the batch_size by half.
@@ -90,8 +95,8 @@ class nnViTUNetTrainer(nnUNetTrainerV2): # Inherit default trainer class for 2D,
                                     dropout_op_kwargs,
                                     net_nonlin, net_nonlin_kwargs, True, False, lambda x: x, InitWeights_He(1e-2),
                                     self.net_num_pool_op_kernel_sizes, self.net_conv_kernel_sizes, False, True, True,
-                                    vit_version=self.version, split_gpu=self.split_gpu)
-        
+                                    vit_version=self.version, vit_type=self.vit_type, split_gpu=self.split_gpu)
+
         #------------------------------------------ Modified from original implementation ------------------------------------------#
         if torch.cuda.is_available():
             self.network.cuda()

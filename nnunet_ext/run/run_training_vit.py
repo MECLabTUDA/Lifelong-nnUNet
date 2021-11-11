@@ -96,6 +96,10 @@ def main():
                         help='Select the ViT input building version. Currently there are only three'+
                             ' possibilities: 1, 2 or 3.'+
                             ' Default: version one will be used. For more references wrt, to the versions, see the docs.')
+    parser.add_argument("-v_type", "--vit_type", action='store', type=str, nargs=1, default='base',
+                        help='Specify the ViT architecture. Currently there are only three'+
+                            ' possibilities: base, large or huge.'+
+                            ' Default: The smallest ViT architecture, i.e. base will be used.')
     parser.add_argument('-num_epochs', action='store', type=int, nargs=1, required=False, default=500,
                         help='Specify the number of epochs to train the model.'
                             ' Default: Train for 500 epochs.')
@@ -121,6 +125,12 @@ def main():
     fp32 = args.fp32
     run_mixed_precision = not fp32
     val_folder = args.val_folder
+    
+    # -- Extract the vit_type structure and check it is one from the existing ones -- #s
+    vit_type = args.vit_type
+    if isinstance(vit_type, list):    # When the vit_type gets returned as a list, extract the type to avoid later appearing errors
+        vit_type = vit_type[0].lower()
+    assert vit_type in ['base', 'large', 'huge'], 'Please provide one of the following three existing ViT types: base, large or huge..'
     
     # -- Extract the desired version -- #
     version = args.version
@@ -198,7 +208,7 @@ def main():
     trainer = trainer_class(plans_file, fold, output_folder=output_folder_name, dataset_directory=dataset_directory,
                             batch_dice=batch_dice, stage=stage, unpack_data=decompress_data,
                             deterministic=deterministic, fp16=run_mixed_precision, save_interval=save_interval,
-                            version=version, split_gpu=split_gpu)
+                            version=version, vit_type=vit_type, split_gpu=split_gpu)
     
     # -- Disable the saving of checkpoints if desired -- #                        
     if args.disable_saving:

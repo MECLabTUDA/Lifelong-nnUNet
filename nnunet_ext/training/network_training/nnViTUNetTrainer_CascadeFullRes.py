@@ -3,7 +3,7 @@
 #----------------inspired by original implementation (--> nnUNetTrainerV2CascadeFullRes).---------------#
 #########################################################################################################
 
-import torch
+import os, torch
 from nnunet_ext.training.network_training.nnViTUNetTrainer import nnViTUNetTrainer
 from nnunet.training.network_training.nnUNetTrainerV2_CascadeFullRes import nnUNetTrainerV2CascadeFullRes
 
@@ -14,15 +14,21 @@ torch.multiprocessing.set_sharing_strategy('file_system')
 class nnViTUNetTrainerCascadeFullRes(nnUNetTrainerV2CascadeFullRes): # Inherit default trainer class for 2D, 3D low resolution and 3D full resolution U-Net 
     def __init__(self, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
                  unpack_data=True, deterministic=True, previous_trainer="nnViTUNetTrainer",
-                 fp16=False, save_interval=5, use_progress=True, version=1, split_gpu=False):
+                 fp16=False, save_interval=5, use_progress=True, version=1, vit_type='base', split_gpu=False):
         r"""Constructor of ViT_U-Net Trainer for full resolution cascaded nnU-Nets.
         """
         # -- Set the desired network version -- #
         self.version = 'V' + str(version)
 
+        # -- Create the variable indicating which ViT Architecture to use, base, large or huge -- #
+        self.vit_type = vit_type.lower()
+
         # -- Update the output_folder accordingly -- #
         if self.version not in output_folder:
             output_folder = output_folder.replace(self.__class__.__name__, self.__class__.__name__+self.version)
+
+        # -- Add the vit_type before the fold -- #
+        output_folder = os.path.join(output_folder, self.vit_type)
 
         # -- Initialize using parent class -- #
         super().__init__(plans_file, fold, output_folder, dataset_directory, batch_dice, stage,
@@ -42,7 +48,7 @@ class nnViTUNetTrainerCascadeFullRes(nnUNetTrainerV2CascadeFullRes): # Inherit d
         # -- Update self.init_tasks so the storing works properly -- #
         self.init_args = (plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
                           deterministic, previous_trainer, fp16, save_interval, use_progress, version,
-                          split_gpu)
+                          self.vit_type, split_gpu)
 
     def process_plans(self, plans):
         r"""Modify the original function. This just reduces the batch_size by half.
