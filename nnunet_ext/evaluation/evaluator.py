@@ -26,7 +26,7 @@ from nnunet_ext.training.network_training.sequential.nnUNetTrainerSequential imp
 class Evaluator():  # Do not inherit the one from the nnunet implementation since ours is different
     r"""Class that can be used to perform an Evaluation on any nnUNet related Trainer.
     """
-    def __init__(self, network, network_trainer, tasks_list_with_char, model_list_with_char, version=1,
+    def __init__(self, network, network_trainer, tasks_list_with_char, model_list_with_char, version=1, vit_type='base',
                  plans_identifier=default_plans_identifier, mixed_precision=True, extension='multihead', save_csv=True):
         r"""Constructor for evaluator.
         """
@@ -46,6 +46,9 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
         if nnViTUNetTrainer.__name__ in self.network_trainer:
             # -- Set the desired network version -- #
             self.version = 'V' + str(version)
+        
+        # -- Create the variable indicating which ViT Architecture to use, base, large or huge -- #
+        self.vit_type = vit_type.lower()
 
     def reinitialize(self, network, network_trainer, tasks_list_with_char, model_list_with_char,
                      plans_identifier=default_plans_identifier, mixed_precision=True, extension='multihead', save_csv=True):
@@ -74,8 +77,8 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
             elif nnViTUNetTrainer.__name__ in self.network_trainer:
                 trainer_path = join(network_training_output_dir, self.network, self.tasks_joined_name, self.network_trainer+'__'+self.plans_identifier, 'fold_'+str(t_fold))
                 output_path = join(evaluation_output_dir, self.network, self.tasks_joined_name, self.network_trainer+'__'+self.plans_identifier)
-                trainer_path = trainer_path.replace(nnViTUNetTrainer.__name__, nnViTUNetTrainer.__name__+self.version)
-                output_path = output_path.replace(nnViTUNetTrainer.__name__, nnViTUNetTrainer.__name__+self.version)
+                trainer_path = trainer_path.replace(nnViTUNetTrainer.__name__, nnViTUNetTrainer.__name__+self.version+'_'+self.vit_type)
+                output_path = output_path.replace(nnViTUNetTrainer.__name__, nnViTUNetTrainer.__name__+self.version+'_'+self.vit_type)
             else:   # Any other extension like CL extension for example (using MH Architecture)
                 trainer_path = join(network_training_output_dir, self.network, self.tasks_joined_name, self.model_joined_name, self.network_trainer+'__'+self.plans_identifier, 'fold_'+str(t_fold))
                 output_path = join(evaluation_output_dir, self.network, self.tasks_joined_name, self.model_joined_name, self.network_trainer+'__'+self.plans_identifier)
@@ -116,7 +119,7 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
                                                   self.plans_identifier, extension_type=None)
                     # -- Modify prev_trainer_path based on desired version -- #
                     if not nnViTUNetTrainer.__name__+'V' in prev_trainer_path:
-                        prev_trainer_path = prev_trainer_path.replace(nnViTUNetTrainer.__name__, nnViTUNetTrainer.__name__+self.version)
+                        prev_trainer_path = prev_trainer_path.replace(nnViTUNetTrainer.__name__, nnViTUNetTrainer.__name__+self.version+'_'+self.vit_type)
                 # -- Build a simple MultiHead Trainer so we can use the perform validation function without re-coding it -- #
                 trainer = nnUNetTrainerMultiHead('seg_outputs', self.tasks_list_with_char[0][0], plans_file, t_fold, output_folder=output_path,\
                                                 dataset_directory=dataset_directory, tasks_list_with_char=(self.tasks_list_with_char[0], self.tasks_list_with_char[1]),\

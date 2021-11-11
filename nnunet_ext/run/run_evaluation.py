@@ -58,6 +58,10 @@ def run_evaluation():
                         help='Select the ViT input building version. Currently there are only three'+
                             ' possibilities: 1, 2 or 3.'+
                             ' Default: version one will be used. For more references wrt, to the versions, see the docs.')
+    parser.add_argument("-v_type", "--vit_type", action='store', type=str, nargs=1, default='base',
+                        help='Specify the ViT architecture. Currently there are only three'+
+                            ' possibilities: base, large or huge.'+
+                            ' Default: The smallest ViT architecture, i.e. base will be used.')
 
     # -- Build mapping for network_trainer to corresponding extension name -- #
     ext_map = {'nnUNetTrainerMultiHead': 'multihead', 'nnUNetTrainerSequential': 'sequential',
@@ -87,6 +91,12 @@ def run_evaluation():
     fold = args.folds
     cuda = args.device
     mixed_precision = not args.fp32_used
+    
+    # -- Extract the vit_type structure and check it is one from the existing ones -- #s
+    vit_type = args.vit_type
+    if isinstance(vit_type, list):    # When the vit_type gets returned as a list, extract the type to avoid later appearing errors
+        vit_type = vit_type[0].lower()
+    assert vit_type in ['base', 'large', 'huge'], 'Please provide one of the following three existing ViT types: base, large or huge..'
 
     # -- Assert if device value is ot of predefined range and create string to set cuda devices -- #
     for idx, c in enumerate(cuda):
@@ -156,7 +166,7 @@ def run_evaluation():
     # Evaluate for each task and all provided folds
     # ---------------------------------------------
     evaluator = Evaluator(network, network_trainer, (tasks_for_folder, char_to_join_tasks), (use_model_w_tasks, char_to_join_tasks), 
-                          version, plans_identifier, mixed_precision, ext_map[network_trainer], save_csv)
+                          version, vit_type, plans_identifier, mixed_precision, ext_map[network_trainer], save_csv)
     evaluator.evaluate_on(fold, evaluate_on_tasks, use_head)
 
 
