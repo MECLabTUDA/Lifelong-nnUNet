@@ -126,7 +126,7 @@ def main():
     run_mixed_precision = not fp32
     val_folder = args.val_folder
     
-    # -- Extract the vit_type structure and check it is one from the existing ones -- #s
+    # -- Extract the vit_type structure and check it is one from the existing ones -- #
     vit_type = args.vit_type
     if isinstance(vit_type, list):    # When the vit_type gets returned as a list, extract the type to avoid later appearing errors
         vit_type = vit_type[0].lower()
