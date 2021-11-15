@@ -4,7 +4,7 @@
 #########################################################################################################
 
 import nnunet, nnunet_ext
-from nnunet_ext.utilities.helpful_functions import copy_dir
+# from nnunet_ext.utilities.helpful_functions import copy_dir
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet.training.model_restore import recursive_find_python_class
 from nnunet.experiment_planning.summarize_plans import summarize_plans
@@ -71,13 +71,18 @@ def get_default_configuration(network, task, running_task, network_trainer, task
     else:
         output_folder_name = join(network_training_output_dir, network, tasks_joined_name, running_task, network_trainer + "__" + plans_identifier)
 
-    # -- Copy the model to nnunet_ext folder if it is not of sequential origin -- #
+    # -- Return the correct path to a nnU-Net trained model which is located differently than the extensions, however this can be used as a base model -- # 
+    if is_classic_trainer:
+        output_folder_name = join(orig_network_training_output_dir, network, task, network_trainer + "__" + plans_identifier)
+    """
+    # -- Copy the model to nnunet_ext folder if it is not any extension -- #
     if is_classic_trainer:
         source = join(orig_network_training_output_dir, network, task, network_trainer + "__" + plans_identifier)
         dest = output_folder_name
         # -- NOTE: If dest exists, it will be emptied, since the folder should be empty at this point, --#
         # --       because the copied model is the base of the sequential training -- #
         copy_dir(source, dest)
+    """
 
     print("###############################################")
     print("I am running the following nnUNet: %s" % network)

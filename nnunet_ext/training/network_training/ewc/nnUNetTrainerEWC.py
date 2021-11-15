@@ -7,7 +7,7 @@
 # -- https://github.com/ContinualAI/colab/blob/master/notebooks/intro_to_continual_learning.ipynb. -- #
 # -- It represents the method proposed in the paper https://arxiv.org/pdf/1612.00796.pdf -- #
 
-import torch
+import os, torch
 from time import time
 from torch.cuda.amp import autocast
 from nnunet_ext.paths import default_plans_identifier
@@ -22,13 +22,13 @@ class nnUNetTrainerEWC(nnUNetTrainerMultiHead): # Inherit default trainer class 
     def __init__(self, split, task, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
                  identifier=default_plans_identifier, extension='ewc', ewc_lambda=0.4, tasks_list_with_char=None, mixed_precision=True,
-                 save_csv=True):
+                 save_csv=True, del_log=False, use_vit=False, vit_type='base', version=1, split_gpu=False, transfer_heads=False):
         r"""Constructor of EWC trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
         """
         # -- Initialize using parent class -- #
         super().__init__(split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic,
                          fp16, save_interval, already_trained_on, use_progress, identifier, extension, tasks_list_with_char, mixed_precision,
-                         save_csv)
+                         save_csv, del_log, use_vit, vit_type, version, split_gpu, transfer_heads)
 
         # -- Set the importance variable for the EWC Loss calculation during training -- #
         self.ewc_lambda = ewc_lambda
@@ -56,8 +56,9 @@ class nnUNetTrainerEWC(nnUNetTrainerMultiHead): # Inherit default trainer class 
 
         # -- Update self.init_tasks so the storing works properly -- #
         self.init_args = (split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
-                          deterministic, fp16, save_interval, already_trained_on, use_progress, identifier, extension,
-                          ewc_lambda, tasks_list_with_char, mixed_precision)
+                          deterministic, fp16, save_interval, self.already_trained_on, use_progress, identifier, extension,
+                          ewc_lambda, tasks_list_with_char, mixed_precision, save_csv, del_log, use_vit, self.vit_type,
+                          version, split_gpu, transfer_heads)
 
         # -- Initialize dicts that hold the fisher and param values -- #
         if self.already_trained_on[str(self.fold)]['fisher_at'] is None or self.already_trained_on[str(self.fold)]['params_at'] is None:
@@ -77,6 +78,9 @@ class nnUNetTrainerEWC(nnUNetTrainerMultiHead): # Inherit default trainer class 
 
         # -- Define the path where the fisher and param values should be stored/restored -- #
         self.ewc_values_path = join(self.trained_on_path, 'ewc_values')
+
+        # print(self.ewc_values_path)
+        # raise
 
     def initialize(self, training=True, force_load_plans=False, num_epochs=500, prev_trainer_path=None):
         r"""Overwrite the initialize function so the correct Loss function for the EWC method can be set.
@@ -143,7 +147,7 @@ class nnUNetTrainerEWC(nnUNetTrainerMultiHead): # Inherit default trainer class 
             "The number of tasks in the fisher/param values are not as expected --> should be the same as in the Multi Head network."
 
         # -- Execute the training for the desired epochs -- #
-        ret = super().run_training(task, output_folder)#, transfer=True)       # Execute training from parent class --> already_trained_on will be updated there
+        ret = super().run_training(task, output_folder)  # Execute training from parent class --> already_trained_on will be updated there
         
         # -- Define the fisher and params after the training -- #
         self.fisher[task] = dict()

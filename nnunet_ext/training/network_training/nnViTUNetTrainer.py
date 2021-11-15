@@ -31,7 +31,8 @@ class nnViTUNetTrainer(nnUNetTrainerV2): # Inherit default trainer class for 2D,
             output_folder = output_folder.replace(self.__class__.__name__, self.__class__.__name__+self.version)
 
         # -- Add the vit_type before the fold -- #
-        output_folder = os.path.join(output_folder, self.vit_type)
+        if self.vit_type != output_folder.split(os.path.sep)[-1] and self.vit_type not in output_folder:
+            output_folder = os.path.join(output_folder, self.vit_type)
 
         # -- Initialize using parent class -- #
         super().__init__(plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic, fp16)

@@ -6,12 +6,13 @@
 import copy
 import numpy as np
 import os, argparse
-from nnunet_ext.paths import default_plans_identifier
-from nnunet_ext.paths import network_training_output_dir
+from nnunet.network_architecture.generic_UNet import Generic_UNet
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet.run.load_pretrained_weights import load_pretrained_weights
 from nnunet_ext.run.default_configuration import get_default_configuration
 from nnunet.utilities.task_name_id_conversion import convert_id_to_task_name
+from nnunet_ext.network_architecture.generic_ViT_UNet import Generic_ViT_UNet
+from nnunet_ext.paths import default_plans_identifier, network_training_output_dir
 from nnunet_ext.utilities.helpful_functions import delete_dir_con, join_texts_with_char, move_dir
 
 # -- Import the trainer classes -- #
@@ -122,6 +123,23 @@ def run_training(extension='multihead'):
                              "will be removed at the end of the training). Useful for development when you are "
                              "only interested in the results and want to save some disk space. Further for sequential tasks "
                              "the intermediate model won't be saved then, remeber that.")
+    parser.add_argument('--use_vit', action='store_true', default=False,
+                        help='If this is set, the Generic_ViT_UNet will be used instead of the Generic_UNet. '+
+                             'Note that then the flags -v, -v_type and --use_mult_gpus should be set accordingly.')
+    parser.add_argument('--use_mult_gpus', action='store_true', default=False,
+                        help='If this is set, the ViT model will be placed onto a second GPU. '+
+                             'When this is set, more than one GPU needs to be provided when using -d.')
+    parser.add_argument("-v", "--version", action='store', type=int, nargs=1, default=[1],
+                        help='Select the ViT input building version. Currently there are only three'+
+                            ' possibilities: 1, 2 or 3.'+
+                            ' Default: version one will be used. For more references wrt, to the versions, see the docs.')
+    parser.add_argument("-v_type", "--vit_type", action='store', type=str, nargs=1, default='base',
+                        help='Specify the ViT architecture. Currently there are only three'+
+                            ' possibilities: base, large or huge.'+
+                            ' Default: The smallest ViT architecture, i.e. base will be used.')
+    parser.add_argument('-transfer_heads', required=False, default=False, action="store_true",
+                        help='Set this flag if a new head will be initialized using the last head'
+                            ' during training. Default: The very first head from the initialization of the class is used.')
     
     # -- Add arguments for rehearsal method -- #
     if extension == 'rehearsal':
@@ -180,7 +198,8 @@ def run_training(extension='multihead'):
     task = args.task_ids    # List of the tasks
     fold = args.folds       # List of the folds
     split = args.split_at   # String that specifies the path to the layer where the split needs to be done
-    
+    transfer_heads = args.transfer_heads
+
     if isinstance(split, list):    # When the split get returned as a list, extract the path to avoid later appearing errors
         split = split[0].strip()
     
@@ -190,6 +209,21 @@ def run_training(extension='multihead'):
     # -- Check that the number of tasks is greater than 1, else a conventional nnUNetTrainerV2 should be used -- #
     assert len(task) > 1,\
         "When training on only one task, the conventional training of the nnU-Net should be used, not the extension."
+
+    # -- Extract the vit_type structure and check it is one from the existing ones -- #
+    vit_type = args.vit_type
+    if isinstance(vit_type, list):    # When the vit_type gets returned as a list, extract the type to avoid later appearing errors
+        vit_type = vit_type[0].lower()
+    assert vit_type in ['base', 'large', 'huge'], 'Please provide one of the following three existing ViT types: base, large or huge..'
+    
+    # -- Extract the desired version -- #
+    version = args.version
+    if isinstance(version, list):    # When the version gets returned as a list, extract the number to avoid later appearing errors
+        version = version[0]
+    assert version in [1, 2, 3], 'We only provide three versions, namely 1, 2 or 3, but not {}..'.format(version)
+
+    # -- Extract ViT specific flags to as well -- #
+    use_vit = args.use_vit
     
     num_epochs = args.num_epochs    # The number of epochs to train for each task
     if isinstance(num_epochs, list):    # When the num_epochs get returned as a list, extract the number to avoid later appearing errors
@@ -222,6 +256,11 @@ def run_training(extension='multihead'):
     
     # -- Set cuda device as environment variable, otherwise other GPUs will be used as well ! -- #
     os.environ["CUDA_VISIBLE_DEVICES"] = cuda
+
+    # -- Check if the user wants to split the network onto multiple GPUs -- #
+    split_gpu = args.use_mult_gpus
+    if split_gpu:
+        assert len(cuda) > 1, 'When trying to split the models on multiple GPUs, then please provide more than one..'
 
     # -- Extract rehearsal arguments -- #
     seed, samples = None, None  # --> So the dictionary arguments can be build without an error even if not rehearsal desired ..
@@ -308,16 +347,18 @@ def run_training(extension='multihead'):
     tasks_joined_name = join_texts_with_char(tasks_for_folds, char_to_join_tasks)
     
     # -- Create all argument dictionaries that are used for function calls to make it more generic -- #
-    basic_args = {'unpack_data': decompress_data, 'deterministic': deterministic, 'fp16': run_mixed_precision }          
+    basic_args = {'unpack_data': decompress_data, 'deterministic': deterministic, 'fp16': run_mixed_precision}  
+    basic_vit =  {'vit_type': vit_type, 'version': version, 'split_gpu': split_gpu, **basic_args}
     basic_exts = {'save_interval': save_interval, 'identifier': init_identifier, 'extension': extension,
                   'tasks_list_with_char': copy.deepcopy(tasks_list_with_char), 'save_csv': save_csv,
-                  'mixed_precision': run_mixed_precision, **basic_args}
+                  'mixed_precision': run_mixed_precision, 'use_vit': use_vit, 'vit_type': vit_type, 'version': version,
+                  'split_gpu': split_gpu, 'transfer_heads': transfer_heads, **basic_args}
     reh_args = {'samples_per_ds': samples, 'seed': seed, **basic_exts}
     ewc_args = {'ewc_lambda': ewc_lambda, **basic_exts}
     lwf_args = {'lwf_temperature': lwf_temperature, **basic_exts}
     
     # -- Join the dictionaries into a dictionary with the corresponding class name -- #
-    args_f = {'nnUNetTrainerV2': basic_args, 'nnUNetTrainerMultiHead': basic_exts,
+    args_f = {'nnUNetTrainerV2': basic_args, 'nnViTUNetTrainer': basic_vit, 'nnUNetTrainerMultiHead': basic_exts,
               'nnUNetTrainerSequential': basic_exts, 'nnUNetTrainerRehearsal': reh_args,
               'nnUNetTrainerEWC': ewc_args, 'nnUNetTrainerLWF': lwf_args}
 
@@ -327,6 +368,20 @@ def run_training(extension='multihead'):
     # ---------------------------------------------
     # -- Initilize variable that indicates if the trainer has been initialized -- #
     already_trained_on = None
+
+
+
+
+
+    # base_path = join(network_training_output_dir, network, tasks_joined_name, Generic_ViT_UNet.__name__+'_'+'V'+str(version), vit_type.lower(), 'SEQ', extension+"_trained_on.json"))
+    # print(base_path)
+    # base_path = join(network_training_output_dir, network, tasks_joined_name, Generic_UNet.__name__, 'SEQ', extension+"_trained_on.json")
+    # print(base_path)
+    # raise
+
+
+
+
 
     # -- Loop through folds so each fold will be trained in full before the next one will be started -- #
     for t_fold in fold:
@@ -352,7 +407,14 @@ def run_training(extension='multihead'):
             print("Try to restore a state to continue with the training..")
 
             # -- Load already trained on file from ../network_training_output_dir/network/tasks_joined_name -- #
-            already_trained_on = load_json(join(network_training_output_dir, network, tasks_joined_name, extension+"_trained_on.json"))
+            if use_vit:
+                base_path = join(network_training_output_dir, network, tasks_joined_name, Generic_ViT_UNet.__name__+'_'+'V'+str(version), vit_type.lower())
+            else:
+                base_path = join(network_training_output_dir, network, tasks_joined_name, Generic_UNet.__name__)
+            if transfer_heads:
+                already_trained_on = load_json(join(base_path, 'SEQ', extension+"_trained_on.json"))
+            else:
+                already_trained_on = load_json(join(base_path, 'MH', extension+"_trained_on.json"))
             
             # -- Initialize began_with and running_task_list for continuing training -- #
             began_with = -1
@@ -461,7 +523,7 @@ def run_training(extension='multihead'):
             
             # -- began_with == -1 or no tasks to train --> nothing to restore -- #
             else:   # Start with new fold, use init_seq that is provided from argument parser
-                # -- Treat the last fold as initialization as provided by user -- #
+                # -- Treat the last fold as initialization as specified by user -- #
                 init_seq = args.init_seq
                 # -- Set continue_learning to False so there will be no error in the process of building the trainer -- #
                 continue_training = False
@@ -550,7 +612,7 @@ def run_training(extension='multihead'):
                                         already_trained_on=already_trained_on, **(args_f[trainer_class.__name__]))
                 trainer.initialize(not validation_only, num_epochs=num_epochs, prev_trainer_path=prev_trainer_path)
                 
-                # NOTE: Trainer has only weights and heads of first task at this point!!!!!!!!!!!!
+                # NOTE: Trainer has only weights and heads of first task at this point
                 # --> Add the heads and load the state_dict from the latest model and not all_tasks[0]
                 #     since this is only used for initialization
                 
@@ -607,17 +669,22 @@ def run_training(extension='multihead'):
                                  run_postprocessing_on_folds=not disable_postprocessing_on_folds,
                                  overwrite=args.val_disable_overwrite)
 
+                """ --> Not necessary, since the model will never be copied, only the path is used
                 # -- If disable saving, and init_seq, remove the initial trainer -- #
                 if disable_saving and idx == 0 and init_seq:
                     # -- At this stage, the initial trainer has been used as a base, and the trainer folder will be removed from the directory -- #
                     del_folder = join(network_training_output_dir, network, tasks_joined_name, t, prev_trainer.__class__.__name__ + "__" + init_identifier)
+                    # del_folder = TODO
                     delete_dir_con(del_folder)
                     # -- Now, in the folder ../network_training_output_dir/network/tasks_joined_name are only identifier and results for extension training -- #
-            
-            # -- If the models for each sequence should not be stored, delete the last model and only keep the current finished ones -- #
+                """
+
+            # -- If the models for each sequence should not be stored, delete the last model and only keep the current finished one -- #
+            # -- NOTE: If the previous trainer was a nnU-Net, i.e. not an extension, then do not remove it -- #
             if disable_saving and prev_trainer_path is not None:
                 # -- Delete content of the folder -- #
-                delete_dir_con(prev_trainer_path)
+                if network_training_output_dir in prev_trainer_path:   # Only if located in nnunet_ext, else don't remove it
+                    delete_dir_con(prev_trainer_path)
 
             # -- Update prev_trainer and prev_trainer_path -- #
             prev_trainer_path = output_folder_name

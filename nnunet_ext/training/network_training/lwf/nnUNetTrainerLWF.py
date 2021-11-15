@@ -28,7 +28,8 @@ class nnUNetTrainerLWF(nnUNetTrainerMultiHead): # Inherit default trainer class 
     def __init__(self, split, task, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
                  identifier=default_plans_identifier, extension='lwf', lwf_temperature=2.0, tasks_list_with_char=None,
-                 mixed_precision=True, save_csv=True):
+                 mixed_precision=True, save_csv=True, del_log=False, use_vit=False, vit_type='base', version=1, split_gpu=False,
+                 transfer_heads=False):
         r"""Constructor of LwF trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
         """
         # -- Initialize using parent class -- #
@@ -64,7 +65,8 @@ class nnUNetTrainerLWF(nnUNetTrainerMultiHead): # Inherit default trainer class 
         # -- Update self.init_tasks so the storing works properly -- #
         self.init_args = (split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
                           deterministic, fp16, save_interval, already_trained_on, use_progress, identifier, extension,
-                          lwf_temperature, tasks_list_with_char, mixed_precision)
+                          lwf_temperature, tasks_list_with_char, mixed_precision, save_csv, del_log, use_vit, self.vit_type,
+                          version, split_gpu, transfer_heads)
 
         # -- Define a variable for the original and LwF loss -- #
         self.loss_orig = None
@@ -101,7 +103,7 @@ class nnUNetTrainerLWF(nnUNetTrainerMultiHead): # Inherit default trainer class 
         # -- NOTE: The predictions of the previous models need to be updated after each iteration -- #
         self.LwFloss = LwFloss(loss_base, self.ds_loss_weights, list(), list(), self.lwf_temperature)
             
-    def run_training(self, task, output_folder, transfer=False):
+    def run_training(self, task, output_folder):
         r"""Perform training using LwF Trainer. Simply executes training method of parent class
             while updating trained_on.pkl file. It is important to provide the right path, in which the results
             for the desired task should be stored.
@@ -128,7 +130,7 @@ class nnUNetTrainerLWF(nnUNetTrainerMultiHead): # Inherit default trainer class 
 
         # -- Register the task if it does not exist in one of the heads -- #
         if task not in self.mh_network.heads:
-            self.mh_network.add_new_task(task, use_init=not transfer)
+            self.mh_network.add_new_task(task, use_init=not self.transfer_heads)
             # -- Reset the freeze_run flag since this task is a new one -- #
             self.freeze_run = True
 
