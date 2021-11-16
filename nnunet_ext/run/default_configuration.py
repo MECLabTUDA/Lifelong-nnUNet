@@ -40,7 +40,7 @@ def get_default_configuration(network, task, running_task, network_trainer, task
     if is_classic_trainer:
         search_in = (nnunet.__path__[0], "training", "network_training")
         base_module = 'nnunet.training.network_training'
-
+        
     # -- Update possible network list -- #
     assert network in ['2d', '3d_lowres', '3d_fullres'], \
         "The network for the nnU-Net CL extension can only be one of the following: \'2d\', \'3d_lowres\', \'3d_fullres\'"

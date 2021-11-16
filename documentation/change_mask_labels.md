@@ -18,7 +18,7 @@ This is a general description on how to change the masks of a desired dataset ba
 	            ├── <dataset_name>_<img_nr>.nii.gz
 	            ├── ...
 
-	Note that the `dataset.json` is crucial for this functionality, since the original label mappings should be/are  defined in there. Additionally, the task ID needs to be unique, otherwise there will be an error during training, when the nnU-Net implementation tries to map a provided Task ID to its Task name -- so always provide distinct Task IDs. For simplicity let's assume we want to change the labels for the Hippocampus dataset. The Dataset has already the desired structure, so nothing needs to be changed there:
+    Note that the `dataset.json` is crucial for this functionality, since the original label mappings should be/are  defined in there. Additionally, the task ID needs to be unique, otherwise there will be an error during training, when the nnU-Net implementation tries to map a provided Task ID to its Task name -- so always provide distinct Task IDs. For simplicity let's assume we want to change the labels for the Hippocampus dataset. The Dataset has already the desired structure, so nothing needs to be changed there:
 
 		nnUNet_raw_data_base/Task04_Hippocampus/
 				├── dataset.json
@@ -85,7 +85,7 @@ In the following, the possible command line arguments are presented and further 
 ### Command Line Arguments
 The following arguments and flags can be set to use this extension:
 
-| Tag_name | description | required | choices | default | 
+| tag_name | description | required | choices | default | 
 |:-:|-|:-:|:-:|:-:|
 | `-t_in` or `--tasks_in_path` | Specify one or a list of paths to tasks TaskXX_TASKNAME folders. | yes | -- | -- |
 | `-t_out` or `--tasks_out_path` | Specify the *unique* task ids for the output folders. | yes | -- | -- |

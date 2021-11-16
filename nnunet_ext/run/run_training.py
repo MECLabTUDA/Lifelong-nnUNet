@@ -87,7 +87,7 @@ def run_training(extension='multihead'):
     parser.add_argument("-t", "--task_ids", nargs="+", help="Specify a list of task ids to train on (ids or names). Each of these "
                                                             "ids must, have a matching folder 'TaskXXX_' in the raw "
                                                             "data folder", required=True)
-    parser.add_argument("-f", "--folds", nargs="+", help="Specify on which folds to train on. Use a fold between 0, 1, ..., 5 or \'all\'", required=True)
+    parser.add_argument("-f", "--folds", nargs="+", help="Specify on which folds to train on. Use a fold between 0, 1, ..., 4 or \'all\'", required=True)
     parser.add_argument("-d", "--device", action='store', type=int, nargs="+", default=[0],
                         help='Try to train the model on the GPU device with <DEVICE> ID. '+
                             ' Valid IDs: 0, 1, ..., 7. A List of IDs can be provided as well.'+
@@ -103,7 +103,7 @@ def run_training(extension='multihead'):
     parser.add_argument('-save_interval', action='store', type=int, nargs=1, required=False, default=25,
                         help='Specify after which epoch interval to update the saved data.'
                             ' Default: If disable_saving False, the result will be updated every 25th epoch.')
-    parser.add_argument('-store_csv', required=False, default=False, action="store_true",
+    parser.add_argument('--store_csv', required=False, default=False, action="store_true",
                         help='Set this flag if the validation data and any other data if applicable should be stored'
                             ' as a .csv file as well. Default: .csv are not created.')
     parser.add_argument('--init_seq', action='store_true', default=False,
@@ -137,7 +137,7 @@ def run_training(extension='multihead'):
                         help='Specify the ViT architecture. Currently there are only three'+
                             ' possibilities: base, large or huge.'+
                             ' Default: The smallest ViT architecture, i.e. base will be used.')
-    parser.add_argument('-transfer_heads', required=False, default=False, action="store_true",
+    parser.add_argument('--transfer_heads', required=False, default=False, action="store_true",
                         help='Set this flag if a new head will be initialized using the last head'
                             ' during training. Default: The very first head from the initialization of the class is used.')
     
@@ -321,7 +321,7 @@ def run_training(extension='multihead'):
     # -------------------------------
     # -- Transform fold to list if it is set to 'all'
     if fold[0] == 'all':
-        fold = list(range(6))
+        fold = list(range(5))
     else: # change each fold type from str to int
         fold = list(map(int, fold))
 
@@ -369,20 +369,6 @@ def run_training(extension='multihead'):
     # -- Initilize variable that indicates if the trainer has been initialized -- #
     already_trained_on = None
 
-
-
-
-
-    # base_path = join(network_training_output_dir, network, tasks_joined_name, Generic_ViT_UNet.__name__+'_'+'V'+str(version), vit_type.lower(), 'SEQ', extension+"_trained_on.json"))
-    # print(base_path)
-    # base_path = join(network_training_output_dir, network, tasks_joined_name, Generic_UNet.__name__, 'SEQ', extension+"_trained_on.json")
-    # print(base_path)
-    # raise
-
-
-
-
-
     # -- Loop through folds so each fold will be trained in full before the next one will be started -- #
     for t_fold in fold:
         # -- Initialize running_task_list that includes all tasks that are performed for this fold -- #
@@ -408,9 +394,9 @@ def run_training(extension='multihead'):
 
             # -- Load already trained on file from ../network_training_output_dir/network/tasks_joined_name -- #
             if use_vit:
-                base_path = join(network_training_output_dir, network, tasks_joined_name, Generic_ViT_UNet.__name__+'_'+'V'+str(version), vit_type.lower())
+                base_path = join(network_training_output_dir, network, tasks_joined_name, Generic_ViT_UNet.__name__+'V'+str(version)+'_metadata', vit_type.lower())
             else:
-                base_path = join(network_training_output_dir, network, tasks_joined_name, Generic_UNet.__name__)
+                base_path = join(network_training_output_dir, network, tasks_joined_name, Generic_UNet.__name__+'_metadata')
             if transfer_heads:
                 already_trained_on = load_json(join(base_path, 'SEQ', extension+"_trained_on.json"))
             else:
@@ -674,7 +660,6 @@ def run_training(extension='multihead'):
                 if disable_saving and idx == 0 and init_seq:
                     # -- At this stage, the initial trainer has been used as a base, and the trainer folder will be removed from the directory -- #
                     del_folder = join(network_training_output_dir, network, tasks_joined_name, t, prev_trainer.__class__.__name__ + "__" + init_identifier)
-                    # del_folder = TODO
                     delete_dir_con(del_folder)
                     # -- Now, in the folder ../network_training_output_dir/network/tasks_joined_name are only identifier and results for extension training -- #
                 """

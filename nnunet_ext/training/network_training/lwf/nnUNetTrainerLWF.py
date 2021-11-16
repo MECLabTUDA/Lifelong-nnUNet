@@ -120,7 +120,7 @@ class nnUNetTrainerLWF(nnUNetTrainerMultiHead): # Inherit default trainer class 
         # -- Update the self.output_folder, otherwise the data will always be in the same folder for every task -- #
         # -- and everything will be overwritten over and over again -- #
         # -- Do this after reinitialization since the function might change the path -- #
-        self.output_folder = join(output_folder, "fold_%s" % str(self.fold))
+        self.output_folder = join(self._build_output_path(output_folder, False), "fold_%s" % str(self.fold))
 
         # -- Make the directory so there will no problems when trying to save some files -- #
         maybe_mkdir_p(self.output_folder)

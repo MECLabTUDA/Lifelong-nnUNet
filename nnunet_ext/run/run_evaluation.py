@@ -29,7 +29,7 @@ def run_evaluation():
     
     # -- Additional arguments specific for multi head training -- #
     parser.add_argument("-f", "--folds",  action='store', type=int, nargs="+",
-                        help="Specify on which folds to train on. Use a fold between 0, 1, ..., 5 or \'all\'", required=True)
+                        help="Specify on which folds to train on. Use a fold between 0, 1, ..., 4 or \'all\'", required=True)
     parser.add_argument("-trained_on", action='store', type=str, nargs="+",
                         help="Specify a list of task ids the network has trained with to specify the correct path to the networks. "
                              "Each of these ids must, have a matching folder 'TaskXXX_' in the raw "
@@ -51,7 +51,7 @@ def run_evaluation():
                         help='Try to train the model on the GPU device with <DEVICE> ID. '+
                             ' Valid IDs: 0, 1, ..., 7. A List of IDs can be provided as well.'+
                             ' Default: Only GPU device with ID 0 will be used.')
-    parser.add_argument('-store_csv', required=False, default=False, action="store_true",
+    parser.add_argument('--store_csv', required=False, default=False, action="store_true",
                         help='Set this flag if the validation data and any other data if applicable should be stored'
                             ' as a .csv file as well. Default: .csv are not created.')
     parser.add_argument("-v", "--version", action='store', type=int, nargs=1, default=[1],
@@ -62,6 +62,12 @@ def run_evaluation():
                         help='Specify the ViT architecture. Currently there are only three'+
                             ' possibilities: base, large or huge.'+
                             ' Default: The smallest ViT architecture, i.e. base will be used.')
+    parser.add_argument('--use_vit', action='store_true', default=False,
+                        help='If this is set, the Generic_ViT_UNet will be used instead of the Generic_UNet. '+
+                             'Note that then the flags -v, -v_type and --use_mult_gpus should be set accordingly.')
+    parser.add_argument('--transfer_heads', required=False, default=False, action="store_true",
+                        help='Set this flag if a new head will be initialized using the last head'
+                            ' during training. Default: The very first head from the initialization of the class is used.')
 
     # -- Build mapping for network_trainer to corresponding extension name -- #
     ext_map = {'nnUNetTrainerMultiHead': 'multihead', 'nnUNetTrainerSequential': 'sequential',
@@ -91,6 +97,10 @@ def run_evaluation():
     fold = args.folds
     cuda = args.device
     mixed_precision = not args.fp32_used
+    transfer_heads = args.transfer_heads
+
+    # -- Extract ViT specific flags to as well -- #
+    use_vit = args.use_vit
     
     # -- Extract the vit_type structure and check it is one from the existing ones -- #s
     vit_type = args.vit_type
@@ -119,7 +129,7 @@ def run_evaluation():
     # -------------------------------
     # -- Transform fold to list if it is set to 'all'
     if fold[0] == 'all':
-        fold = list(range(6))
+        fold = list(range(5))
     else: # change each fold type from str to int
         fold = list(map(int, fold))
 
@@ -166,7 +176,8 @@ def run_evaluation():
     # Evaluate for each task and all provided folds
     # ---------------------------------------------
     evaluator = Evaluator(network, network_trainer, (tasks_for_folder, char_to_join_tasks), (use_model_w_tasks, char_to_join_tasks), 
-                          version, vit_type, plans_identifier, mixed_precision, ext_map[network_trainer], save_csv)
+                          version, vit_type, plans_identifier, mixed_precision, ext_map[network_trainer], save_csv, transfer_heads,
+                          use_vit)
     evaluator.evaluate_on(fold, evaluate_on_tasks, use_head)
 
 

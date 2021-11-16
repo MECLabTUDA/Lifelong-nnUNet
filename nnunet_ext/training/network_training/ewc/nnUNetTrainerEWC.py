@@ -77,9 +77,9 @@ class nnUNetTrainerEWC(nnUNetTrainerMultiHead): # Inherit default trainer class 
                     to_cuda(self.params[task][key])
 
         # -- Define the path where the fisher and param values should be stored/restored -- #
-        self.ewc_values_path = join(self.trained_on_path, 'ewc_values')
+        self.ewc_data_path = join(self.trained_on_path, 'ewc_data')
 
-        # print(self.ewc_values_path)
+        # print(self.ewc_data_path)
         # raise
 
     def initialize(self, training=True, force_load_plans=False, num_epochs=500, prev_trainer_path=None):
@@ -167,14 +167,14 @@ class nnUNetTrainerEWC(nnUNetTrainerMultiHead): # Inherit default trainer class 
                 self.params[task][key].cpu()
 
         # -- Dump both dicts as pkl files -- #
-        maybe_mkdir_p(self.ewc_values_path)
-        write_pickle(self.fisher, join(self.ewc_values_path, 'fisher_values.pkl'))
-        write_pickle(self.params, join(self.ewc_values_path, 'param_values.pkl'))
+        maybe_mkdir_p(self.ewc_data_path)
+        write_pickle(self.fisher, join(self.ewc_data_path, 'fisher_values.pkl'))
+        write_pickle(self.params, join(self.ewc_data_path, 'param_values.pkl'))
 
         if self.already_trained_on[str(self.fold)]['fisher_at'] is None or self.already_trained_on[str(self.fold)]['params_at'] is None:
             # -- Update the already_trained_on file that the values exist if necessary -- #
-            self.already_trained_on[str(self.fold)]['fisher_at'] = join(self.ewc_values_path, 'fisher_values.pkl')
-            self.already_trained_on[str(self.fold)]['params_at'] = join(self.ewc_values_path, 'param_values.pkl')
+            self.already_trained_on[str(self.fold)]['fisher_at'] = join(self.ewc_data_path, 'fisher_values.pkl')
+            self.already_trained_on[str(self.fold)]['params_at'] = join(self.ewc_data_path, 'param_values.pkl')
             
             # -- Save the updated dictionary as a json file -- #
             save_json(self.already_trained_on, join(self.trained_on_path, self.extension+'_trained_on.json'))

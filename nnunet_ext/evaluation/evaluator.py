@@ -11,7 +11,9 @@ import torch.nn as nn
 from collections import OrderedDict
 from nnunet_ext.paths import default_plans_identifier
 from nnunet_ext.training.model_restore import restore_model
+from nnunet.network_architecture.generic_UNet import Generic_UNet
 from nnunet_ext.run.default_configuration import get_default_configuration
+from nnunet_ext.network_architecture.generic_ViT_UNet import Generic_ViT_UNet
 from nnunet_ext.paths import network_training_output_dir, evaluation_output_dir
 from batchgenerators.utilities.file_and_folder_operations import maybe_mkdir_p, join
 from nnunet.paths import network_training_output_dir as network_training_output_dir_orig
@@ -27,7 +29,8 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
     r"""Class that can be used to perform an Evaluation on any nnUNet related Trainer.
     """
     def __init__(self, network, network_trainer, tasks_list_with_char, model_list_with_char, version=1, vit_type='base',
-                 plans_identifier=default_plans_identifier, mixed_precision=True, extension='multihead', save_csv=True):
+                 plans_identifier=default_plans_identifier, mixed_precision=True, extension='multihead', save_csv=True,
+                 transfer_heads=False, use_vit=False):
         r"""Constructor for evaluator.
         """
         # -- Set all the relevant attributes -- #
@@ -40,15 +43,16 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
         self.mixed_precision = mixed_precision
         self.extension = extension
         self.save_csv = save_csv
+        self.transfer_heads = transfer_heads
         # -- Set tasks_joined_name for validation dataset building -- #
         self.tasks_joined_name = join_texts_with_char(self.tasks_list_with_char[0], self.tasks_list_with_char[1])
         # -- If ViT trainer, build the version correctly for finding the correct checkpoint later in restoring -- #
-        if nnViTUNetTrainer.__name__ in self.network_trainer:
-            # -- Set the desired network version -- #
-            self.version = 'V' + str(version)
+        # -- Set the desired network version -- #
+        self.version = 'V' + str(version)
         
-        # -- Create the variable indicating which ViT Architecture to use, base, large or huge -- #
+        # -- Create the variable indicating which ViT Architecture to use, base, large or huge and if to use it -- #
         self.vit_type = vit_type.lower()
+        self.use_vit = use_vit
 
     def reinitialize(self, network, network_trainer, tasks_list_with_char, model_list_with_char,
                      plans_identifier=default_plans_identifier, mixed_precision=True, extension='multihead', save_csv=True):
@@ -80,8 +84,16 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
                 trainer_path = trainer_path.replace(nnViTUNetTrainer.__name__, nnViTUNetTrainer.__name__+self.version)
                 output_path = output_path.replace(nnViTUNetTrainer.__name__, nnViTUNetTrainer.__name__+self.version)
             else:   # Any other extension like CL extension for example (using MH Architecture)
-                trainer_path = join(network_training_output_dir, self.network, self.tasks_joined_name, self.model_joined_name, self.network_trainer+'__'+self.plans_identifier, 'fold_'+str(t_fold))
-                output_path = join(evaluation_output_dir, self.network, self.tasks_joined_name, self.model_joined_name, self.network_trainer+'__'+self.plans_identifier)
+                if self.use_vit:
+                    trainer_path = join(network_training_output_dir, self.network, self.tasks_joined_name, self.model_joined_name,\
+                                        self.network_trainer+'__'+self.plans_identifier, Generic_ViT_UNet.__name__+self.version, self.vit_type, 'SEQ' if self.transfer_heads else 'MH', 'fold_'+str(t_fold))
+                    output_path = join(evaluation_output_dir, self.network, self.tasks_joined_name, self.model_joined_name,\
+                                        self.network_trainer+'__'+self.plans_identifier, Generic_ViT_UNet.__name__+self.version, self.vit_type, 'SEQ' if self.transfer_heads else 'MH')
+                else:
+                    trainer_path = join(network_training_output_dir, self.network, self.tasks_joined_name, self.model_joined_name,\
+                                        self.network_trainer+'__'+self.plans_identifier, Generic_UNet.__name__, 'SEQ' if self.transfer_heads else 'MH', 'fold_'+str(t_fold))
+                    output_path = join(evaluation_output_dir, self.network, self.tasks_joined_name, self.model_joined_name,\
+                                        self.network_trainer+'__'+self.plans_identifier, Generic_UNet.__name__, 'SEQ' if self.transfer_heads else 'MH')
 
             # -- Create the directory if it does not exist -- #
             maybe_mkdir_p(output_path)
@@ -125,8 +137,8 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
 
                 # -- Build a simple MultiHead Trainer so we can use the perform validation function without re-coding it -- #
                 trainer = nnUNetTrainerMultiHead('seg_outputs', self.tasks_list_with_char[0][0], plans_file, t_fold, output_folder=output_path,\
-                                                dataset_directory=dataset_directory, tasks_list_with_char=(self.tasks_list_with_char[0], self.tasks_list_with_char[1]),\
-                                                batch_dice=batch_dice, stage=stage, already_trained_on=None)
+                                                 dataset_directory=dataset_directory, tasks_list_with_char=(self.tasks_list_with_char[0], self.tasks_list_with_char[1]),\
+                                                 batch_dice=batch_dice, stage=stage, already_trained_on=None)
                 trainer.initialize(False, num_epochs=0, prev_trainer_path=prev_trainer_path)
                 # -- Reset the epoch -- #
                 trainer.epoch = epoch

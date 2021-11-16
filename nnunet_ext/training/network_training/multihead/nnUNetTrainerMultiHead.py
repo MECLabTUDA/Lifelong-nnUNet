@@ -41,31 +41,19 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             All vit related arguments like vit_type, version and split_gpu are only used if use_vit is True, in such a case,
             the Generic_ViT_UNet is used instead of the Generic_UNet.
         """
+        # -- Create a backup of the original output folder that is provided -- #
+        self.output_folder_orig = output_folder
+
         # -- Check and set everything if the user wants to use the Generic_ViT_UNet -- #
         self.use_vit = use_vit
-        if self.use_vit:
-            # -- Set the desired network version -- #
-            self.version = 'V' + str(version)
-
-            # -- Create the variable indicating which ViT Architecture to use, base, large or huge -- #
-            self.vit_type = vit_type.lower()
-
-            # -- Update the output_folder accordingly -- #
-            if self.version != output_folder.split(os.path.sep)[-1] and self.version not in output_folder:
-                output_folder = os.path.join(output_folder, Generic_ViT_UNet.__name__+'_'+self.version)
-
-            # -- Add the vit_type before the fold -- #
-            if self.vit_type != output_folder.split(os.path.sep)[-1] and self.vit_type not in output_folder:
-                output_folder = os.path.join(output_folder, self.vit_type)
-        else:
-            # -- Generic_UNet will be used so update the path accordingly -- #
-            if Generic_UNet.__name__ != output_folder.split(os.path.sep)[-1] and Generic_UNet.__name__ not in output_folder:
-                output_folder = os.path.join(output_folder, Generic_UNet.__name__)
-
-        # -- In every case, change the current folder in such a way that there is an indication if transfer_heads was true or false -- #
+        # -- Create the variable indicating which ViT Architecture to use, base, large or huge -- #
+        self.vit_type = vit_type.lower()
+        # -- Set the desired network version -- #
+        self.version = 'V' + str(version)
+        # -- Set the flag for initializing the heads -- #
         self.transfer_heads = transfer_heads
-        if 'MH' or 'SEQ' not in output_folder:
-            output_folder = os.path.join(output_folder, 'SEQ') if self.transfer_heads else os.path.join(output_folder, 'MH')
+        # -- Update the output_folder path accordingly -- #
+        output_folder = self._build_output_path(output_folder, False)
         
         # -- Initialize using parent class -- #
         super().__init__(plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic, fp16)
@@ -120,40 +108,12 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                                                         'active_task_at_time_of_checkpoint': None}}
 
         # -- Set the path were the trained_on file will be stored -- #
-        self.trained_on_path = os.path.dirname(os.path.realpath(output_folder)) #os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(self.output_folder))))
-
-
-
-        # print(self.trained_on_path)
-        # raise
-
-
-        # -- Define the path where the already_traied_o file should be stored -- #
-        if self.use_vit:
-            # -- Update the output_folder accordingly -- #
-            if self.version != self.trained_on_path.split(os.path.sep)[-1] and self.version not in self.trained_on_path:
-                self.trained_on_path = os.path.join(self.trained_on_path, Generic_ViT_UNet.__name__+'_'+self.version)
-
-            # -- Add the vit_type before the fold -- #
-            if self.vit_type != self.trained_on_path.split(os.path.sep)[-1] and self.vit_type not in self.trained_on_path:
-                self.trained_on_path = os.path.join(self.trained_on_path, self.vit_type)
-        else:
-            # -- Generic_UNet will be used so update the path accordingly -- #
-            if Generic_UNet.__name__ != self.trained_on_path.split(os.path.sep)[-1] and Generic_UNet.__name__ not in self.trained_on_path:
-                self.trained_on_path = os.path.join(self.trained_on_path, Generic_UNet.__name__)
-
-        # -- In every case, change the current folder in such a way that there is an indication if transfer_heads was true or false -- #
-        if 'MH' or 'SEQ' not in self.trained_on_path:
-            self.trained_on_path = os.path.join(self.trained_on_path, 'SEQ') if self.transfer_heads else os.path.join(self.trained_on_path, 'MH')
-
-
-
-        # print(self.trained_on_path)
-        # raise
-
-
-
+        self.trained_on_path = os.path.dirname(os.path.dirname(os.path.realpath(self.output_folder_orig))) #os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(self.output_folder))))
+        self.trained_on_path = self._build_output_path(self.trained_on_path, True)
         
+        # -- Create the folder if necessary -- #
+        maybe_mkdir_p(self.trained_on_path)
+
         # -- Set save_every, so the super trainer class creates checkpoint individually and the validation metrics will be filtered accordingly -- #
         self.save_every = save_interval
 
@@ -168,13 +128,6 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             self.network_name = help_path[-8]   # 8th element from back is the name of the used network
         else:
             self.network_name = help_path[-7]   # 7th element from back is the name of the used network
-
-
-
-        # print(self.network_name)
-        # raise
-    
-
 
         # -- Adjust the network_name in case of the nnUNetTrainer -- #
         if self.network_name not in ['2d', '3d_lowres', '3d_fullres']:   # <-- happens only in case of a conventional nnUNetTrainerV2 since the path is differently built
@@ -232,9 +185,10 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         """# -- Initialize using parent class -- #
         super().process_plans(plans)
 
-        # -- Reduce the batch_size by half after it has been set by super class -- #
+        # -- Reduce the batch_size by half after it has been set by super class --> only if ViT is used -- #
         # -- Do this so it fits onto GPU --> if it still does not, model needs to be put onto multiple GPUs -- #
-        self.batch_size = self.batch_size // 2
+        if self.use_vit:
+            self.batch_size = self.batch_size // 2
 
     def initialize(self, training=True, force_load_plans=False, num_epochs=500, prev_trainer_path=None):
         r"""Overwrite parent function, since we want to include a prev_trainer that is used as a base for the Multi Head Trainer.
@@ -463,7 +417,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # -- Update the self.output_folder, otherwise the data will always be in the same folder for every task -- #
         # -- and everything will be overwritten over and over again -- #
         # -- Do this after reinitialization since the function might change the path -- #
-        self.output_folder = join(output_folder, "fold_%s" % str(self.fold))
+        self.output_folder = join(self._build_output_path(output_folder, False), "fold_%s" % str(self.fold))
 
         # -- Make the directory so there will no problems when trying to save some files -- #
         maybe_mkdir_p(self.output_folder)
@@ -983,3 +937,38 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
 
         # -- Reset the running model to train on -- #
         self.network = self.mh_network.model
+
+    def _build_output_path(self, output_folder, meta_data=False):
+        r"""This function is used to build the output folder path during training when a new task is started.
+            If the path is not adjusted given this method, the data files are scattered all over the place at
+            different folders where they don't belong.
+        """
+        # -- First of all remove the fold_ from the path -- #
+        if 'fold_' in output_folder.split(os.path.sep)[-1]:
+            output_folder = os.path.join(*output_folder.split(os.path.sep)[:-1])
+
+        # -- Specify if this is a ViT Architecture or not, since the paths are different -- #
+        if self.use_vit:
+            # -- Update the output_folder accordingly -- #
+            if self.version != output_folder.split(os.path.sep)[-1] and self.version not in output_folder:
+                if not meta_data:
+                    output_folder = os.path.join(output_folder, Generic_ViT_UNet.__name__+self.version)
+                else:   # --> Path were meta data is stored, i.e. already_trained_on file
+                    output_folder = os.path.join(output_folder, 'metadata', Generic_ViT_UNet.__name__+self.version)
+
+            # -- Add the vit_type before the fold -- #
+            if self.vit_type != output_folder.split(os.path.sep)[-1] and self.vit_type not in output_folder:
+                output_folder = os.path.join(output_folder, self.vit_type)
+        else:
+            # -- Generic_UNet will be used so update the path accordingly -- #
+            if Generic_UNet.__name__ != output_folder.split(os.path.sep)[-1] and Generic_UNet.__name__ not in output_folder:
+                if not meta_data:
+                    output_folder = os.path.join(output_folder, Generic_UNet.__name__)
+                else:   # --> Path were meta data is stored, i.e. already_trained_on file
+                    output_folder = os.path.join(output_folder, 'metadata', Generic_UNet.__name__)
+
+        # -- In every case, change the current folder in such a way that there is an indication if transfer_heads was true or false -- #
+        if 'MH' not in output_folder and 'SEQ' not in output_folder:
+            output_folder = os.path.join(output_folder, 'SEQ') if self.transfer_heads else os.path.join(output_folder, 'MH')
+
+        return output_folder
