@@ -50,23 +50,47 @@ When talking about lists in command lines, this does not mean to provide a real 
 
 
 ### Exemplary use cases
-In the following, a few examples are mentioned showing possible use cases using the Multi Head Trainer.
-For instance, the general command for changing the labels in a mask of multiple datasets with multiple mappings  looks like the following:
+In the following, a few examples are shown representing possible use cases on how to use the Multi Head Trainer.
 
+One of the easiest and simplest example is to simply train on a bunch of tasks, here those are exemplary `Task011_XYZ`, `Task012_XYZ` and `Task013_XYZ`. Each task should be trained for 250 epochs, whereas every 25th epoch, the stored data is updated and the results are stored in a `.csv` file. Additionally, the network should be split at the `seg_outputs` part of the network and trained on the GPU with ID 1:
 ```bash
           ~ $ source ~/.bashrc
           ~ $ source activate <your_anaconda_env>
-(<your_anaconda_env>) $ nnUNet_dataset_label_mapping -t_in <path_1> <path_2> ... <path_n> 
-                             -t_out <ID_1> <ID_2> ... <ID_n> 
-                             -m <mapping_1> <mapping_2> ... <mapping_n> 
-                            [-ln <name(s)> -c <number(s)> -p <number(s)> --no_pp]
+(<your_anaconda_env>) $ nnUNet_train_multihead 3d_fullres -t 11 12 13 -f 0
+                             -num_epoch 250 -d 1 -save_interval 25 -s seg_outputs --store_csv
+                             [--use_vit -v <VERSION> -v_type <TYPE>]
 ```
 
-Example with split-at flag
-Example using UNet
-Example using ViT different versions
-Example with num epochs
-Example with devices
-Example with store cvs
-Example with -c
-Example with init-seq
+One more complex example showing how to define a deeper split using the `.` notation would be the following, where the settings are the same as before, but the split is now in the context block of the network. Note that for setting an appropriate split, the user needs to know the networks structure or the splitting might not work:
+```bash
+          ~ $ source ~/.bashrc
+          ~ $ source activate <your_anaconda_env>
+(<your_anaconda_env>) $ nnUNet_train_multihead 3d_fullres -t 11 12 13 -f 0
+                             -num_epoch 250 -d 1 -save_interval 25
+                             -s conv_blocks_context.0.blocks.1 --store_csv
+                             [--use_vit -v <VERSION> -v_type <TYPE>]
+```
+
+All the so far provided examples use the Generic_UNet architecture as foundation, however as proposed in the Command Line Arguments, one can use our proposed Generic_ViT_UNet from the [ViT_U-Net branch](https://github.com/camgbus/Lifelong-nnUNet/tree/ViT_U-Net) instead. The following example uses Version 1 (out of 3) of the Generic_ViT_UNet specifying the Vision Transformer itself is a base Transformer, i.e. the smallest one (out of 3 types):
+```bash
+          ~ $ source ~/.bashrc
+          ~ $ source activate <your_anaconda_env>
+(<your_anaconda_env>) $ nnUNet_train_multihead 3d_fullres -t 11 12 13 -f 0
+                             -num_epoch 250 -d 1 -save_interval 25 -s seg_outputs --store_csv
+                             --use_vit -v 1 -v_type base [--use_mult_gpus]
+                             
+```
+
+Last but not least, the following example shows how to use a pre-trained nnU-Net as a foundation (trained on `Task011_XYZ`) to continue training on using new tasks (`Task012_XYZ` and `Task013_XYZ`). Note that this has not been used and thus tested yet:
+```bash
+          ~ $ source ~/.bashrc
+          ~ $ source activate <your_anaconda_env>
+(<your_anaconda_env>) $ nnUNet_train_multihead 3d_fullres -t 11 12 13 -f 0
+                             -num_epoch 250 -d 1 -save_interval 25
+                             -s seg_outputs --store_csv --init_seq
+                             -initialize_with_network_trainer nnUNetTrainerV2
+                             -used_identifier_in_init_network_trainer nnUNetPlansv2.1
+                             [--use_vit -v <VERSION> -v_type <TYPE>]
+```
+
+Note that the `--transfer_heads` flag makes no sense to use here, since then this will be a classical Transfer Learning case represented by the Sequential Trainer, described [here](sequential_training.md). This flag makes more sense when using the EWC or LwF Trainer as shown [here](ewc_training.md) and [here](lwf_training.md).

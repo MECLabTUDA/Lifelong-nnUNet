@@ -130,8 +130,7 @@ Last but not least, let's assume the dataset has 5 channels and only the first a
           ~ $ source activate <your_anaconda_env>
 (<your_anaconda_env>) $ nnUNet_dataset_label_mapping -t_in <path_1> <path_2> ... <path_n> 
 						     -t_out <ID_1> <ID_2> ... <ID_n> 
-						     -m joined_labels <mapping_2> ... <mapping_9> joined_labels ...
-                                <mapping_n> 
+						     -m joined_labels <mapping_2> ... <mapping_9>
 							 -c 0 3 -ln PZ_TZ LL_RL
 						    [-ln <name(s)> -p <number(s)> --no_pp]
 ```
