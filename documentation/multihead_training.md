@@ -8,7 +8,7 @@ The following arguments and flags represent the base arguments for all extension
 
 | tag_name | description | required | choices | default | 
 |:-:|-|:-:|:-:|:-:|
-| first arg, no tag | Specify the network to use. | yes | `2d`, `3d_fullres`') | -- |
+| first argument, no tag | Specify the network to use. | yes | `2d`, `3d_fullres` | -- |
 | `-val` or `--validation_only` | Use this if you want to only run the validation. This will validate each model of the sequential pipeline, so they should have been saved and not deleted. | no | -- | 'False' |
 | `-p` | Specify the plans identifier. Only change this if you created a custom experiment planner | no | -- | `nnUNetPlansv2.1` from [nnunet_ext/paths.py](https://github.com/camgbus/Lifelong-nnUNet/blob/continual_learning/nnunet_ext/paths.py#L10) |
 | `--use_compressed_data` | If you set use_compressed_data, the training cases will not be decompressed. Reading compressed data is much more CPU and RAM intensive and should only be used if you know what you are doing. | no | -- | `False` |
@@ -25,6 +25,8 @@ The following arguments and flags represent the base arguments for all extension
 | `-pretrained_weights` | This flag is provided by the nnUNet but only in beta version. | no | -- | `None` |
 
 The following arguments are specifically added for all Trainers, including the Multi-Head Trainer thus representing the more interesting part of flags:
+
+| tag_name | description | required | choices | default | 
 |:-:|-|:-:|:-:|:-:|
 | `-t` or `--task_ids` | Specify a list of task ids to train on (ids or names). Each of these ids must, have a matching folder TaskXXX_TASKNAME in the raw data folder. | yes | -- | `[]` |
 | `-f` or `--folds` | Specify on which folds to train on. Use a fold between `0, 1, ..., 4` or `all`. | yes | -- | `[]` |
