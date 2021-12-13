@@ -2,10 +2,11 @@
 #----------This class represents a Generic ViT_U-Net model based on the ViT and nnU-Net architecture----------#
 ###############################################################################################################
 
-import numpy as np
 import torch
+import numpy as np
 from torch import nn
 from torch.autograd import Variable
+from nnunet.utilities.to_torch import to_cuda
 from nnunet.utilities.nd_softmax import softmax_helper
 from nnunet.network_architecture.initialization import InitWeights_He
 from nnunet.network_architecture.generic_UNet import ConvDropoutNormNonlin, Generic_UNet
@@ -65,14 +66,15 @@ class Generic_ViT_UNet(Generic_UNet):
         self.use_skip = 0
         self.version = vit_version.title()  # Ensure that V is always Capital
         # -- Check that the version is as expected -- #
-        assert self.version in ['V1', 'V2', 'V3'],\
-            'Please provide a correct version, we currently only provide three in total, i.e. V1, V2 or V3; but not {}.'.format(vit_version)
-        
+        assert self.version in ['V1', 'V2', 'V3', 'V4'],\
+            'Please provide a correct version, we currently only provide three in total, i.e. V1, V2, V3 or V4; but not {}.'.format(vit_version)
+    
         # -- Define the dictionary to use the correct version to prepare ViT input without doing al the ifs -- #
         self.prepare = {'V1': '_get_ViT_inputV1', 'V2': '_get_ViT_inputV2', 'V3': '_get_ViT_inputV3'}
         
         # -- Simulate a run to extract the size of the skip connections, we need -- #
         self.skip_sizes = list()
+        skips = list()
         
         # -- Define a random sample with the provided image size -- #
         sample = torch.randint(3, tuple(self.img_size), dtype=torch.float).unsqueeze(0).unsqueeze(0)
@@ -86,25 +88,73 @@ class Generic_ViT_UNet(Generic_UNet):
         for d in range(len(self.conv_blocks_context) - 1):
             sample = self.conv_blocks_context[d](sample)
             self.skip_sizes.append(sample.size())
+            skips.append(sample)
+            if not self.convolutional_pooling:
+                sample = self.td[d](sample)
 
-        # -- Extract the necessary number of classes -- #
-        num_classes_shape = list(self.conv_blocks_context[-1](sample).size())
-        self.num_classesViT = np.prod(num_classes_shape[1:])
+        # -- Run through upsample network to get the final connection sizes --> only for V4 necessary -- #
+        if vit_version == 'V4':
+            self.out_sizes = list()
+            # -- Run through upsampling -- #
+            sample = self.conv_blocks_context[-1](sample)
+            for u in range(len(self.tu)):
+                sample = self.tu[u](sample)
+                sample = torch.cat((sample, skips[-(u + 1)]), dim=1)
+                sample = self.conv_blocks_localization[u](sample)
+                # -- Add this sample size --> necessary for ViT V4 -- #
+                self.out_sizes.append(sample.size())
+
+        # -- Extract the necessary number of classes there are equal for V1 to V3 but not for V4 -- #
+        if vit_version == 'V4':
+            self.num_classesViT = list()
+            for img_size in self.out_sizes:
+                self.num_classesViT.append(np.prod(img_size[1:]))    # --> V4: U-Net -- ViT -- Segmentation Head, so the dimension is equal to input of U-Net
+        else:
+            num_classes_shape = list(self.conv_blocks_context[-1](sample).size())
+            self.num_classesViT = np.prod(num_classes_shape[1:])
+        del sample, skips
 
         # -- Determine the img_size of the feature map that should be used -- #
-        self.img_size = list(self.skip_sizes[self.use_skip][2:])
+        if vit_version == 'V14':
+            self.img_size = list(self.skip_sizes[0][2:])
+        elif vit_version == 'V4':
+            self.img_size = [list(size[1:]) for size in self.out_sizes]  # Remove batch dimension
+        else:
+            self.img_size = list(self.skip_sizes[self.use_skip][2:])
 
         # -- Calculate the patch dimension -- #
-        patch_dim = min(min(self.img_size), 32)
-        self.patch_size = (patch_dim//2, patch_dim//2)
+        if vit_version == 'V4':
+            # -- Loop through img_size and extract patch_sizes and input channel -- #
+            self.patch_size = list()
+            self.in_chans = list()
+            for img_size in self.img_size:
+                patch_dim = min(min(img_size), 32)
+                self.patch_size.append((patch_dim//2, patch_dim//2))
+                self.in_chans.append(img_size[0])
+            # -- Remove the input channels from the img_size -- #
+            self.img_size = [img_size[1:] for img_size in self.img_size]
+        else:
+            patch_dim = min(min(self.img_size), 32)
+            self.patch_size = (patch_dim//2, patch_dim//2)
+            self.in_chans = self.skip_sizes[self.use_skip][1]   # Use 1 since skip_size are torch tensors with batch dimension
+            
+        # -- Set img_depth -- #
+        if len(patch_size) == 3:
+            if vit_version == 'V4':
+                img_depth = [size[0] for size in self.img_size] # 3D
+            else:
+                img_depth = [self.img_size[0]]
+        else:
+            img_depth = None
 
-        # -- Determine the parameters -- # 
+        # -- Determine the parameters -- #
         custom_config = {
-            'ViT_2d': len(self.img_size) == 2,
-            'img_size': self.img_size[1:] if len(self.img_size) == 3 else self.img_size,    # --> 3D image size (depth, height, width) --> skip the depth since extra argument
+            'ViT_2d': len(patch_size) == 2,
+            'img_size': self.img_size,    # --> 3D image size (depth, height, width) --> skip the depth since extra argument
+            # 'img_size': self.img_size[1:] if len(patch_size) == 3 else self.img_size,    # --> 3D image size (depth, height, width) --> skip the depth since extra argument
+            'img_depth': img_depth,
             'patch_size': self.patch_size,    # --> 2D patch size (height, width)
-            'img_depth': self.img_size[0] if len(self.img_size) == 3 else None,
-            'in_chans': self.skip_sizes[self.use_skip][1],
+            'in_chans': self.in_chans,
             'num_classes':  self.num_classesViT,
             'embed_dim': self.ViT_types[vit_type]['embed_size'],
             'depth': self.ViT_types[vit_type]['layers'],
@@ -121,7 +171,7 @@ class Generic_ViT_UNet(Generic_UNet):
             'act_layer': None,
             'weight_init': ''
             }
-        # -- If the user wants a freshly initialized ViT, then do so, but generically -- #
+        # -- Initialize ViT generically -- #
         self.ViT = VisionTransformer(**custom_config)
         
         # -- Create copies of the different parts and delete them all again -- #
@@ -136,9 +186,12 @@ class Generic_ViT_UNet(Generic_UNet):
         # -- Re-register all modules properly using backups to create a specific order -- #
         self.conv_blocks_localization = conv_blocks_localization
         self.conv_blocks_context = conv_blocks_context
-        self.ViT = ViT
+        if self.version != 'V4':
+            self.ViT = ViT
         self.td = td
         self.tu = tu
+        if self.version == 'V4':
+            self.ViT = ViT
         self.seg_outputs = seg_outputs
 
         # -- Define the list of names in case the network gets split onto multiple GPUs -- #
@@ -161,25 +214,28 @@ class Generic_ViT_UNet(Generic_UNet):
         x = self.conv_blocks_context[-1](x)
         #------------------------------------------ Copied from original implementation ------------------------------------------#
 
-        # -- Copy the size of the input for the transformer -- #
-        size = x.size()
+        if self.version != 'V4':    # in V4 ViT is placed before segmentation head
+            # -- Copy the size of the input for the transformer -- #
+            size = x.size()
 
-        # -- Prepare input for ViT based on users input -- #
-        # -- Put ViT_in to GPU 1, where the whole other parts ViT and the rest are -- #
-        if self.split_gpu:
-            ViT_in = getattr(self, self.prepare[self.version])(skips, x).to(1)
-        else:
-            ViT_in = getattr(self, self.prepare[self.version])(skips, x)
+            # -- Prepare input for ViT based on users input -- #
+            # -- Put ViT_in to GPU 1, where the whole other parts ViT and the rest are -- #
+            if self.split_gpu:
+                ViT_in = getattr(self, self.prepare[self.version])(skips, x)
+                ViT_in = to_cuda(ViT_in, gpu_id=1)
+            else:
+                ViT_in = getattr(self, self.prepare[self.version])(skips, x)
 
-        # -- Pass the result from conv_blocks through ViT -- #
-        x = self.ViT(ViT_in)
+            # -- Pass the result from conv_blocks through ViT -- #
+            x = self.ViT(ViT_in)
+            del ViT_in
 
-        # -- Reshape result from ViT to input of self.tu[0] -- #
-        x = x.reshape(size)
+            # -- Reshape result from ViT to input of self.tu[0] -- #
+            x = x.reshape(size)
 
-        # -- Put x back to GPU 0 where the nnU-Net is located (only ViT is on GPU 1) -- #
-        if self.split_gpu:
-            x = x.to(0)
+            # -- Put x back to GPU 0 where the nnU-Net is located (only ViT is on GPU 1) -- #
+            if self.split_gpu:
+                x = to_cuda(x, gpu_id=0)
 
         #------------------------------------------ Modified from original implementation ------------------------------------------#
         # -- Combine the upsampling process with skip connections -- #
@@ -187,6 +243,22 @@ class Generic_ViT_UNet(Generic_UNet):
             x = self.tu[u](x)
             x = torch.cat((x, skips[-(u + 1)]), dim=1)
             x = self.conv_blocks_localization[u](x)
+            # -- ViT Version 4 --> Last upsampling will go through ViT before the sog_outputs
+            # if u == len(self.tu)-1 and self.version == 'V14':    #  --> Do not forget the ViT before seg_outputs, but only on the last upsample
+            if self.version == 'V4':    #  --> Do not forget the ViT before seg_outputs, but only on the last upsample
+                # -- Copy the size of the input for the Transformer -- #
+                size_seg = x.size()
+                
+                # -- Put x to GPU 1, where the whole other parts ViT and the rest are -- #
+                if self.split_gpu:
+                    x = to_cuda(x, gpu_id=1)
+                    x = self.ViT(x, u)
+                    x = x.reshape(size_seg)
+                    x = to_cuda(x, gpu_id=0)   # Put after processing back on GPU 0
+                else:
+                    x = self.ViT(x, u)
+                    x = x.reshape(size_seg)
+            # -- Put result through segmentation head -- #
             seg_outputs.append(self.final_nonlin(self.seg_outputs[u](x)))
 
         if self._deep_supervision and self.do_ds:
@@ -215,8 +287,11 @@ class Generic_ViT_UNet(Generic_UNet):
         deconv_skip = last_context
         for u in range(len(self.tu)):
             deconv_skip = self.tu[u](deconv_skip)
+        
         # -- Fuse the first skip connection with the upsampled result (followed as shown here: https://elib.dlr.de/134066/1/IGARSS2018.pdf) -- #
-        return skips[self.use_skip] + deconv_skip
+        res = skips[self.use_skip] + deconv_skip
+        del deconv_skip
+        return res
 
 
     def _get_ViT_inputV3(self, skips, last_context):
@@ -241,5 +316,6 @@ class Generic_ViT_UNet(Generic_UNet):
             # -- Fuse all upsampled results (followed as shown here: https://elib.dlr.de/134066/1/IGARSS2018.pdf) -- #
             ViT_in += deconv_skip
 
+        del deconv_skip
         # -- Return the fused result -- #
         return ViT_in
