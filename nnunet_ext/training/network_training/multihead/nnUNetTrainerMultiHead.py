@@ -7,7 +7,6 @@ import os, torch
 import numpy as np
 from itertools import tee
 from collections import OrderedDict
-from nnunet_ext.paths import default_plans_identifier
 from nnunet.utilities.nd_softmax import softmax_helper
 from nnunet.utilities.tensor_utilities import sum_tensor
 from nnunet_ext.training.model_restore import restore_model
@@ -22,7 +21,8 @@ from nnunet.training.loss_functions.deep_supervision import MultipleOutputLoss2
 from nnunet_ext.training.network_training.nnViTUNetTrainer import nnViTUNetTrainer
 from nnunet.training.dataloading.dataset_loading import load_dataset, unpack_dataset
 from nnunet.training.data_augmentation.data_augmentation_moreDA import get_moreDA_augmentation
-from nnunet_ext.utilities.helpful_functions import join_texts_with_char, nestedDictToFlatTable, dumpDataFrameToCsv
+from nnunet_ext.paths import default_plans_identifier, evaluation_output_dir, preprocessing_output_dir, default_plans_identifier
+from nnunet_ext.utilities.helpful_functions import join_texts_with_char, nestedDictToFlatTable, dumpDataFrameToCsv, delete_dir_con
 
 # -- Add this since default option file_descriptor has a limitation on the number of open files. -- #
 # -- Default config might cause the runtime error: RuntimeError: received 0 items of ancdata -- #
@@ -131,7 +131,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
 
         # -- Adjust the network_name in case of the nnUNetTrainer -- #
         if self.network_name not in ['2d', '3d_lowres', '3d_fullres']:   # <-- happens only in case of a conventional nnUNetTrainerV2 since the path is differently built
-            self.network_name = help_path[-4]
+            self.network_name = help_path[-6]
 
         # -- Set the extension for output file -- #
         self.extension = extension
@@ -181,8 +181,9 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                           transfer_heads)
 
     def process_plans(self, plans):
-        r"""Modify the original function. This just reduces the batch_size by half.
-        """# -- Initialize using parent class -- #
+        r"""Modify the original function. This just reduces the batch_size by half and manages the correct initialization of the network.
+        """
+        # -- Initialize using parent class -- #
         super().process_plans(plans)
 
         # -- Reduce the batch_size by half after it has been set by super class --> only if ViT is used -- #
@@ -190,7 +191,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         if self.use_vit:
             self.batch_size = self.batch_size // 2
 
-    def initialize(self, training=True, force_load_plans=False, num_epochs=500, prev_trainer_path=None):
+    def initialize(self, training=True, force_load_plans=False, num_epochs=500, prev_trainer_path=None, call_for_eval=False):
         r"""Overwrite parent function, since we want to include a prev_trainer that is used as a base for the Multi Head Trainer.
             Further the num_epochs should be set by the user if desired.
         """
@@ -198,7 +199,10 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # -- It should be already initialized since the output_folder will be used. If it is None, the model will be initialized and trained. -- #
         # -- Further the trainer needs to be of class nnUNetTrainerV2 or nnUNetTrainerMultiHead for this method, nothing else. -- #
         # -- Set prev_trainer_path correctly as class instance and not a string -- #
-        self.trainer_path = prev_trainer_path
+        if prev_trainer_path is not None and not call_for_eval:
+            self.trainer_path = join(self._build_output_path(prev_trainer_path, False), "fold_%s" % str(self.fold))
+        else:   # If for eval, then this is a nnUNetTrainerV2 whereas the path is not build as implemented in _build_output_path
+            self.trainer_path = prev_trainer_path
         
         # -- Initialize using super class -- #
         super().initialize(training, force_load_plans) # --> This updates the corresponding variables automatically since we inherit this class
@@ -226,6 +230,14 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             Optimizer and lr initialization is still the same, since only the network is different.
         """
         if self.trainer_path is None:
+            # -- Specify if 2d or 3d plans is necessary -- #
+            _2d_plans = "_plans_2D.pkl" in self.plans_file
+            # -- Load the correct plans file, ie. the one from the first task -- #
+            self.process_plans(load_pickle(join(preprocessing_output_dir, self.tasks_list_with_char[0][0], self.identifier + "_plans_2D.pkl" if _2d_plans else self.identifier + "_plans_3D.pkl")))
+            # -- Backup the patch_size since we need to restore it again -- #
+            patch_size = self.patch_size
+            net_num_pool_op_kernel_sizes = self.net_num_pool_op_kernel_sizes
+
             # -- Create a Multi Head Generic_UNet from the current network using the provided split and first task name -- #
             # -- Do not rely on self.task for initialization, since the user might provide the wrong task (unintended), -- #
             # -- however for self.plans, the user needs to extract the correct plans_file path by himself using always the -- #
@@ -236,7 +248,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                 self.mh_network = MultiHead_Module(Generic_ViT_UNet, self.split, self.tasks_list_with_char[0][0], prev_trainer=self.network,
                                                    input_channels=self.num_input_channels, base_num_features=self.base_num_features,\
                                                    num_classes=self.num_classes, num_pool=len(self.net_num_pool_op_kernel_sizes),\
-                                                   patch_size=self.patch_size.tolist(), vit_version=self.version, vit_type=self.vit_type,\
+                                                   patch_size=patch_size.tolist(), vit_version=self.version, vit_type=self.vit_type,\
                                                    split_gpu=self.split_gpu)
             else:
                 # -- Initialize from beginning and start training, since no model is provided -- #
@@ -244,6 +256,13 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                 self.mh_network = MultiHead_Module(Generic_UNet, self.split, self.tasks_list_with_char[0][0], prev_trainer=self.network,
                                                    input_channels=self.num_input_channels, base_num_features=self.base_num_features,\
                                                    num_classes=self.num_classes, num_pool=len(self.net_num_pool_op_kernel_sizes))
+                
+            # -- Load the correct plans file again, ie. the one from the current task -- #
+            self.process_plans(load_pickle(self.plans_file))
+            # -- Update the loss so there will be no error during forward function -- #
+            self._update_loss_after_plans_change(net_num_pool_op_kernel_sizes, patch_size)  # patch_size etc. is restored in here
+            del patch_size, net_num_pool_op_kernel_sizes
+
             # -- Add the split to the already_trained_on since it is simplified by now -- #
             self.already_trained_on[str(self.fold)]['used_split'] = self.mh_network.split
             # -- Save the updated dictionary as a json file -- #
@@ -264,39 +283,16 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         pkl_file = checkpoint + ".pkl"
         use_extension = not 'nnUNetTrainerV2' in self.trainer_path
         self.trainer_model = restore_model(pkl_file, checkpoint, train=False, fp16=self.mixed_precision,\
-                                           use_extension=use_extension, extension_type=self.extension)      
+                                           use_extension=use_extension, extension_type=self.extension)
         self.trainer_model.initialize(True)
         # -- Delete the created log_file from the restored model and set it to None since we don't need it (eg. during eval) -- #
         if self.del_log:
             os.remove(self.trainer_model.log_file)
             self.trainer_model.log_file = None
 
-        print("Updating the Loss based on the provided previous trainer")
-        # -- Update the number of outputs in the self class as well, otherwise the default might be used which might lead to an error during the training -- #
-        self.net_num_pool_op_kernel_sizes = self.trainer_model.net_num_pool_op_kernel_sizes
-        # -- Update the patch_size as well or the validation after an epoch might fail -- #
-        self.patch_size = self.trainer_model.patch_size
+        # -- Update the loss so there will be no error during forward function -- #
+        self._update_loss_after_plans_change(self.trainer_model.net_num_pool_op_kernel_sizes, self.trainer_model.patch_size)
 
-        #------------------------------------------ Partially copied from original implementation ------------------------------------------#
-        ################# Here we wrap the loss for deep supervision ############
-        # we need to know the number of outputs of the network
-        net_numpool = len(self.net_num_pool_op_kernel_sizes)
-
-        # we give each output a weight which decreases exponentially (division by 2) as the resolution decreases
-        # this gives higher resolution outputs more weight in the loss
-        weights = np.array([1 / (2 ** i) for i in range(net_numpool)])
-
-        # we don't use the lowest 2 outputs. Normalize weights so that they sum to 1
-        mask = np.array([True] + [True if i < net_numpool - 1 else False for i in range(1, net_numpool)])
-        weights[~mask] = 0
-        weights = weights / weights.sum()
-        self.ds_loss_weights = weights
-        # now wrap the loss
-        self.loss = DC_and_CE_loss({'batch_dice': self.batch_dice, 'smooth': 1e-5, 'do_bg': False}, {}) # Redefine this since at this stage self.loss is a MultipleOutputLoss2
-        self.loss = MultipleOutputLoss2(self.loss, self.ds_loss_weights)
-        ################# END ###################
-        #------------------------------------------ Partially copied from original implementation ------------------------------------------#
-    
         # -- Some sanity checks and loads.. -- #
         # -- Check if the trainer contains plans.pkl file which it should have after sucessfull training -- #
         if 'fold_' in self.trainer_model.output_folder:
@@ -316,16 +312,18 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # -- Use the first task in tasks_joined_name, since this represents the corresponding task name, whereas self.task -- #
         # -- is the task to train on, which is not equal to the one that will be initialized now using a pre-trained network -- #
         # -- (prev_trainer). -- #
-        if self.use_vit:
-            self.mh_network = MultiHead_Module(Generic_ViT_UNet, self.split, self.tasks_list_with_char[0][0], prev_trainer=self.network,
+        if self.trainer_model.__class__.__name__ == nnUNetTrainerV2.__name__:   # Important when doing evaluation, since nnUNetTrainerV2 has no mh_network
+            self.mh_network = MultiHead_Module(Generic_UNet, self.split, self.tasks_list_with_char[0][0], prev_trainer=self.trainer_model.network,
+                                               input_channels=self.num_input_channels, base_num_features=self.base_num_features,\
+                                               num_classes=self.num_classes, num_pool=len(self.net_num_pool_op_kernel_sizes))
+        elif self.trainer_model.__class__.__name__ == nnViTUNetTrainer.__name__:   # Important when doing evaluation, since nnUNetTrainerV2 has no mh_network
+            self.mh_network = MultiHead_Module(Generic_ViT_UNet, self.split, self.tasks_list_with_char[0][0], prev_trainer=self.trainer_model.network,
                                                input_channels=self.num_input_channels, base_num_features=self.base_num_features,\
                                                num_classes=self.num_classes, num_pool=len(self.net_num_pool_op_kernel_sizes),\
                                                patch_size=self.patch_size.tolist(), vit_version=self.version, vit_type=self.vit_type,\
                                                split_gpu=self.split_gpu)
         else:
-            self.mh_network = MultiHead_Module(Generic_UNet, self.split, self.tasks_list_with_char[0][0], prev_trainer=self.trainer_model.network,
-                                               input_channels=self.num_input_channels, base_num_features=self.base_num_features,\
-                                               num_classes=self.num_classes, num_pool=len(self.net_num_pool_op_kernel_sizes))
+            self.mh_network = self.trainer_model.mh_network
 
         if not self.trainer_model.__class__.__name__ == nnUNetTrainerV2.__name__\
         and not self.trainer_model.__class__.__name__ == nnViTUNetTrainer.__name__: # Do not use isinstance, since nnUNetTrainerMultiHead is instance of nnUNetTrainerV2 
@@ -342,8 +340,8 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         
         # -- Set self.network to the model in mh_network --> otherwise the network is not initialized and not in right type -- #
         self.network = self.trainer_model.network    # Does not matter what the model is, will be updated in run_training anyway
-
-    def reinitialize(self, task):
+    
+    def reinitialize(self, task, print_loss_info=True):
         r"""This function is used to reinitialize the Multi Head Trainer when a new task is trained.
             Basically the dataloaders are created again with the new task data. This function will only
             be used when training before running the actual training.
@@ -367,7 +365,8 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # -- Get default configuration for nnunet/nnunet_ext model -- #
         plans_file, _, self.dataset_directory, _, stage, \
         _ = get_default_configuration(self.network_name, task, running_task, self.trainer_class_name,\
-                                      self.tasks_joined_name, self.identifier, extension_type=self.extension)
+                                      self.tasks_joined_name, self.identifier, extension_type=self.extension,\
+                                      print_loss_info=print_loss_info)
 
         # -- Load the plans file -- #
         self.plans = load_pickle(plans_file)
@@ -378,6 +377,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                                             
         # -- Create the corresponding dataloaders for train and val (dataset loading and split performed in function) -- #
         # -- Since we do validation, there is no need to unpack the data -- #
+        del self.dl_tr, self.dl_val # --> Avoid memory leak
         self.dl_tr, self.dl_val = self.get_basic_generators()
         
         # -- Unpack the dataset if this is desired -- #
@@ -385,6 +385,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             unpack_dataset(self.folder_with_preprocessed_data)
 
         # -- Extract corresponding self.val_gen --> the used function is extern and does not change any values from self -- #
+        del self.tr_gen, self.val_gen # --> Avoid memory leak
         self.tr_gen, self.val_gen = get_moreDA_augmentation(self.dl_tr, self.dl_val,
                                                             self.data_aug_params['patch_size_for_spatialtransform'],
                                                             self.data_aug_params,
@@ -434,7 +435,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         
         # -- Delete the trainer_model (used for restoring) -- #
         self.trainer_model = None
-
+        
         # -- Run the training from parent class -- #
         ret = super().run_training()
 
@@ -515,6 +516,9 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                                   will be selected based on the task that the model gets validated on.
             NOTE: Have a look at nnunet_ext/run/run_evaluation.py to see how this function can be 'misused' for evaluation purposes.
         """
+        # -- Assert if eval but not eval output dir in path -- #
+        if call_for_eval:
+            assert join(*evaluation_output_dir.split(os.path.sep)[:-1]) in self.output_folder, "You want to perform an evaluation but the output folder does not represent the one for Evaluation results.."
         # -- Ensure that evaluation is performed per subject not per batch as usual -- #
         self.eval_batch = False
 
@@ -610,14 +614,20 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         self.network.train()
 
         # -- Save the dictionary as json file in the corresponding output_folder -- #
-        save_json(self.validation_results, join(self.output_folder, 'val_metrics.json'), sort_keys=False)
+        if call_for_eval:
+            save_json(self.validation_results, join(self.output_folder, 'val_metrics_eval.json'), sort_keys=False)
+        else:
+            save_json(self.validation_results, join(self.output_folder, 'val_metrics.json'), sort_keys=False)
 
         # -- Save as csv if desired as well -- #
         if self.csv:
             # -- Transform the nested dict into a flat table -- #
             val_res = nestedDictToFlatTable(self.validation_results, ['Epoch', 'Task', 'subject_id', 'seg_mask', 'metric', 'value'])
             # -- Dump validation_results as csv file -- #
-            dumpDataFrameToCsv(val_res, self.output_folder, 'val_metrics.csv')
+            if call_for_eval:
+                dumpDataFrameToCsv(val_res, self.output_folder, 'val_metrics_eval.csv')
+            else:
+                dumpDataFrameToCsv(val_res, self.output_folder, 'val_metrics.csv')
 
         # -- Update already_trained_on if not already done before and only if this is not called during evaluation -- #
         if not call_for_eval and not self.already_trained_on[str(self.fold)]['val_metrics_should_exist']:
@@ -630,6 +640,27 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         
         # -- Ensure that evaluation is performed per batch from here on as usual -- #
         self.eval_batch = True
+
+        # -- If this is executed during evaluation and metadata is stored in evaluation_folder then delete it -- #
+        if call_for_eval and join(*evaluation_output_dir.split(os.path.sep)[:-1]) in self.trained_on_path:
+            try:
+                # -- Try to delete the metadata folder, since this one is empty -- #
+                meta_path = join(os.path.sep, *self.trained_on_path.split(os.path.sep)[:self.trained_on_path.split(os.path.sep).index('metadata')+1])
+                if os.path.exists(meta_path) and os.path.isdir(meta_path):
+                    try:
+                        delete_dir_con(meta_path)
+                    except ValueError:
+                        pass
+            except ValueError:
+                pass
+        
+        # -- Delete the already_trained_on file if it still exists (only during eval) -- #
+        if call_for_eval and 'metadata' not in self.trained_on_path:    # --> somewhere else a new already_trained_on file is created
+            try:
+                if os.path.exists(join(self.trained_on_path, self.extension+'_trained_on.json')):
+                    os.remove(join(self.trained_on_path, self.extension+'_trained_on.json'))
+            except OSError:
+                pass
 
     #------------------------------------------ Partially copied from original implementation ------------------------------------------#
     def run_online_evaluation(self, output, target):
@@ -948,7 +979,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             output_folder = os.path.join(*output_folder.split(os.path.sep)[:-1])
 
         # -- Specify if this is a ViT Architecture or not, since the paths are different -- #
-        if self.use_vit:
+        if self.use_vit:# or nnViTUNetTrainer.__name__ in output_folder:
             # -- Update the output_folder accordingly -- #
             if self.version != output_folder.split(os.path.sep)[-1] and self.version not in output_folder:
                 if not meta_data:
@@ -959,7 +990,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             # -- Add the vit_type before the fold -- #
             if self.vit_type != output_folder.split(os.path.sep)[-1] and self.vit_type not in output_folder:
                 output_folder = os.path.join(output_folder, self.vit_type)
-        else:
+        elif nnViTUNetTrainer.__name__ not in output_folder:    # Then Generic_UNet is used --> will not apply if ViT Trainer + evaluation
             # -- Generic_UNet will be used so update the path accordingly -- #
             if Generic_UNet.__name__ != output_folder.split(os.path.sep)[-1] and Generic_UNet.__name__ not in output_folder:
                 if not meta_data:
@@ -970,5 +1001,33 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # -- In every case, change the current folder in such a way that there is an indication if transfer_heads was true or false -- #
         if 'MH' not in output_folder and 'SEQ' not in output_folder:
             output_folder = os.path.join(output_folder, 'SEQ') if self.transfer_heads else os.path.join(output_folder, 'MH')
-
+        
+        # -- Return the folder -- #
         return output_folder
+
+    def _update_loss_after_plans_change(self, net_num_pool_op_kernel_sizes, patch_size):
+        # -- Reset the internal net_num_pool_op_kernel_sizes and patch_size -- #
+        print("Updating the Loss based on the provided previous trainer")
+        self.net_num_pool_op_kernel_sizes = net_num_pool_op_kernel_sizes
+        self.patch_size = patch_size
+
+        # -- Updating the loss accordingly so that the forward function will not fail due to plans changing and different task -- #
+        #------------------------------------------ Partially copied from original implementation ------------------------------------------#
+        ################# Here we wrap the loss for deep supervision ############
+        # we need to know the number of outputs of the network
+        net_numpool = len(self.net_num_pool_op_kernel_sizes)
+
+        # we give each output a weight which decreases exponentially (division by 2) as the resolution decreases
+        # this gives higher resolution outputs more weight in the loss
+        weights = np.array([1 / (2 ** i) for i in range(net_numpool)])
+
+        # we don't use the lowest 2 outputs. Normalize weights so that they sum to 1
+        mask = np.array([True] + [True if i < net_numpool - 1 else False for i in range(1, net_numpool)])
+        weights[~mask] = 0
+        weights = weights / weights.sum()
+        self.ds_loss_weights = weights
+        # now wrap the loss
+        self.loss = DC_and_CE_loss({'batch_dice': self.batch_dice, 'smooth': 1e-5, 'do_bg': False}, {}) # Redefine this since at this stage self.loss is a MultipleOutputLoss2
+        self.loss = MultipleOutputLoss2(self.loss, self.ds_loss_weights)
+        ################# END ###################
+        #------------------------------------------ Partially copied from original implementation ------------------------------------------#

@@ -91,16 +91,103 @@ class VisionTransformer(VisionTransformer2D):
             expected, while no error is thrown (worst case scenario) --> Ensure to provide the correct dimensions
             given the desired Architecture.
         """
-        # -- Firstly, initialize a 2D ViT using the timm implementation -- #
-        super(VisionTransformer, self).__init__(img_size, patch_size, in_chans, num_classes, embed_dim, depth,
+        # -- Check first if multiple img_sizes are transmitted --> if so, we need multiple patch_embed heads -- #
+        self.block_patch = isinstance(img_size[0], (tuple, list))
+
+        # -- Firstly, initialize a 2D ViT using the timm implementation if only one img_size -- #
+        if self.block_patch:
+            assert isinstance(img_size[0], (tuple, list)) and isinstance(patch_size[0], (tuple, list)) and isinstance(in_chans, list) and isinstance(num_classes, list),\
+                    "When using multiple image sizes for a multi patch embedding, then the patch sizes, input channels and num_classes have to be of the same length and order as well.."
+            if not ViT_2d:
+                assert isinstance(img_depth, list), "When using multiple image sizes for a multi patch embedding (3D), then multiple image depths have to be provided as well.."
+
+        init_size = img_size[0] if self.block_patch else img_size
+        init_patch = patch_size[0] if self.block_patch else patch_size
+        init_channel = in_chans[0] if self.block_patch else in_chans
+        init_classes = num_classes[0] if self.block_patch else num_classes
+        
+        super(VisionTransformer, self).__init__(init_size[1:] if len(init_size) == 3 else init_size, init_patch, init_channel, init_classes, embed_dim, depth,
                                                 num_heads, mlp_ratio, qkv_bias, representation_size, distilled,
                                                 drop_rate, attn_drop_rate, drop_path_rate, embed_layer, norm_layer,
                                                 act_layer, weight_init)
-        # -- If the user wants a 3D ViT, make corresponding adjustments -- #
-        if not ViT_2d:
-            # -- Recreate the patch_embedding and extract num_patches -- #
-            self.patch_embed = embed_layer(img_size=img_size, patch_size=patch_size, img_depth=img_depth, in_chans=in_chans, embed_dim=embed_dim, embed2D=False)
-            num_patches = self.patch_embed.num_patches
+                                                
+        # -- Define empty list of all the patch_embeddings and the heads -- #
+        self.patch_embeds = []
+        if distilled:
+            self.head_dists = []
+        self.heads = []
 
-            # -- Recreate positional embedding with updated num_patches -- #
-            self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + self.num_tokens, embed_dim))
+        # -- Modify if it is a 3D ViT -- #
+        if not ViT_2d:
+            # -- Modify the patch embedding so it becomes a 3D embedding -- #
+            init_size = init_size[1:] if len(init_size) == 3 else init_size
+            self.patch_embed = embed_layer(img_size=init_size, patch_size=init_patch, img_depth=img_depth[0], in_chans=init_channel, embed_dim=embed_dim, embed2D=False)
+            
+        # -- Add the already initialized one into this list -- #
+        self.patch_embeds.append(self.patch_embed)
+        self.heads.append(self.head)
+        if distilled:
+            self.head_dists.append(self.head_dist)
+
+        # -- Add all other patch_embed as well to the list 2D or 3D based on ViT_2d flag -- #
+        if self.block_patch:
+            for idx, size in enumerate(img_size[1:]):   # Skip the first one since it is already in the list
+                # -- Patch Embeddings -- #
+                if ViT_2d:  # 2D ViT
+                    self.patch_embeds.append(
+                        embed_layer(img_size=size, patch_size=patch_size[idx+1], img_depth=None, in_chans=in_chans[idx+1], embed_dim=embed_dim, embed2D=True)
+                    )
+                else:       # 3D ViT
+                    self.patch_embeds.append(
+                        embed_layer(img_size=size[1:], patch_size=patch_size[idx+1], img_depth=img_depth[idx+1], in_chans=in_chans[idx+1], embed_dim=embed_dim, embed2D=False)
+                    )
+                # -- ViT Heads -- #
+                self.heads.append(nn.Linear(self.num_features, num_classes[idx+1]) if num_classes[idx+1] > 0 else nn.Identity())
+                if distilled:
+                    self.head_dists.append(nn.Linear(self.embed_dim, num_classes[idx+1]) if num_classes[idx+1] > 0 else nn.Identity())
+        
+        # -- Add all positional embeddings as well -- #
+        for idx, patch_e in enumerate(self.patch_embeds):
+            # -- Build pos_embed name and assign it -- #
+            setattr(self, 'pos_embed_'+str(idx), nn.Parameter(torch.zeros(1, patch_e.num_patches + self.num_tokens, embed_dim)))
+            
+        # -- Transform the embedding lists into correct ModuleLists and we're done with the building part -- #
+        self.patch_embeds = nn.ModuleList(self.patch_embeds)
+        self.heads = nn.ModuleList(self.heads)
+        if distilled:
+            self.head_dists = nn.ModuleList(self.head_dists)
+            del self.head_dist
+        else:
+            self.head_dists = None
+
+        # -- Clean the self variables as well since we don't need them anymore -- #
+        del self.patch_embed, self.pos_embed, self.head
+
+
+    def forward_features(self, x, idx): # Modified so idx specifies which embeddings to use
+        x = self.patch_embeds[idx](x)
+        cls_token = self.cls_token.expand(x.shape[0], -1, -1)  # stole cls_tokens impl from Phil Wang, thanks
+        if self.dist_token is None:
+            x = torch.cat((cls_token, x), dim=1)
+        else:
+            x = torch.cat((cls_token, self.dist_token.expand(x.shape[0], -1, -1), x), dim=1)
+        x = self.pos_drop(x + getattr(self, 'pos_embed_' + str(idx)))
+        x = self.blocks(x)
+        x = self.norm(x)
+        if self.dist_token is None:
+            return self.pre_logits(x[:, 0])
+        else:
+            return x[:, 0], x[:, 1]
+
+    def forward(self, x, idx=0):  # Modified so idx specified which embeddings to use
+        x = self.forward_features(x, idx)
+        if self.head_dists is not None:
+            x, x_dist = self.heads[idx](x[0]), self.head_dists[idx](x[1])  # x must be a tuple
+            if self.training and not torch.jit.is_scripting():
+                # during inference, return the average of both classifier predictions
+                return x, x_dist
+            else:
+                return (x + x_dist) / 2
+        else:
+            x = self.heads[idx](x)
+        return x

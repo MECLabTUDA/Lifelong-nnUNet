@@ -17,6 +17,10 @@ def delete_dir_con(path):
         if it still exists.
         :param path: Full path to the folder for which the content needs to be deleted
     """
+    # -- Ensure that the path starts with '/' -- #
+    if path[0] != os.path.sep:
+        path = os.path.join(os.path.sep, *path.split(os.path.sep))
+
     # -- Delete content of the folder -- #
     shutil.rmtree(path)
 

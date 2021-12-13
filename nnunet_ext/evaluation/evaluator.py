@@ -23,7 +23,8 @@ from nnunet.run.default_configuration import get_default_configuration as get_de
 # -- Import the trainer classes -- #
 from nnunet_ext.training.network_training.nnViTUNetTrainer import nnViTUNetTrainer
 from nnunet_ext.training.network_training.multihead.nnUNetTrainerMultiHead import nnUNetTrainerMultiHead
-from nnunet_ext.training.network_training.sequential.nnUNetTrainerSequential import nnUNetTrainerSequential
+# from nnunet_ext.training.network_training.sequential.nnUNetTrainerSequential import nnUNetTrainerSequential
+# from nnunet_ext.training.network_training.freezed_vit.nnUNetTrainerFreezedViT import nnUNetTrainerFreezedViT
 
 class Evaluator():  # Do not inherit the one from the nnunet implementation since ours is different
     r"""Class that can be used to perform an Evaluation on any nnUNet related Trainer.
@@ -62,11 +63,12 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
         self.__init__(network, network_trainer, tasks_list_with_char, model_list_with_char, plans_identifier,
                       mixed_precision, extension, save_csv)
 
-    def evaluate_on(self, folds, tasks, use_head=None):
+    def evaluate_on(self, folds, tasks, use_head=None, always_use_last_head=False):
         r"""This function performs the actual evaluation given the transmitted tasks.
             :param folds: List of integer values specifying the folds on which the evaluation should be performed.
             :param tasks: List with tasks following the Task_XXX structure/name for direct loading.
             :param use_head: A task specifying which head to use --> if it is set to None, the last trained head will be used if necessary.
+            :param always_use_last_head: Specifies if only the last head is used for the evaluation.
         """
         # ---------------------------------------------
         # Evaluate for each task and all provided folds
@@ -139,12 +141,14 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
                 trainer = nnUNetTrainerMultiHead('seg_outputs', self.tasks_list_with_char[0][0], plans_file, t_fold, output_folder=output_path,\
                                                  dataset_directory=dataset_directory, tasks_list_with_char=(self.tasks_list_with_char[0], self.tasks_list_with_char[1]),\
                                                  batch_dice=batch_dice, stage=stage, already_trained_on=None)
-                trainer.initialize(False, num_epochs=0, prev_trainer_path=prev_trainer_path)
+                trainer.initialize(False, num_epochs=0, prev_trainer_path=prev_trainer_path, call_for_eval=True)
                 # -- Reset the epoch -- #
                 trainer.epoch = epoch
 
             # -- Set trainer output path to evaluation folder and set csv attribute as desired -- #
-            trainer.output_folder = join(output_path, 'fold_'+str(t_fold))
+            # trainer.output_folder = join(trainer.output_folder, 'fold_'+str(t_fold))
+            if join(*evaluation_output_dir.split(os.path.sep)[:-1]) not in trainer.output_folder:
+                trainer.output_folder = join(output_path, 'fold_'+str(t_fold))
             trainer.csv = self.save_csv
                 
             # -- Adapt the already_trained_on with only the prev_trainer part since this is necessary for the validation part -- #
@@ -161,7 +165,8 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
             start_time = time()
 
             # -- Delete all heads except the last one if it is a Sequential Trainer, since then always the last head should be used -- #
-            if nnUNetTrainerSequential.__name__ in self.network_trainer:
+            if always_use_last_head:
+            # if nnUNetTrainerSequential.__name__ in self.network_trainer or nnUNetTrainerFreezedViT.__name__ in self.network_trainer or always_use_last_head:
                 # -- Create new heads dict that only contains the last head -- #
                 last_name = list(trainer.mh_network.heads.keys())[-1]
                 last_head = trainer.mh_network.heads[last_name]
@@ -172,12 +177,12 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
             trainer._perform_validation(use_tasks=tasks, use_head=use_head, call_for_eval=True)
 
             # -- Update the log file -- #
-            trainer.print_to_log_file("Finished with the evaluation on fold {}. The results can be found at: {} or {}.\n".format(t_fold, join(trainer.output_folder, 'val_metrics.csv'), join(trainer.output_folder, 'val_metrics.json')))
+            trainer.print_to_log_file("Finished with the evaluation on fold {}. The results can be found at: {} or {}.\n".format(t_fold, join(trainer.output_folder, 'val_metrics_eval.csv'), join(trainer.output_folder, 'val_metrics_eval.json')))
             
             # -- Update the log file -- #
             trainer.print_to_log_file("Summarizing the results (calculate mean and std)..")
             # -- Load the validation_metrics -- #
-            data = pd.read_csv(join(trainer.output_folder, 'val_metrics.csv'), sep = '\t')
+            data = pd.read_csv(join(trainer.output_folder, 'val_metrics_eval.csv'), sep = '\t')
             # -- Calculate the mean and std values for all tasks per masks and metrics over all subjects -- #
             # -- Extract all relevant information like tasks, metrics and seg_masks -- #
             eval_tasks = data['Task'].unique()

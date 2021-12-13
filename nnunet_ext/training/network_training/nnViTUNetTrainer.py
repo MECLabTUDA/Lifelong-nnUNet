@@ -104,6 +104,6 @@ class nnViTUNetTrainer(nnUNetTrainerV2): # Inherit default trainer class for 2D,
             # -- When the user wants to split the network, put everything defined in network.split_names onto second GPU -- #
             if self.split_gpu:
                 for name in self.network.split_names:
-                    getattr(self.network, name).to(1)
+                    getattr(self.network, name).cuda(1)
         self.network.inference_apply_nonlin = softmax_helper
         #------------------------------------------ Modified from original implementation ------------------------------------------#

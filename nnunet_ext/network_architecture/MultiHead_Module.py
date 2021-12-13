@@ -418,6 +418,14 @@ class MultiHead_Module(nn.Module):
                 # -- Go one layer deeper -- #
                 body, parents = self._join_body_head_recursively(body, module, parents)
 
+            else:
+                if len(parents) > 0:
+                    # -- We are in a deeper layer so use the tracked path to add the module at correct position -- #
+                    setattr(attrgetter('.'.join(parents))(body), name, module)
+                else:
+                    # -- No parent exist, ie. first layer, than just add the module -- #
+                    setattr(body, name, module)
+
         # -- Return the updated body, head and parent without the current node -- #
         return body, parents[:-1]
     
@@ -446,7 +454,7 @@ class MultiHead_Module(nn.Module):
             # -- Register the provided model -- #
             self.heads[task] = copy.deepcopy(model)
 
-    def add_n_tasks_and_activate(self, list_of_tasks, activate_with):
+    def add_n_tasks_and_activate(self, list_of_tasks, activate_with, remove_old_tasks=True):
         r"""Use this function to initialize for each task name in the list a new head. --> Important when restoring a model,
             since the heads are not created in this init function and need to be set manually before loading a state_dict
             that includes n heads. Further, self.model will be assembled based on activate_with. In the case of calling
@@ -455,6 +463,7 @@ class MultiHead_Module(nn.Module):
             with wrong state_dict eg.).
             :param list_of_tasks: List of strings representing the task names
             :param activate_with: String, for instance a task that is used to assemble self.model
+            :param remove_old_tasks: Bool, indicating if all heads that are not mentioned in list_of_tasks should be removed
         """
         # -- Loop through list of tasks -- #
         for task in list_of_tasks:
@@ -462,11 +471,12 @@ class MultiHead_Module(nn.Module):
             if task not in self.heads:
                 self.add_new_task(task, use_init=True)
 
-        # -- Remove all heads that are not in the list_of_tasks -- #
-        for task in self.heads.keys():
-            if task not in list_of_tasks:
-                # -- Remove it from the head -- #
-                del self.heads[task]
+        # -- Remove all heads that are not in the list_of_tasks if desired -- #
+        if remove_old_tasks:
+            for task in list(self.heads.keys()):
+                if task not in list_of_tasks:
+                    # -- Remove it from the head -- #
+                    del self.heads[task]
 
         # -- Assemble the model based on activate_with -- #
         self.assemble_model(activate_with)

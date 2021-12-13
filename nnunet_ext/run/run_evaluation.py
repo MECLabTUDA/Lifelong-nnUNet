@@ -28,7 +28,7 @@ def run_evaluation():
                         default=default_plans_identifier, required=False)
     
     # -- Additional arguments specific for multi head training -- #
-    parser.add_argument("-f", "--folds",  action='store', type=int, nargs="+",
+    parser.add_argument("-f", "--folds",  action='store', type=str, nargs="+",
                         help="Specify on which folds to train on. Use a fold between 0, 1, ..., 4 or \'all\'", required=True)
     parser.add_argument("-trained_on", action='store', type=str, nargs="+",
                         help="Specify a list of task ids the network has trained with to specify the correct path to the networks. "
@@ -56,7 +56,7 @@ def run_evaluation():
                             ' as a .csv file as well. Default: .csv are not created.')
     parser.add_argument("-v", "--version", action='store', type=int, nargs=1, default=[1],
                         help='Select the ViT input building version. Currently there are only three'+
-                            ' possibilities: 1, 2 or 3.'+
+                            ' possibilities: 1, 2, 3 or 4.'+
                             ' Default: version one will be used. For more references wrt, to the versions, see the docs.')
     parser.add_argument("-v_type", "--vit_type", action='store', type=str, nargs=1, default='base',
                         help='Specify the ViT architecture. Currently there are only three'+
@@ -68,11 +68,22 @@ def run_evaluation():
     parser.add_argument('--transfer_heads', required=False, default=False, action="store_true",
                         help='Set this flag if a new head will be initialized using the last head'
                             ' during training. Default: The very first head from the initialization of the class is used.')
+    parser.add_argument('--use_mult_gpus', action='store_true', default=False,
+                        help='If this is set, the ViT model will be placed onto a second GPU. '+
+                             'When this is set, more than one GPU needs to be provided when using -d.')
+    parser.add_argument('--always_use_last_head', action='store_true', default=False,
+                        help='If this is set, during the evaluation, always the last head will be used, '+
+                             'for every dataset the evaluation is performed on. When an extension network was trained with'+
+                             'the transfer_heads flag then this should be set, i.e. nnUNetTrainerSequential or nnUNetTrainerFreezedViT.')
 
     # -- Build mapping for network_trainer to corresponding extension name -- #
-    ext_map = {'nnUNetTrainerMultiHead': 'multihead', 'nnUNetTrainerSequential': 'sequential',
-               'nnUNetTrainerRehearsal': 'rehearsal', 'nnUNetTrainerEWC': 'ewc', 'nnUNetTrainerLWF': 'lwf',
-               'nnUNetTrainerV2': 'standard', 'nnViTUNetTrainer': None, 'nnViTUNetTrainerCascadeFullRes': None}
+    ext_map = {'nnViTUNetTrainer': None, 'nnViTUNetTrainerCascadeFullRes': None,
+               'nnUNetTrainerFreezedViT': 'freezed_vit', 'nnUNetTrainerEWCViT': 'ewc_vit',
+               'nnUNetTrainerFreezedNonLN': 'freezed_nonln', 'nnUNetTrainerEWCLN': 'ewc_ln',
+               'nnUNetTrainerMultiHead': 'multihead', 'nnUNetTrainerSequential': 'sequential',
+               'nnUNetTrainerFreezedUNet': 'freezed_unet', 'nnUNetTrainerEWCUNet': 'ewc_unet',
+               'nnUNetTrainerMiB': 'mib', 'nnUNetTrainerPLOP': 'plop', 'nnUNetTrainerV2': 'standard',
+               'nnUNetTrainerRehearsal': 'rehearsal', 'nnUNetTrainerEWC': 'ewc', 'nnUNetTrainerLWF': 'lwf'}
 
 
     # -------------------------------
@@ -83,6 +94,7 @@ def run_evaluation():
     network = args.network
     network_trainer = args.network_trainer
     plans_identifier = args.p
+    always_use_last_head = args.always_use_last_head
     
     # -- Extract the arguments specific for all trainers from argument parser -- #
     trained_on = args.trained_on    # List of the tasks that helps to navigate to the correct folder, eg. A B C
@@ -112,6 +124,12 @@ def run_evaluation():
     for idx, c in enumerate(cuda):
         assert c > -1 and c < 8, 'GPU device ID out of range (0, ..., 7).'
         cuda[idx] = str(c)  # Change type from int to str otherwise join_texts_with_char will throw an error
+
+    # -- Check if the user wants to split the network onto multiple GPUs -- #
+    split_gpu = args.use_mult_gpus
+    if split_gpu:
+        assert len(cuda) > 1, 'When trying to split the models on multiple GPUs, then please provide more than one..'
+        
     cuda = join_texts_with_char(cuda, ',')
     
     # -- Set cuda device as environment variable, otherwise other GPUs will be used as well ! -- #
@@ -121,7 +139,7 @@ def run_evaluation():
     version = args.version
     if isinstance(version, list):    # When the version gets returned as a list, extract the number to avoid later appearing errors
         version = version[0]
-    assert version in [1, 2, 3], 'We only provide three versions, namely 1, 2 or 3, but not {}..'.format(version)
+    assert version in range(1, 5), 'We only provide three versions, namely 1, 2, 3 or 4, but not {}..'.format(version)
     
     
     # -------------------------------
@@ -178,7 +196,7 @@ def run_evaluation():
     evaluator = Evaluator(network, network_trainer, (tasks_for_folder, char_to_join_tasks), (use_model_w_tasks, char_to_join_tasks), 
                           version, vit_type, plans_identifier, mixed_precision, ext_map[network_trainer], save_csv, transfer_heads,
                           use_vit)
-    evaluator.evaluate_on(fold, evaluate_on_tasks, use_head)
+    evaluator.evaluate_on(fold, evaluate_on_tasks, use_head, always_use_last_head)
 
 
 if __name__ == "__main__":

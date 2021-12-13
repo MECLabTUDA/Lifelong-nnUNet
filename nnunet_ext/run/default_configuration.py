@@ -14,7 +14,7 @@ from nnunet_ext.paths import network_training_output_dir, preprocessing_output_d
 
 #------------------------------------------- Partially copied from original implementation -------------------------------------------#
 def get_default_configuration(network, task, running_task, network_trainer, tasks_joined_name, plans_identifier=default_plans_identifier,
-                              search_in=None, base_module=None, extension_type='multihead'):
+                              search_in=None, base_module=None, extension_type='multihead', print_loss_info=True):
     r"""This function extracts paths to the plans_file, specifies the output_folder_name, dataset_directory, batch_dice, stage, and trainer_class.
         The extension type specifies which nnUNet extension will be used (multihead, rehearsal, etc.).
         When using the Generic_Vit_UNet (and only then), the running_task, tasks_joined_name and extension_type
@@ -93,10 +93,12 @@ def get_default_configuration(network, task, running_task, network_trainer, task
 
     if (network == '2d' or len(possible_stages) > 1) and not network == '3d_lowres':
         batch_dice = True
-        print("I am using batch dice + CE loss")
+        if print_loss_info:
+            print("I am using batch dice + CE loss")
     else:
         batch_dice = False
-        print("I am using sample dice + CE loss")
+        if print_loss_info:
+            print("I am using sample dice + CE loss")
 
     print("\nI am using data from this folder: ", join(dataset_directory, plans['data_identifier']))
     print("###############################################")

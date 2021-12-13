@@ -7,7 +7,7 @@
 # -- https://github.com/ContinualAI/colab/blob/master/notebooks/intro_to_continual_learning.ipynb. -- #
 # -- It represents the method proposed in the paper https://arxiv.org/pdf/1612.00796.pdf -- #
 
-import os, torch
+import torch
 from time import time
 from torch.cuda.amp import autocast
 from nnunet_ext.paths import default_plans_identifier
@@ -18,7 +18,7 @@ from nnunet_ext.training.loss_functions.deep_supervision import MultipleOutputLo
 from nnunet_ext.training.network_training.multihead.nnUNetTrainerMultiHead import nnUNetTrainerMultiHead
 
 
-class nnUNetTrainerEWC(nnUNetTrainerMultiHead): # Inherit default trainer class for 2D, 3D low resolution and 3D full resolution U-Net 
+class nnUNetTrainerEWC(nnUNetTrainerMultiHead):
     def __init__(self, split, task, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
                  identifier=default_plans_identifier, extension='ewc', ewc_lambda=0.4, tasks_list_with_char=None, mixed_precision=True,
@@ -79,9 +79,6 @@ class nnUNetTrainerEWC(nnUNetTrainerMultiHead): # Inherit default trainer class 
         # -- Define the path where the fisher and param values should be stored/restored -- #
         self.ewc_data_path = join(self.trained_on_path, 'ewc_data')
 
-        # print(self.ewc_data_path)
-        # raise
-
     def initialize(self, training=True, force_load_plans=False, num_epochs=500, prev_trainer_path=None):
         r"""Overwrite the initialize function so the correct Loss function for the EWC method can be set.
         """
@@ -117,9 +114,13 @@ class nnUNetTrainerEWC(nnUNetTrainerMultiHead): # Inherit default trainer class 
     def reinitialize(self, task):
         r"""This function is used to reinitialize the Multi Head Trainer when a new task is trained for the EWC Trainer.
             The most important thing here is that it sets the fisher and param values accordingly in the loss.
+            This should only be called when a new task is used --> by that time the new loss applies..
         """
         # -- Execute the super function -- # 
-        super().reinitialize(task)
+        super().reinitialize(task, False)
+
+        # -- Print Loss update -- #
+        self.print_to_log_file("I am using EWC loss now")
         
         # -- Put data on GPU since the data is moved to CPU before it is stored -- #
         for task in self.fisher.keys():

@@ -63,7 +63,7 @@ def test_multihead_network():
           assert False, "An error occured by trying to check if the head starts with the expected module, which should have worked if the split worked as expected"
 
         # -- Initialize one new task and perform a bunch of tests -- #
-        mh_network.add_new_task('single_addition')
+        mh_network.add_new_task('single_addition', True)
 
         # -- Check that the number of tasks changed and the keys are as desired -- #
         assert len(mh_network.heads.keys()) == 2, "The number of heads in the module is {} and not {} as expected.".format(len(mh_network.heads.keys()), 2)
@@ -104,7 +104,8 @@ def test_multihead_network():
         del model_1, model_2
         
         # -- Initialize 3 new tasks and check that everything is as expected -- #
-        mh_network.add_n_tasks_and_activate(['test_1', 'test_2', 'test_3'], 'test_2')
+        mh_network.add_n_tasks_and_activate(['test_1', 'test_2', 'test_3'], 'test_2', remove_old_tasks=False)
+        # -- All tasks that are not in the list should be removed by now -- #
         assert len(mh_network.heads.keys()) == 5, "The number of heads in the module is {} and not {} as expected.".format(len(mh_network.heads.keys()), 5)
         assert mh_network.active_task == 'test_2', "After activating a task the activated task should be updated as well when adding n tasks at once."
         # -- Just check if 'test_2' head and 'single_addition' head have same state_dicts --> Everything else is than equal as well -- #

@@ -4,7 +4,7 @@ This is a general description on how to use the Multi-Head Trainer to train the 
 
 
 ### Command Line Arguments
-The following arguments and flags represent the base arguments for all extension Trainers. Thus, they are extended with further arguments with respect to the corresponding Trainer. The arguments for the original nnUNet Trainer are the following and are still valid for the Multi-head Trainer.
+The following arguments and flags represent the base arguments for all extension Trainers. Thus, they are extended with further arguments with respect to the corresponding Trainer. The arguments for the original nnUNet Trainer are the following and are still valid for the Multi-Head Trainer.
 
 | tag_name | description | required | choices | default | 
 |:-:|-|:-:|:-:|:-:|
@@ -30,7 +30,7 @@ The following arguments are specifically added for all Trainers, including the M
 |:-:|-|:-:|:-:|:-:|
 | `-t` or `--task_ids` | Specify a list of task ids to train on (ids or names). Each of these ids must have a matching folder TaskXXX_TASKNAME in the raw data folder. | yes | -- | -- |
 | `-f` or `--folds` | Specify on which folds to train on. Use a fold between `0, 1, ..., 4` or `all`. | yes | -- | -- |
-| `-d` or `--device` | Try to train the model on the GPU device with <DEVICE> ID. Valid IDs: 0, 1, ..., 7. A List of IDs can be provided as well. Default: Only GPU device with ID 0 will be used. | no | -- | `[0]` |
+| `-d` or `--device` | Try to train the model on the GPU device with <GPU_ID>. Valid IDs: 0, 1, ..., 7. A List of IDs can be provided as well. Default: Only GPU device with ID 0 will be used. | no | -- | `[0]` |
 | `-s` or `--split_at` | Specify the path in the network in which the split will be performed. Use a single string for it, specify between layers using a dot `.` notation. This is a required field and no default will be set. Use the same names as present in the desired network architecture. | yes | -- | -- |
 | `-num_epochs` | Specify the number of epochs to train the model. | no | -- | `500` |
 | `-save_interval` | Specify after which epoch interval to update the saved data. | no | -- | `25` |
@@ -52,12 +52,12 @@ When talking about lists in command lines, this does not mean to provide a real 
 ### Exemplary use cases
 In the following, a few examples are shown representing possible use cases on how to use the Multi Head Trainer.
 
-One of the easiest and simplest example is to simply train on a bunch of tasks, for example `Task011_XYZ`, `Task012_XYZ` and `Task013_XYZ`. Each task should be trained for 250 epochs, whereas every 25th epoch, the stored data is updated and the results are stored in a `.csv` file. Additionally, the network should be split at the `seg_outputs` part of the network and trained on the GPU with ID 1:
+One of the easiest and simplest example is to simply train on a bunch of tasks, for example `Task011_XYZ`, `Task012_XYZ` and `Task013_XYZ`. Each task should be trained for 250 epochs, whereas every 25th epoch, the stored data is updated and the results are stored in a `.csv` file. Additionally, the network should be split at the `seg_outputs` part of the network and trained on the GPU with ID <GPU_ID> (can be one or multilpe IDs):
 ```bash
           ~ $ source ~/.bashrc
           ~ $ source activate <your_anaconda_env>
 (<your_anaconda_env>) $ nnUNet_train_multihead 3d_fullres -t 11 12 13 -f 0
-                             -num_epoch 250 -d 1 -save_interval 25 -s seg_outputs --store_csv
+                             -num_epoch 250 -d <GPU_ID> -save_interval 25 -s seg_outputs --store_csv
                              [--use_vit -v <VERSION> -v_type <TYPE>]
 ```
 
@@ -66,7 +66,7 @@ One more complex example showing how to define a deeper split using the `.` nota
           ~ $ source ~/.bashrc
           ~ $ source activate <your_anaconda_env>
 (<your_anaconda_env>) $ nnUNet_train_multihead 3d_fullres -t 11 12 13 -f 0
-                             -num_epoch 250 -d 1 -save_interval 25
+                             -num_epoch 250 -d <GPU_ID> -save_interval 25
                              -s conv_blocks_context.0.blocks.1 --store_csv
                              [--use_vit -v <VERSION> -v_type <TYPE>]
 ```
@@ -76,7 +76,7 @@ All the so far provided examples use the [Generic_UNet](https://github.com/MIC-D
           ~ $ source ~/.bashrc
           ~ $ source activate <your_anaconda_env>
 (<your_anaconda_env>) $ nnUNet_train_multihead 3d_fullres -t 11 12 13 -f 0
-                             -num_epoch 250 -d 1 -save_interval 25 -s seg_outputs --store_csv
+                             -num_epoch 250 -d <GPU_ID> -save_interval 25 -s seg_outputs --store_csv
                              --use_vit -v 1 -v_type base [--use_mult_gpus]
                              
 ```
@@ -86,7 +86,7 @@ Last but not least, the following example shows how to use a pre-trained nnU-Net
           ~ $ source ~/.bashrc
           ~ $ source activate <your_anaconda_env>
 (<your_anaconda_env>) $ nnUNet_train_multihead 3d_fullres -t 11 12 13 -f 0
-                             -num_epoch 250 -d 1 -save_interval 25
+                             -num_epoch 250 -d <GPU_ID> -save_interval 25
                              -s seg_outputs --store_csv --init_seq
                              -initialize_with_network_trainer nnUNetTrainerV2
                              -used_identifier_in_init_network_trainer nnUNetPlansv2.1

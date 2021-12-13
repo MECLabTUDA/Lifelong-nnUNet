@@ -18,4 +18,4 @@ class nnUNetTrainerSequential(nnUNetTrainerMultiHead):
         # -- Initialize using parent class -- #
         super().__init__(split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic,
                          fp16, save_interval, already_trained_on, use_progress, identifier, extension, tasks_list_with_char, mixed_precision,
-                         save_csv, del_log, use_vit, vit_type, version, split_gpu, transfer_heads)
+                         save_csv, del_log, use_vit, vit_type, version, split_gpu, True)

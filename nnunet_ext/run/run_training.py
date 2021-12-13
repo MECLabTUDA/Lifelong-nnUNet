@@ -18,13 +18,21 @@ from nnunet_ext.utilities.helpful_functions import delete_dir_con, join_texts_wi
 # -- Import the trainer classes -- #
 from nnunet_ext.training.network_training.ewc.nnUNetTrainerEWC import nnUNetTrainerEWC # Own implemented class
 from nnunet_ext.training.network_training.lwf.nnUNetTrainerLWF import nnUNetTrainerLWF # Own implemented class
+from nnunet_ext.training.network_training.mib.nnUNetTrainerMiB import nnUNetTrainerMiB # Own implemented class
+from nnunet_ext.training.network_training.plop.nnUNetTrainerPLOP import nnUNetTrainerPLOP # Own implemented class
+from nnunet_ext.training.network_training.ewc_ln.nnUNetTrainerEWCLN import nnUNetTrainerEWCLN # Own implemented class
+from nnunet_ext.training.network_training.ewc_vit.nnUNetTrainerEWCViT import nnUNetTrainerEWCViT # Own implemented class
+from nnunet_ext.training.network_training.ewc_unet.nnUNetTrainerEWCUNet import nnUNetTrainerEWCUNet # Own implemented class
 from nnunet_ext.training.network_training.multihead.nnUNetTrainerMultiHead import nnUNetTrainerMultiHead # Own implemented class
 from nnunet_ext.training.network_training.rehearsal.nnUNetTrainerRehearsal import nnUNetTrainerRehearsal # Own implemented class
 from nnunet_ext.training.network_training.sequential.nnUNetTrainerSequential import nnUNetTrainerSequential # Own implemented class
-
+from nnunet_ext.training.network_training.freezed_vit.nnUNetTrainerFreezedViT import nnUNetTrainerFreezedViT # Own implemented class
+from nnunet_ext.training.network_training.freezed_unet.nnUNetTrainerFreezedUNet import nnUNetTrainerFreezedUNet # Own implemented class
+from nnunet_ext.training.network_training.freezed_nonln.nnUNetTrainerFreezedNonLN import nnUNetTrainerFreezedNonLN # Own implemented class
 
 #------------------------------------------- Inspired by original implementation -------------------------------------------#
 def run_training(extension='multihead'):
+
     # -----------------------
     # Build argument parser
     # -----------------------
@@ -130,8 +138,8 @@ def run_training(extension='multihead'):
                         help='If this is set, the ViT model will be placed onto a second GPU. '+
                              'When this is set, more than one GPU needs to be provided when using -d.')
     parser.add_argument("-v", "--version", action='store', type=int, nargs=1, default=[1],
-                        help='Select the ViT input building version. Currently there are only three'+
-                            ' possibilities: 1, 2 or 3.'+
+                        help='Select the ViT input building version. Currently there are four'+
+                            ' possibilities: 1, 2, 3 or 4.'+
                             ' Default: version one will be used. For more references wrt, to the versions, see the docs.')
     parser.add_argument("-v_type", "--vit_type", action='store', type=str, nargs=1, default='base',
                         help='Specify the ViT architecture. Currently there are only three'+
@@ -153,25 +161,51 @@ def run_training(extension='multihead'):
                                 ' This percentage is used for each previous task individually.'
                                 ' Default: 0.25, ie. 25% of each previous task will be considered.')
     
-    # -- Add arguments for ewc method -- #
-    if extension == 'ewc':
+    # -- Add arguments for ewc methods -- #
+    if extension == 'ewc' or 'ewc_vit':
         parser.add_argument('-ewc_lambda', action='store', type=float, nargs=1, required=False, default=0.4,
                             help='Specify the importance of the previous tasks for the EWC method.'
                                 ' This number represents the lambda value in the loss function calculation as proposed in the paper.'
                                 ' Default: ewc_lambda = 0.4')
-    
-    # -- Add arguments for ewc method -- #
+
+    # -- Add arguments for lwf method -- #
     if extension == 'lwf':
         parser.add_argument('-lwf_temperature', action='store', type=float, nargs=1, required=False, default=2.0,
-                            help='Specify the temperature variable for the LWF method.'
+                            help='Specify the temperature variable for the LwF method.'
                                 ' Default: lwf_temperature = 2.0')
 
+    # -- Add arguments for PLOP method -- #
+    if extension == 'plop':
+        parser.add_argument('-pod_lambda', action='store', type=float, nargs=1, required=False, default=5e-2,
+                            help='Specify the lambda weighting for the distillation loss.'
+                                ' Default: pod_lambda = 0.01')
+        parser.add_argument('-plop_scales', action='store', type=int, nargs=1, required=False, default=3,
+                            help='Specify the number of scales for the PLOP method.'
+                                ' Default: plop_scales = 3')
+
+    # -- Add arguments for MiB method -- #
+    if extension == 'mib':
+        parser.add_argument('-alpha', action='store', type=float, nargs=1, required=False, default=1.0,
+                            help='Specify the alpha parameter to hard-ify the soft-labels.'
+                                ' Default: alpha = 1.0')
+        parser.add_argument('-lkd', action='store', type=int, nargs=1, required=False, default=10,
+                            help='Specify the weighting of the KL loss.'
+                                ' Default: lkd = 10')
+
     # -- Build mapping for extension to corresponding class -- #
-    trainer_map = {'multihead': nnUNetTrainerMultiHead, 'nnUNetTrainerMultiHead': nnUNetTrainerMultiHead,
-                   'sequential': nnUNetTrainerSequential, 'nnUNetTrainerSequential': nnUNetTrainerSequential,
+    trainer_map = {'ewc': nnUNetTrainerEWC, 'nnUNetTrainerEWC': nnUNetTrainerEWC,
+                   'lwf': nnUNetTrainerLWF, 'nnUNetTrainerLWF': nnUNetTrainerLWF,
+                   'mib': nnUNetTrainerMiB, 'nnUNetTrainerMiB': nnUNetTrainerMiB,
+                   'plop': nnUNetTrainerPLOP, 'nnUNetTrainerPLOP': nnUNetTrainerPLOP,
+                   'ewc_ln': nnUNetTrainerEWCLN, 'nnUNetTrainerEWCLN': nnUNetTrainerEWCLN,
+                   'ewc_vit': nnUNetTrainerEWCViT, 'nnUNetTrainerEWCViT': nnUNetTrainerEWCViT,
+                   'ewc_unet': nnUNetTrainerEWCUNet, 'nnUNetTrainerEWCUNet': nnUNetTrainerEWCUNet,
                    'rehearsal': nnUNetTrainerRehearsal, 'nnUNetTrainerRehearsal': nnUNetTrainerRehearsal,
-                   'ewc': nnUNetTrainerEWC, 'nnUNetTrainerEWC': nnUNetTrainerEWC,
-                   'lwf': nnUNetTrainerLWF, 'nnUNetTrainerLWF': nnUNetTrainerLWF}
+                   'multihead': nnUNetTrainerMultiHead, 'nnUNetTrainerMultiHead': nnUNetTrainerMultiHead,
+                   'sequential': nnUNetTrainerSequential, 'nnUNetTrainerSequential': nnUNetTrainerSequential,
+                   'freezed_vit': nnUNetTrainerFreezedViT, 'nnUNetTrainerFreezedViT': nnUNetTrainerFreezedViT,
+                   'freezed_unet': nnUNetTrainerFreezedUNet, 'nnUNetTrainerFreezedUNet': nnUNetTrainerFreezedUNet,
+                   'freezed_nonln': nnUNetTrainerFreezedNonLN, 'nnUNetTrainerFreezedNonLN': nnUNetTrainerFreezedNonLN}
 
 
     # -------------------------------
@@ -220,7 +254,7 @@ def run_training(extension='multihead'):
     version = args.version
     if isinstance(version, list):    # When the version gets returned as a list, extract the number to avoid later appearing errors
         version = version[0]
-    assert version in [1, 2, 3], 'We only provide three versions, namely 1, 2 or 3, but not {}..'.format(version)
+    assert version in range(1, 5), 'We only provide three versions, namely 1, 2, 3 or 4 but not {}..'.format(version)
 
     # -- Extract ViT specific flags to as well -- #
     use_vit = args.use_vit
@@ -252,15 +286,21 @@ def run_training(extension='multihead'):
     for idx, c in enumerate(cuda):
         assert c > -1 and c < 8, 'GPU device ID out of range (0, ..., 7).'
         cuda[idx] = str(c)  # Change type from int to str otherwise join_texts_with_char will throw an error
+    
+    # -- Check if the user wants to split the network onto multiple GPUs -- #
+    split_gpu = args.use_mult_gpus
+    if split_gpu:
+        assert len(cuda) > 1, 'When trying to split the models on multiple GPUs, then please provide more than one..'
+        
     cuda = join_texts_with_char(cuda, ',')
     
     # -- Set cuda device as environment variable, otherwise other GPUs will be used as well ! -- #
     os.environ["CUDA_VISIBLE_DEVICES"] = cuda
 
-    # -- Check if the user wants to split the network onto multiple GPUs -- #
-    split_gpu = args.use_mult_gpus
-    if split_gpu:
-        assert len(cuda) > 1, 'When trying to split the models on multiple GPUs, then please provide more than one..'
+    # -- Reset transfer heads if the Trainer is of sequential type -- #
+    if extension == 'sequential' or 'freezed_' in extension or 'plop' in extension:
+        # -- Transfer heads is always True here even if the user did not set it -- #
+        transfer_heads = True
 
     # -- Extract rehearsal arguments -- #
     seed, samples = None, None  # --> So the dictionary arguments can be build without an error even if not rehearsal desired ..
@@ -286,7 +326,7 @@ def run_training(extension='multihead'):
 
     # -- Extract ewc arguments -- #
     ewc_lambda = None  # --> So the dictionary arguments can be build without an error even if not ewc desired ..
-    if extension == 'ewc':
+    if 'ewc' in extension:
         # -- Extract ewc_lambda -- #
         ewc_lambda = args.ewc_lambda
         if isinstance(ewc_lambda, list):
@@ -310,9 +350,43 @@ def run_training(extension='multihead'):
         if isinstance(lwf_temperature, list):
             lwf_temperature = lwf_temperature[0]
 
-        # -- Notify the user that the ewc_lambda should not have been changed if -c is activated -- #
+        # -- Notify the user that the lwf_temperature should not have been changed if -c is activated -- #
         if continue_training:
             print("Note: It will be continued with previous training, be sure that the provided lwf_temperature has not "
+                  "changed from previous one..")
+
+    # -- Extract PLOP arguments -- #
+    pod_lambda, plop_scales = None, None  # --> So the dictionary arguments can be build without an error even if not plop desired ..
+    if extension == 'plop':
+        # -- Extract pos lambda for dist_loss -- #
+        pod_lambda = args.pod_lambda
+        if isinstance(pod_lambda, list):
+            pod_lambda = pod_lambda[0]
+        # -- Extract plop scale for dist_loss -- #
+        plop_scales = args.plop_scales
+        if isinstance(plop_scales, list):
+            plop_scales = plop_scales[0]
+
+        # -- Notify the user that the plop_scales should not have been changed if -c is activated -- #
+        if continue_training:
+            print("Note: It will be continued with previous training, be sure that the provided pod_lambda and plop_scales have not "
+                  "changed from previous one..")
+
+    # -- Extract MiB arguments -- #
+    alpha, lkd = None, None  # --> So the dictionary arguments can be build without an error even if not plop desired ..
+    if extension == 'mib':
+        # -- Extract pos lambda for dist_loss -- #
+        alpha = args.alpha
+        if isinstance(alpha, list):
+            alpha = alpha[0]
+        # -- Extract plop scale for dist_loss -- #
+        lkd = args.lkd
+        if isinstance(lkd, list):
+            lkd = lkd[0]
+
+        # -- Notify the user that the alpha and lkd should not have been changed if -c is activated -- #
+        if continue_training:
+            print("Note: It will be continued with previous training, be sure that the provided alpha and lkd have not "
                   "changed from previous one..")
 
     
@@ -356,11 +430,16 @@ def run_training(extension='multihead'):
     reh_args = {'samples_per_ds': samples, 'seed': seed, **basic_exts}
     ewc_args = {'ewc_lambda': ewc_lambda, **basic_exts}
     lwf_args = {'lwf_temperature': lwf_temperature, **basic_exts}
+    plop_args = {'pod_lambda': pod_lambda, 'scales': plop_scales, **basic_exts}
+    mib_args = {'lkd': lkd, 'alpha': alpha, **basic_exts}
     
     # -- Join the dictionaries into a dictionary with the corresponding class name -- #
-    args_f = {'nnUNetTrainerV2': basic_args, 'nnViTUNetTrainer': basic_vit, 'nnUNetTrainerMultiHead': basic_exts,
+    args_f = {'nnUNetTrainerFreezedViT': basic_exts, 'nnUNetTrainerEWCViT': ewc_args,
+              'nnUNetTrainerFreezedNonLN': basic_exts, 'nnUNetTrainerEWCLN': ewc_args,
+              'nnUNetTrainerFreezedUNet': basic_exts, 'nnUNetTrainerEWCUNet': ewc_args,
               'nnUNetTrainerSequential': basic_exts, 'nnUNetTrainerRehearsal': reh_args,
-              'nnUNetTrainerEWC': ewc_args, 'nnUNetTrainerLWF': lwf_args}
+              'nnUNetTrainerMiB': mib_args, 'nnUNetTrainerEWC': ewc_args, 'nnUNetTrainerLWF': lwf_args,
+              'nnUNetTrainerPLOP': plop_args, 'nnUNetTrainerV2': basic_args, 'nnViTUNetTrainer': basic_vit, 'nnUNetTrainerMultiHead': basic_exts}
 
     
     # ---------------------------------------------
@@ -394,9 +473,9 @@ def run_training(extension='multihead'):
 
             # -- Load already trained on file from ../network_training_output_dir/network/tasks_joined_name -- #
             if use_vit:
-                base_path = join(network_training_output_dir, network, tasks_joined_name, Generic_ViT_UNet.__name__+'V'+str(version)+'_metadata', vit_type.lower())
+                base_path = join(network_training_output_dir, network, tasks_joined_name, 'metadata', Generic_ViT_UNet.__name__+'V'+str(version), vit_type.lower())
             else:
-                base_path = join(network_training_output_dir, network, tasks_joined_name, Generic_UNet.__name__+'_metadata')
+                base_path = join(network_training_output_dir, network, tasks_joined_name, 'metadata', Generic_UNet.__name__)
             if transfer_heads:
                 already_trained_on = load_json(join(base_path, 'SEQ', extension+"_trained_on.json"))
             else:
@@ -437,7 +516,7 @@ def run_training(extension='multihead'):
                     began_with = None
 
             # -- If this list is empty, the trainer did not train on any task --> Start directly with the first task as -c would not have been set -- #
-            if began_with != -1: # At this point began_with is either a task or -1 but not None
+            if began_with != -1: # At this point began_with is either a task or None but not -1
                 if began_with is None:  # --> Only the case when training is finished but validation on last task is missing
                     # -- Update the user that the current fold is finished with training -- #
                     print("Fold {} has been trained on all tasks however the validation is still missing..".format(t_fold))
@@ -478,7 +557,6 @@ def run_training(extension='multihead'):
                     # -- ELSE -- #
                     # -- If running_task_list is empty, the training failed at very first task, -- #
                     # -- so nothing needs to be changed, simply continue with the training -- #
-                    
                     # -- Set the prev_trainer and the init_identifier so the trainer will be build correctly -- #
                     prev_trainer = trainer_map.get(already_trained_on[str(t_fold)]['prev_trainer'][-1], None)
                     init_identifier = already_trained_on[str(t_fold)]['used_identifier']
@@ -505,7 +583,7 @@ def run_training(extension='multihead'):
                             "To continue training on the fold {} the same lwf_temperature, ie. \'{}\' needs to be provided, not \'{}\'.".format(t_fold, trained_on_folds['used_lwf_temperature'], lwf_temperature)
                 
                     # -- Update the user that the fold for training has been found -- #
-                    print("Fold {} has not been trained on all tasks --> continue the training with task {}..".format(t_fold, began_with))
+                    print("Fold {} has not been trained on all tasks --> continue the training with restoring task {}..".format(t_fold, began_with))
             
             # -- began_with == -1 or no tasks to train --> nothing to restore -- #
             else:   # Start with new fold, use init_seq that is provided from argument parser
@@ -597,7 +675,7 @@ def run_training(extension='multihead'):
                                         batch_dice=batch_dice, stage=stage,\
                                         already_trained_on=already_trained_on, **(args_f[trainer_class.__name__]))
                 trainer.initialize(not validation_only, num_epochs=num_epochs, prev_trainer_path=prev_trainer_path)
-                
+
                 # NOTE: Trainer has only weights and heads of first task at this point
                 # --> Add the heads and load the state_dict from the latest model and not all_tasks[0]
                 #     since this is only used for initialization
@@ -625,7 +703,10 @@ def run_training(extension='multihead'):
                         # -- User wants to continue previous training while ignoring pretrained weights -- #
                         try: # --> There is only a checkpoint if it has passed save_every
                             trainer.load_latest_checkpoint()
-                        except:
+                        except Exception as e:
+                            # -- Print the Exception that has been thrown and continue -- #
+                            print(e)
+                            
                             # --> Found no checkpoint, so one task is finished but the current hasn't started yet or -- #
                             # -- did not reach save_every -- #
                             pass
@@ -638,7 +719,7 @@ def run_training(extension='multihead'):
                     else:
                         # -- Start new training without setting pretrained_weights -- #
                         pass
-
+                    
                     # -- Start to train the trainer --> if task is not registered, the trainer will do this automatically -- #
                     trainer.run_training(task=t, output_folder=output_folder_name)
                 else:
@@ -654,15 +735,6 @@ def run_training(extension='multihead'):
                 trainer.validate(save_softmax=args.npz, validation_folder_name=val_folder,
                                  run_postprocessing_on_folds=not disable_postprocessing_on_folds,
                                  overwrite=args.val_disable_overwrite)
-
-                """ --> Not necessary, since the model will never be copied, only the path is used
-                # -- If disable saving, and init_seq, remove the initial trainer -- #
-                if disable_saving and idx == 0 and init_seq:
-                    # -- At this stage, the initial trainer has been used as a base, and the trainer folder will be removed from the directory -- #
-                    del_folder = join(network_training_output_dir, network, tasks_joined_name, t, prev_trainer.__class__.__name__ + "__" + init_identifier)
-                    delete_dir_con(del_folder)
-                    # -- Now, in the folder ../network_training_output_dir/network/tasks_joined_name are only identifier and results for extension training -- #
-                """
 
             # -- If the models for each sequence should not be stored, delete the last model and only keep the current finished one -- #
             # -- NOTE: If the previous trainer was a nnU-Net, i.e. not an extension, then do not remove it -- #

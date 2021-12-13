@@ -24,7 +24,7 @@ from nnunet_ext.training.loss_functions.deep_supervision import MultipleOutputLo
 from nnunet_ext.training.network_training.multihead.nnUNetTrainerMultiHead import nnUNetTrainerMultiHead
 
 
-class nnUNetTrainerLWF(nnUNetTrainerMultiHead): # Inherit default trainer class for 2D, 3D low resolution and 3D full resolution U-Net 
+class nnUNetTrainerLWF(nnUNetTrainerMultiHead):
     def __init__(self, split, task, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
                  identifier=default_plans_identifier, extension='lwf', lwf_temperature=2.0, tasks_list_with_char=None,
@@ -35,7 +35,7 @@ class nnUNetTrainerLWF(nnUNetTrainerMultiHead): # Inherit default trainer class 
         # -- Initialize using parent class -- #
         super().__init__(split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic,
                          fp16, save_interval, already_trained_on, use_progress, identifier, extension, tasks_list_with_char,
-                         save_csv)
+                         mixed_precision, save_csv, del_log, use_vit, vit_type, version, split_gpu, transfer_heads)
         # -- Set the temperature variable for the LWF Loss calculation during training -- #
         self.lwf_temperature = lwf_temperature
 
@@ -102,7 +102,18 @@ class nnUNetTrainerLWF(nnUNetTrainerMultiHead): # Inherit default trainer class 
         # -- --> Look into the Loss function to see how the approach is implemented -- #
         # -- NOTE: The predictions of the previous models need to be updated after each iteration -- #
         self.LwFloss = LwFloss(loss_base, self.ds_loss_weights, list(), list(), self.lwf_temperature)
-            
+
+    def reinitialize(self, task):
+        r"""This function is used to reinitialize the Trainer when a new task is trained for the LwF Trainer.
+            The most important thing here is that it sets the intermediate results accordingly in the loss.
+            This should only be called when a new task is used --> by that time the new loss applies..
+        """
+        # -- Execute the super function -- # 
+        super().reinitialize(task, False)
+
+        # -- Print Loss update -- #
+        self.print_to_log_file("I am using LwF loss now")
+
     def run_training(self, task, output_folder):
         r"""Perform training using LwF Trainer. Simply executes training method of parent class
             while updating trained_on.pkl file. It is important to provide the right path, in which the results
