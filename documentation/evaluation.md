@@ -1,1 +1,1 @@
-# TODO
+# nnU-Net Continual Learning extension: Performing Evaluation on trained networks

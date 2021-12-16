@@ -9,14 +9,14 @@ from torch.cuda.amp import autocast
 from nnunet_ext.paths import default_plans_identifier
 from nnunet.utilities.to_torch import maybe_to_torch, to_cuda
 from batchgenerators.utilities.file_and_folder_operations import *
-from nnunet_ext.training.loss_functions.deep_supervision import MultipleOutputLossMiB as MiBloss
+from nnunet_ext.training.loss_functions.deep_supervision import MultipleOutputLossMiB as MiBLoss
 from nnunet_ext.training.network_training.multihead.nnUNetTrainerMultiHead import nnUNetTrainerMultiHead
 
 
 class nnUNetTrainerMiB(nnUNetTrainerMultiHead):
     def __init__(self, split, task, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
-                 identifier=default_plans_identifier, extension='mib', alpha=1., lkd=10, tasks_list_with_char=None,
+                 identifier=default_plans_identifier, extension='mib', mib_alpha=1., lkd=10, tasks_list_with_char=None,
                  mixed_precision=True, save_csv=True, del_log=False, use_vit=False, vit_type='base', version=1, split_gpu=False,
                  transfer_heads=True):
         r"""Constructor of MiB trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
@@ -26,10 +26,10 @@ class nnUNetTrainerMiB(nnUNetTrainerMultiHead):
                          fp16, save_interval, already_trained_on, use_progress, identifier, extension, tasks_list_with_char,
                          mixed_precision, save_csv, del_log, use_vit, vit_type, version, split_gpu, transfer_heads)
         # -- Set the alpha and kl variable for the MiB Loss calculation during training -- #
-        self.alpha = alpha
+        self.alpha = mib_alpha
         self.lkd = lkd
 
-        # -- Add seed in trained on file for restoring to be able to ensure that seed can not be changed during training -- #
+        # -- Add flags in trained on file for restoring to be able to ensure that seed can not be changed during training -- #
         if already_trained_on is not None:
             # -- If the current fold does not exists initialize it -- #
             if self.already_trained_on.get(str(self.fold), None) is None:
@@ -49,7 +49,7 @@ class nnUNetTrainerMiB(nnUNetTrainerMultiHead):
         # -- Update self.init_tasks so the storing works properly -- #
         self.init_args = (split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
                           deterministic, fp16, save_interval, already_trained_on, use_progress, identifier, extension,
-                          alpha, lkd, tasks_list_with_char, mixed_precision, save_csv, del_log, use_vit, self.vit_type,
+                          mib_alpha, lkd, tasks_list_with_char, mixed_precision, save_csv, del_log, use_vit, self.vit_type,
                           version, split_gpu, True)
 
     def initialize(self, training=True, force_load_plans=False, num_epochs=500, prev_trainer_path=None):
@@ -64,7 +64,7 @@ class nnUNetTrainerMiB(nnUNetTrainerMultiHead):
         # -- Choose the right loss function (MiB) that will be used during training -- #
         # -- --> Look into the Loss function to see how the approach is implemented -- #
         # -- Update the network paramaters during each iteration -- #
-        self.loss_mib = MiBloss(self.num_classes-1, # Remove the background class since it has been added during initialization
+        self.loss_mib = MiBLoss(self.num_classes-1, # Remove the background class since it has been added during initialization
                                 self.alpha,
                                 self.lkd,
                                 self.ds_loss_weights)

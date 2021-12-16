@@ -1,6 +1,6 @@
 #########################################################################################################
-#----------This class represents the Training of networks using the extended nnUNet sequential ---------#
-#----------training version. Implementation inspired by original implementation.------------------------#
+#---------------This class represents the Training of networks using the extended nnUNet ---------------#
+#----------training versions. Implementation inspired by original implementation.-----------------------#
 #########################################################################################################
 
 import copy
@@ -16,6 +16,7 @@ from nnunet_ext.paths import default_plans_identifier, network_training_output_d
 from nnunet_ext.utilities.helpful_functions import delete_dir_con, join_texts_with_char, move_dir
 
 # -- Import the trainer classes -- #
+from nnunet_ext.training.network_training.rw.nnUNetTrainerRW import nnUNetTrainerRW # Own implemented class
 from nnunet_ext.training.network_training.ewc.nnUNetTrainerEWC import nnUNetTrainerEWC # Own implemented class
 from nnunet_ext.training.network_training.lwf.nnUNetTrainerLWF import nnUNetTrainerLWF # Own implemented class
 from nnunet_ext.training.network_training.mib.nnUNetTrainerMiB import nnUNetTrainerMiB # Own implemented class
@@ -168,6 +169,18 @@ def run_training(extension='multihead'):
                                 ' This number represents the lambda value in the loss function calculation as proposed in the paper.'
                                 ' Default: ewc_lambda = 0.4')
 
+    # -- Add arguments for RW method -- #
+    if extension == 'rw':
+        parser.add_argument('-rw_alpha', action='store', type=float, nargs=1, required=False, default=0.9,
+                            help='Specify the alpha parameter that is used to calculate the Fisher values --> should be [0, 1].'
+                                ' Default: alpha = 0.9')
+        parser.add_argument('-rw_lambda', action='store', type=float, nargs=1, required=False, default=0.4,
+                            help='Specify the importance of the previous tasks for the RW method using the EWC regularization.'
+                                ' Default: rw_lambda = 0.4')
+        parser.add_argument('-update_after', action='store', type=int, nargs=1, required=False, default=10,
+                            help='Specify after which epoch interval the fisher values are updated/calculated.'
+                                ' Default: The result will be updated every 10th epoch.')
+
     # -- Add arguments for lwf method -- #
     if extension == 'lwf':
         parser.add_argument('-lwf_temperature', action='store', type=float, nargs=1, required=False, default=2.0,
@@ -176,7 +189,7 @@ def run_training(extension='multihead'):
 
     # -- Add arguments for PLOP method -- #
     if extension == 'plop':
-        parser.add_argument('-pod_lambda', action='store', type=float, nargs=1, required=False, default=5e-2,
+        parser.add_argument('-pod_lambda', action='store', type=float, nargs=1, required=False, default=1e-2,
                             help='Specify the lambda weighting for the distillation loss.'
                                 ' Default: pod_lambda = 0.01')
         parser.add_argument('-plop_scales', action='store', type=int, nargs=1, required=False, default=3,
@@ -185,15 +198,16 @@ def run_training(extension='multihead'):
 
     # -- Add arguments for MiB method -- #
     if extension == 'mib':
-        parser.add_argument('-alpha', action='store', type=float, nargs=1, required=False, default=1.0,
+        parser.add_argument('-mib_alpha', action='store', type=float, nargs=1, required=False, default=1.0,
                             help='Specify the alpha parameter to hard-ify the soft-labels.'
                                 ' Default: alpha = 1.0')
-        parser.add_argument('-lkd', action='store', type=int, nargs=1, required=False, default=10,
+        parser.add_argument('-lkd', action='store', type=float, nargs=1, required=False, default=10,
                             help='Specify the weighting of the KL loss.'
                                 ' Default: lkd = 10')
 
     # -- Build mapping for extension to corresponding class -- #
-    trainer_map = {'ewc': nnUNetTrainerEWC, 'nnUNetTrainerEWC': nnUNetTrainerEWC,
+    trainer_map = {'rw': nnUNetTrainerRW, 'nnUNetTrainerRW': nnUNetTrainerRW,
+                   'ewc': nnUNetTrainerEWC, 'nnUNetTrainerEWC': nnUNetTrainerEWC,
                    'lwf': nnUNetTrainerLWF, 'nnUNetTrainerLWF': nnUNetTrainerLWF,
                    'mib': nnUNetTrainerMiB, 'nnUNetTrainerMiB': nnUNetTrainerMiB,
                    'plop': nnUNetTrainerPLOP, 'nnUNetTrainerPLOP': nnUNetTrainerPLOP,
@@ -342,6 +356,32 @@ def run_training(extension='multihead'):
             assert False, "You can only use a pre-trained EWC model as a base and no other model, since the corresponding"+\
                           " parameters that are necessary for every task are not stored in any other trainer."
 
+    # -- Extract rw arguments -- #
+    rw_alpha, rw_lambda, update_fisher_every = None, None, None  # --> So the dictionary arguments can be build without an error even if not ewc desired ..
+    if 'rw' in extension:
+        # -- Extract rw_alpha -- #
+        rw_alpha = args.rw_alpha
+        if isinstance(rw_alpha, list):
+            rw_alpha = rw_alpha[0]
+        # -- Extract rw_lambda -- #
+        rw_lambda = args.rw_lambda
+        if isinstance(rw_lambda, list):
+            rw_lambda = rw_lambda[0]
+        # -- Extract update_fisher_every -- #
+        update_fisher_every = args.update_after
+        if isinstance(update_fisher_every, list):
+            update_fisher_every = update_fisher_every[0]
+
+        # -- Notify the user that the ewc_lambda should not have been changed if -c is activated -- #
+        if continue_training:
+            print("Note: It will be continued with previous training, be sure that the provided RW related settings have not "
+                  "changed from previous one..")
+
+        # -- Ensure that init_seq only works for EWC trainers since no other trainer stores the fisher and param values -- #
+        if init_seq and prev_trainer != str(trainer_map[extension]).split('.')[-1][:-2]:
+            assert False, "You can only use a pre-trained RW model as a base and no other model, since the corresponding"+\
+                          " parameters that are necessary for every task are not stored in any other trainer."
+
     # -- Extract lwf arguments -- #
     lwf_temperature = None  # --> So the dictionary arguments can be build without an error even if not lwf desired ..
     if extension == 'lwf':
@@ -376,7 +416,7 @@ def run_training(extension='multihead'):
     alpha, lkd = None, None  # --> So the dictionary arguments can be build without an error even if not plop desired ..
     if extension == 'mib':
         # -- Extract pos lambda for dist_loss -- #
-        alpha = args.alpha
+        alpha = args.mib_alpha
         if isinstance(alpha, list):
             alpha = alpha[0]
         # -- Extract plop scale for dist_loss -- #
@@ -427,19 +467,21 @@ def run_training(extension='multihead'):
                   'tasks_list_with_char': copy.deepcopy(tasks_list_with_char), 'save_csv': save_csv,
                   'mixed_precision': run_mixed_precision, 'use_vit': use_vit, 'vit_type': vit_type, 'version': version,
                   'split_gpu': split_gpu, 'transfer_heads': transfer_heads, **basic_args}
-    reh_args = {'samples_per_ds': samples, 'seed': seed, **basic_exts}
     ewc_args = {'ewc_lambda': ewc_lambda, **basic_exts}
+    mib_args = {'lkd': lkd, 'mib_alpha': alpha, **basic_exts}
     lwf_args = {'lwf_temperature': lwf_temperature, **basic_exts}
+    reh_args = {'samples_per_ds': samples, 'seed': seed, **basic_exts}
     plop_args = {'pod_lambda': pod_lambda, 'scales': plop_scales, **basic_exts}
-    mib_args = {'lkd': lkd, 'alpha': alpha, **basic_exts}
+    rw_args = {'rw_lambda': rw_lambda, 'rw_alpha': rw_alpha, 'fisher_update_after': update_fisher_every, **basic_exts}
     
     # -- Join the dictionaries into a dictionary with the corresponding class name -- #
-    args_f = {'nnUNetTrainerFreezedViT': basic_exts, 'nnUNetTrainerEWCViT': ewc_args,
+    args_f = {'nnUNetTrainerRW': rw_args, 'nnUNetTrainerMultiHead': basic_exts,
+              'nnUNetTrainerFreezedViT': basic_exts, 'nnUNetTrainerEWCViT': ewc_args,
               'nnUNetTrainerFreezedNonLN': basic_exts, 'nnUNetTrainerEWCLN': ewc_args,
               'nnUNetTrainerFreezedUNet': basic_exts, 'nnUNetTrainerEWCUNet': ewc_args,
               'nnUNetTrainerSequential': basic_exts, 'nnUNetTrainerRehearsal': reh_args,
               'nnUNetTrainerMiB': mib_args, 'nnUNetTrainerEWC': ewc_args, 'nnUNetTrainerLWF': lwf_args,
-              'nnUNetTrainerPLOP': plop_args, 'nnUNetTrainerV2': basic_args, 'nnViTUNetTrainer': basic_vit, 'nnUNetTrainerMultiHead': basic_exts}
+              'nnUNetTrainerPLOP': plop_args, 'nnUNetTrainerV2': basic_args, 'nnViTUNetTrainer': basic_vit}
 
     
     # ---------------------------------------------

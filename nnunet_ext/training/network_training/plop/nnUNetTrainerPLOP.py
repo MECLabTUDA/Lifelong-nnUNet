@@ -15,8 +15,7 @@ from nnunet.utilities.nd_softmax import softmax_helper
 from nnunet.utilities.to_torch import maybe_to_torch, to_cuda
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet_ext.training.loss_functions.crossentropy import entropy
-# from nnunet.training.loss_functions.dice_loss import DC_and_CE_loss
-from nnunet_ext.training.loss_functions.deep_supervision import MultipleOutputLossPLOP as PLOPloss
+from nnunet_ext.training.loss_functions.deep_supervision import MultipleOutputLossPLOP as PLOPLoss
 from nnunet_ext.training.network_training.multihead.nnUNetTrainerMultiHead import nnUNetTrainerMultiHead
 
 
@@ -36,7 +35,7 @@ class nnUNetTrainerPLOP(nnUNetTrainerMultiHead):
         self.pod_lambda = pod_lambda
         self.scales = scales
 
-        # -- Add seed in trained on file for restoring to be able to ensure that seed can not be changed during training -- #
+        # -- Add flags in trained on file for restoring to be able to ensure that seed can not be changed during training -- #
         if already_trained_on is not None:
             # -- If the current fold does not exists initialize it -- #
             if self.already_trained_on.get(str(self.fold), None) is None:
@@ -69,8 +68,9 @@ class nnUNetTrainerPLOP(nnUNetTrainerMultiHead):
         # -- Define empty dict for the current intermediate results during training -- #
         self.interm_results = dict()
 
-        # -- Define placeholders for the thresholds and max_entropy -- #
+        # -- Define placeholders for the thresholds and max_entropy and a flag to indicate if the loss is switched or not -- #
         self.thresholds, self.max_entropy = None, dict()
+        self.switched = False
 
     def initialize(self, training=True, force_load_plans=False, num_epochs=500, prev_trainer_path=None):
         r"""Overwrite the initialize function so the correct Loss function for the PLOP method can be set.
@@ -84,22 +84,15 @@ class nnUNetTrainerPLOP(nnUNetTrainerMultiHead):
 
         # -- Create a backup loss, so we can switch between original and LwF loss -- #
         self.loss_orig = copy.deepcopy(self.loss)
-        
-        # -- Reset self.loss from MultipleOutputLoss2 to DC_and_CE_loss so the PLOP Loss can be initialized properly -- #
-        # loss_base = DC_and_CE_loss({'batch_dice': self.batch_dice, 'smooth': 1e-5, 'do_bg': False}, {})
+        self.switched = False
 
         # -- Choose the right loss function (PLOP) that will be used during training -- #
         # -- --> Look into the Loss function to see how the approach is implemented -- #
         # -- Update the network paramaters during each iteration -- #
-        self.loss_plop = PLOPloss(self.num_classes-1, # Remove the background class since it has been added during initialization
+        self.loss_plop = PLOPLoss(self.num_classes-1, # Remove the background class since it has been added during initialization
                                   self.pod_lambda,
                                   self.scales,
                                   self.ds_loss_weights)
-        # self.loss_plop = PLOPloss(loss_base, self.ds_loss_weights,
-        #                           self.pod_lambda,
-        #                           self.scales,
-        #                           self.old_interm_results)
-        #                           self.old_interm_results)
 
     def reinitialize(self, task):
         r"""This function is used to reinitialize the Trainer when a new task is trained for the PLOP Trainer.
@@ -220,13 +213,16 @@ class nnUNetTrainerPLOP(nnUNetTrainerMultiHead):
         if self.task in self.mh_network.heads and len(self.mh_network.heads) == 1: # The very first task
             # -- Use the original loss for this -- #
             self.loss = self.loss_orig
+            self.switched = False
             # -- Run iteration as usual using parent class -- #
             loss = super().run_iteration(data_generator, do_backprop, run_online_evaluation)
         else:   # --> More than one head, ie. trained on more than one task  --> use PLOP
-            # -- Switch to plop loss -- #
-            self.loss = self.loss_plop
-            # -- We are at a further sequence of training, so we train using the PLOP method -- #
-            self.register_forward_hooks()   # --> Just in case it is not already done, ie. after first task training!
+            if not self.switched:
+                # -- Switch to plop loss -- #
+                self.loss = self.loss_plop
+                # -- We are at a further sequence of training, so we train using the PLOP method -- #
+                self.register_forward_hooks()   # --> Just in case it is not already done, ie. after first task training!
+                self.switched = True
             #------------------------------------------ Partially copied from original implementation ------------------------------------------#
             # -- Extract data -- #
             data_dict = next(data_generator)
@@ -256,10 +252,8 @@ class nnUNetTrainerPLOP(nnUNetTrainerMultiHead):
                             self.old_interm_results[key] = to_cuda(self.old_interm_results[key], gpu_id=self.interm_results[key].device)
 
                     # -- Update the loss with the data -- #
-                    # self.loss.update_plop_params(self.old_interm_results, self.interm_results)
                     self.loss.update_plop_params(self.old_interm_results, self.interm_results, self.thresholds, self.max_entropy)
                     loss = self.loss(output, output_o, target)
-                    # loss = self.loss(output, target)
 
                 if do_backprop:
                     self.amp_grad_scaler.scale(loss).backward()
@@ -278,11 +272,9 @@ class nnUNetTrainerPLOP(nnUNetTrainerMultiHead):
                     for key in self.old_interm_results:
                         self.old_interm_results[key] = to_cuda(self.old_interm_results[key], gpu_id=self.interm_results[key].device)
                 # -- Update the loss with the data -- #
-                # self.loss.update_plop_params(self.old_interm_results, self.interm_results)
                 self.loss.update_plop_params(self.old_interm_results, self.interm_results, self.thresholds, self.max_entropy)
                 loss = self.loss(output, output_o, target)
-                # loss = self.loss(output, target)
-
+                
                 if do_backprop:
                     loss.backward()
                     torch.nn.utils.clip_grad_norm_(self.network.parameters(), 12)
@@ -301,65 +293,12 @@ class nnUNetTrainerPLOP(nnUNetTrainerMultiHead):
             # -- Detach the loss -- #
             loss = loss.detach().cpu().numpy()
 
+            # -- Empty the dicts -- #
+            self.old_interm_results = dict()
+            self.interm_results = dict()
+
         # -- Return the loss -- #
         return loss
-
-    # def before_train(self, task):
-    #     r"""This function needs to be executed once before the training of the current task is started.
-    #         The function will use the same data to generate the intermediate outputs from the old model.
-    #     """
-    #     # -- Update the log -- #
-    #     self.print_to_log_file("Running one epoch with new data on previous model to extract intermediate convolution outputs...")
-    #     start_time = time()
-
-    #     # -- Create directory if it does not exist -- #
-    #     maybe_mkdir_p(join(self.interm_results_path, task))
-
-    #     #------------------------------------------ Partially copied from original implementation ------------------------------------------#
-    #     # -- Put the network in train mode and kill gradients -- #
-    #     self.network.train()
-    #     self.optimizer.zero_grad()
-
-    #     # -- Do loop through the data based on the number of batches -- # self.tr_gen
-    #     for batch in range(self.num_batches_per_epoch):
-    #         # -- Run batch through the model --> NOTE forward hooks are registered at this point -- #
-    #         self.optimizer.zero_grad()
-    #         # -- Extract the data -- #
-    #         data_dict = next(self.tr_gen)
-    #         data = data_dict['data']
-
-    #         # -- Push data to GPU -- #
-    #         data = maybe_to_torch(data)
-    #         if torch.cuda.is_available():
-    #             data = to_cuda(data)
-
-    #         # -- Respect the fact if the user wants to autocast during training -- #
-    #         if self.fp16:
-    #             with autocast():
-    #                 _ = self.network(data) # --> Intermediate results are stored in get_activations
-    #                 del data
-    #         else:
-    #             _ = self.network(data) # --> Intermediate results are stored in get_activations
-    #             del data
-
-    #         # -- Dump the intermediate results as pickle files -- #
-    #         for key in self.interm_results.keys():
-    #             self.interm_results[key].cpu()
-    #         write_pickle(self.interm_results, join(self.interm_results_path, task, 'batch_{}.pkl'.format(batch)))
-
-    #     #------------------------------------------ Partially copied from original implementation ------------------------------------------#
-    #     # -- Update the log -- #
-    #     self.print_to_log_file("Extraction and saving of intermediate results from previous trainer took %.2f seconds" % (time() - start_time))
-
-    #     # -- Update the already_trained_on file that the files exist if necessary -- #
-    #     self.already_trained_on[str(self.fold)]['interm_results_exist_for'].append(task)
-        
-    #     # -- Save the updated dictionary as a json file -- #
-    #     save_json(self.already_trained_on, join(self.trained_on_path, self.extension+'_trained_on.json'))
-    #     # -- Update self.init_tasks so the storing works properly -- #
-    #     self.update_init_args()
-    #     # -- Resave the final model pkl file so the already trained on is updated there as well -- #
-    #     self.save_init_args(join(self.output_folder, "model_final_checkpoint.model"))
 
     def register_forward_hooks(self, old=False):
         r"""This function sets the forward hooks for every convolutional layer in the network.

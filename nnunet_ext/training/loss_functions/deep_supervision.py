@@ -5,8 +5,9 @@
 import torch, copy
 import torch.nn as nn
 import torch.nn.functional as F
+from nnunet_ext.training.loss_functions.crossentropy import *
+from nnunet_ext.training.loss_functions.embedding_losses import *
 from nnunet.training.loss_functions.deep_supervision import MultipleOutputLoss2
-from nnunet_ext.training.loss_functions.crossentropy import RobustCrossEntropyLoss, UnbiasedCrossEntropy, UnbiasedKnowledgeDistillationLoss, entropy
 
 # -- Loss function for the Elastic Weight Consolidation approach -- #
 class MultipleOutputLossEWC(MultipleOutputLoss2):
@@ -14,7 +15,7 @@ class MultipleOutputLossEWC(MultipleOutputLoss2):
     # -- https://github.com/ContinualAI/colab/blob/master/notebooks/intro_to_continual_learning.ipynb. -- #
     # -- It represents the method proposed in the paper https://arxiv.org/pdf/1612.00796.pdf -- #
     def __init__(self, loss, weight_factors=None, ewc_lambda=0.4,
-                 fisher=dict(), params=dict(), network_params=None, match_sth=False, match=list(), match_true = True):
+                 fisher=dict(), params=dict(), network_params=None, match_sth=False, match=list(), match_true=True):
         """This Loss function is based on the nnU-Nets loss function called MultipleOutputLoss2, but extends it
            for the EWC approach. The loss function will be updated using the proposed method in the paper linked above.
            It needs the previous task names in form of a list, the ewc lambda representing the importance of previous tasks,
@@ -52,9 +53,56 @@ class MultipleOutputLossEWC(MultipleOutputLoss2):
         # -- Update the network_params -- #
         self.network_params = network_params
 
-    def forward(self, x, y):
+    def forward(self, x, y, reg=True):
         # -- Calculate the loss first using the parent class -- #
         loss = super(MultipleOutputLossEWC, self).forward(x, y)
+
+        if reg: # Do regularization ?
+            # -- Update the loss as proposed in the paper and return this loss to the calling function instead -- #
+            # -- Loop through the tasks the model has already been trained on -- #
+            for task in self.tasks:
+                for name, param in self.network_params: # Get named parameters of the current model
+                    # -- Only consider those parameters in which the matching phrase is matched if desired or all -- #
+                    if (self.match_case and self.match_true and all(m_name in name for m_name in self.match))\
+                    or (self.match_case and not self.match_true and all(m_name not in name for m_name in self.match))\
+                    or (not self.match_case):                
+                        # -- Extract corresponding fisher and param values -- #
+                        fisher_value = self.fisher[task][name]
+                        param_value = self.params[task][name]
+                        
+                        # -- loss = loss_{t} + ewc_lambda/2 * \sum_{i} F_{i}(param_{i} - param_{t-1, i})**2 -- #
+                        loss += self.ewc_lambda/2 * (fisher_value * (param - param_value).pow(2)).sum()
+                
+        # -- Return the updated loss value -- #
+        return loss
+
+# -- Loss function for the Riemannian Walk approach -- #
+class MultipleOutputLossRW(MultipleOutputLossEWC):
+    # -- The implementation represents the method proposed in the paper https://arxiv.org/pdf/1801.10112.pdf -- #
+    def __init__(self, loss, weight_factors=None, ewc_lambda=0.4, fisher=dict(), params=dict(),
+                 parameter_importance=dict(), network_params=None, match_sth=False, match=list(), match_true=True):
+        """The loss function will be updated using the proposed method in the RW paper linked above.
+           It needs the previous task names in form of a list, the ewc lambda representing the importance of previous tasks,
+           the fisher dictionary, the params dictionary and the network parameters from the current model,
+           which is simply model.named_parameters().
+        """
+        # -- Initialize using the MultipleOutputLoss2 from nnU-Net -- #
+        super(MultipleOutputLossRW, self).__init__(loss, weight_factors, ewc_lambda, fisher, params, network_params,
+                                                   match_sth, match, match_true)
+        self.parameter_importance = parameter_importance
+
+    def update_ewc_params(self, fisher, params, parameter_importance):
+        r"""The ewc parameters should be updated after every finished run before training on a new task.
+        """
+        # -- Update the parameters -- #
+        super(MultipleOutputLossRW, self).update_ewc_params(fisher, params)
+        self.parameter_importance = parameter_importance
+        # -- Omit last one since this is computed on the fly and is reserved for next task -- #
+        self.tasks = list(self.fisher.keys())[:-1]
+
+    def forward(self, x, y):
+        # -- Calculate the loss first using the parent class without regularization --> Gives us only DC and CE loss -- #
+        loss = super().forward(x, y, reg=False)
 
         # -- Update the loss as proposed in the paper and return this loss to the calling function instead -- #
         # -- Loop through the tasks the model has already been trained on -- #
@@ -67,9 +115,10 @@ class MultipleOutputLossEWC(MultipleOutputLoss2):
                     # -- Extract corresponding fisher and param values -- #
                     fisher_value = self.fisher[task][name]
                     param_value = self.params[task][name]
+                    importance = self.parameter_importance[task][name]
                     
-                    # -- loss = loss_{t} + ewc_lambda/2 * \sum_{i} F_{i}(param_{i} - param_{t-1, i})**2 -- #
-                    loss += self.ewc_lambda/2 * (fisher_value * (param_value - param).pow(2)).sum()
+                    # -- loss = loss_{t} + ewc_lambda * \sum_{i} (F_{i} + S(param_{i})) * (param_{i} - param_{t-1, i})**2 -- #
+                    loss += self.ewc_lambda * ((fisher_value + importance) * (param - param_value).pow(2)).sum()
                 
         # -- Return the updated loss value -- #
         return loss
@@ -203,12 +252,15 @@ class MultipleOutputLossPLOP(nn.Module):
         dist_loss = 0
         for name, h_old in self.old_interm_results.items(): # --> Loop over every Layer
             # -- Add the local POD loss as distillation loss ontop of the original loss value -- #
-            dist_loss += self.pod_lambda * self._local_POD(self.interm_results[name], h_old)
+            dist_loss += self.pod_lambda * local_POD(self.interm_results[name], h_old, self.scales)
             # -- NOTE: The adaptive weighting \sqrt(|C^{1:t}| / |C^{t}|) is not necessary for us -- #
             # --       since we always have the same classes resulting in a weighting of 1 -- #
             
             # -- Update the loss a final time -- #
             dist_loss /= self.num_layers # Devide by the number of layers we looped through
+        
+        # -- Empty the variable that hold the data -- #
+        self.thresholds, self.max_entropy, self.interm_results, self.old_interm_results
 
         # -- Return the updated loss value -- #
         return pseudo_loss + dist_loss
@@ -256,46 +308,10 @@ class MultipleOutputLossPLOP(nn.Module):
         loss = classif_adaptive_factor * (loss_pseudo + loss_not_pseudo)
         return loss.mean()
 
-    def _pod_embed(self, embedding_tensor):
-        # -- Calculate the POD embedding -- #
-        w_p = torch.mean(embedding_tensor, -1)  # Over W: H × C width-pooled slices of embedding_tensor using mean
-        h_p = torch.mean(embedding_tensor, -2)  # Over H: W × C height-pooled slices of embedding_tensor using mean
-        return torch.cat((w_p, h_p), dim=2)       # Concat over C axis
-
-    def _local_POD(self, h_, h_old):
-        # -- Calculate the local POD embedding using intermediate convolutional outputs -- #
-        assert h_.size() == h_old.size(), "The embedding tensors of the current and old model should have the same shape.."
-        
-        # -- Initialize the embedding lists/tensors that are filled in the double for loop -- #
-        POD_ = None
-        POD_old = None
-        # -- Extract the height and width of the current embeddings -- #
-        W = h_.size(-1)
-        H = h_.size(-2)
-        # -- Calculate embeddings for every scale in scales -- #
-        for scale in range(0, self.scales, 1):  # step size = 1
-            # -- Calculate step sizes -- #
-            w = int(W/(2**scale))
-            h = int(H/(2**scale))
-            # -- Loop through W and H in h and w steps -- #
-            for i in range(0, W-w, w):
-                for j in range(0, H-h, h):
-                    # -- Calculate the POD embeddings for the extracted slice based on i and j -- #
-                    pod_ = self._pod_embed(h_[..., i:i+w, j:j+h])
-                    pod_old = self._pod_embed(h_old[..., i:i+w, j:j+h])
-                    # -- In-Place concatenation of the POD embeddings along channels axis -- #
-                    POD_ = pod_ if POD_ is None else torch.cat((POD_, pod_), dim=2)                  # concat over channel axis --> 0 batch 1 channel ?
-                    POD_old = pod_old if POD_old is None else torch.cat((POD_old, pod_old), dim=2)   # concat over channel axis --> 0 batch 1 channel ?
-
-        # -- Return the L2 distance between the POD embeddings based on their original implementation from here: -- #
-        # -- https://github.com/arthurdouillard/CVPR2021_PLOP/blob/0fb13774735961a6cb50ccfee6ca99d0d30b27bc/train.py#L934 -- #
-        layer_loss = torch.stack([torch.linalg.norm(p_ - p_o, dim=-1) for p_, p_o in zip(POD_, POD_old)])
-        return torch.mean(layer_loss)
-
 # -- Loss function that only considers POD, no local pseudo labeling as in PLOP -- #
 class MultipleOutputLossPOD(MultipleOutputLoss2):
     # -- This implementation represents part of the method proposed in the paper https://arxiv.org/pdf/2011.11390.pdf -- #
-    def __init__(self, loss, weight_factors=None, pod_lambda=1e-2, scales=3, old_interm_results=dict()):
+    def __init__(self, loss, weight_factors=None, pod_lambda=1e-2, scales=3):
         """This Loss function is based on the nnU-Nets loss function called MultipleOutputLoss2, but extends it
            for the (PLO)P approach. The loss function will be updated using only the POD loss method in the paper linked above.
            the pseudo labeling is discarded for this loss, so it does not fully represent the papers approach.
@@ -326,7 +342,7 @@ class MultipleOutputLossPOD(MultipleOutputLoss2):
         dist_loss = 0
         for name, h_old in self.old_interm_results.items(): # --> Loop over every Layer
             # -- Add the local POD loss as distillation loss ontop of the original loss value -- #
-            dist_loss += self.pod_lambda * self._local_POD(self.interm_results[name], h_old)
+            dist_loss += self.pod_lambda * local_POD(self.interm_results[name], h_old, self.scales)
             # -- NOTE: The adaptive weighting \sqrt(|C^{1:t}| / |C^{t}|) is not necessary for us -- #
             # --       since we always have the same classes resulting in a weighting of 1 -- #
             
@@ -335,42 +351,6 @@ class MultipleOutputLossPOD(MultipleOutputLoss2):
 
         # -- Return the updated loss value -- #
         return loss + dist_loss
-
-    def _pod_embed(self, embedding_tensor):
-        # -- Calculate the POD embedding -- #
-        w_p = torch.mean(embedding_tensor, -1)  # Over W: H × C width-pooled slices of embedding_tensor using mean
-        h_p = torch.mean(embedding_tensor, -2)  # Over H: W × C height-pooled slices of embedding_tensor using mean
-        return torch.cat((w_p, h_p), dim=2)       # Concat over C axis
-
-    def _local_POD(self, h_, h_old):
-        # -- Calculate the local POD embedding using intermediate convolutional outputs -- #
-        assert h_.size() == h_old.size(), "The embedding tensors of the current and old model should have the same shape.."
-        
-        # -- Initialize the embedding lists/tensors that are filled in the double for loop -- #
-        POD_ = None
-        POD_old = None
-        # -- Extract the height and width of the current embeddings -- #
-        W = h_.size(-1)
-        H = h_.size(-2)
-        # -- Calculate embeddings for every scale in scales -- #
-        for scale in range(0, self.scales, 1):  # step size = 1
-            # -- Calculate step sizes -- #
-            w = int(W/(2**scale))
-            h = int(H/(2**scale))
-            # -- Loop through W and H in h and w steps -- #
-            for i in range(0, W-w, w):
-                for j in range(0, H-h, h):
-                    # -- Calculate the POD embeddings for the extracted slice based on i and j -- #
-                    pod_ = self._pod_embed(h_[..., i:i+w, j:j+h])
-                    pod_old = self._pod_embed(h_old[..., i:i+w, j:j+h])
-                    # -- In-Place concatenation of the POD embeddings along channels axis -- #
-                    POD_ = pod_ if POD_ is None else torch.cat((POD_, pod_), dim=2)                  # concat over channel axis --> 0 batch 1 channel ?
-                    POD_old = pod_old if POD_old is None else torch.cat((POD_old, pod_old), dim=2)   # concat over channel axis --> 0 batch 1 channel ?
-
-        # -- Return the L2 distance between the POD embeddings based on their original implementation from here: -- #
-        # -- https://github.com/arthurdouillard/CVPR2021_PLOP/blob/0fb13774735961a6cb50ccfee6ca99d0d30b27bc/train.py#L934 -- #
-        layer_loss = torch.stack([torch.linalg.norm(p_ - p_o, dim=-1) for p_, p_o in zip(POD_, POD_old)])
-        return torch.mean(layer_loss)
 
 # -- Loss function for the MiB approach -- #
 class MultipleOutputLossMiB(MultipleOutputLoss2):

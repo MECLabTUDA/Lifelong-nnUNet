@@ -857,9 +857,6 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # -- Add to the already_trained_on that the validation is done for the task the model trained on previously -- #
         self.already_trained_on[str(self.fold)]['finished_validation_on'].append(trained_on[-1])
 
-        # -- Remove the additional prev_trainer currently existing in self.already_trained_on -- #
-        #self.already_trained_on[str(self.fold)]['prev_trainer'] = self.already_trained_on[str(self.fold)]['prev_trainer'][:-1]
-        
         # -- Save the updated dictionary as a json file -- #
         save_json(self.already_trained_on, join(self.trained_on_path, self.extension+'_trained_on.json'))
         # -- Update self.init_tasks so the storing works properly -- #

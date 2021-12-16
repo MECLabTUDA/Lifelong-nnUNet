@@ -15,13 +15,6 @@ def entropy(probabilities):
     factor = 1 / math.log(probabilities.shape[1] + 1e-8)
     return -factor * torch.mean(probabilities * torch.log(probabilities + 1e-8), dim=1)
 
-def pseudo_labeling(output_old):
-    r"""This function extracts the pseudo-labels that should be used during a pseudo-labeling loss
-        instead of the actual GT. Input for this is the old models output of the current batch.
-    """
-    _, pseudo_labeled = torch.max(output_old, 1)
-    return pseudo_labeled
-
 class RobustCrossEntropyLoss(RCEL):
     r"""Modified the RCEL so we can pass additional arguments, like ignore_index, as well.
     """

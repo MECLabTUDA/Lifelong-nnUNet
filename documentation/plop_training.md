@@ -7,7 +7,7 @@ The exact same Command Line Arguments as presented in the [Multi-Head](multihead
 
 | tag_name | description | required | choices | default | 
 |:-:|-|:-:|:-:|:-:|
-| `-pod_lambda` | Specify the lambda weighting for the distillation loss. | no | -- | 0.05 |
+| `-pod_lambda` | Specify the lambda weighting for the distillation loss. | no | -- | 0.01 |
 | `-plop_scales` | Specify the number of scales for the PLOP method. | no | -- | 3 |
 
 ### Exemplary use cases

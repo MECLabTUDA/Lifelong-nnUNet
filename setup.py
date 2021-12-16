@@ -35,11 +35,21 @@ setup(name='nnunet_ext',
               'nnUNet_train_sequential = nnunet_ext.run.run_training_sequential:main',         # Use for sequential training --> transfer learning using n tasks
               'nnUNet_train_rehearsal = nnunet_ext.run.run_training_rehearsal:main',           # Use for rehearsal training
               'nnUNet_train_ewc = nnunet_ext.run.run_training_ewc:main',                       # Use for EWC training
+              'nnUNet_train_rw = nnunet_ext.run.run_training_rw:main',                         # Use for RW training
               'nnUNet_train_lwf = nnunet_ext.run.run_training_lwf:main',                       # Use for LWF training
-              'nnUNet_evaluate = nnunet_ext.run.run_evaluation:main',                        # Use for evaluation of any method
+              'nnUNet_train_mib = nnunet_ext.run.run_training_mib:main',                       # Use for MiB training
+              'nnUNet_train_plop = nnunet_ext.run.run_training_plop:main',                     # Use for PLOP training
+              'nnUNet_evaluate = nnunet_ext.run.run_evaluation:main',                          # Use for evaluation of any method
+                            ## -- Experimental Trainers -- ##
+              'nnUNet_train_ewc_ln = nnunet_ext.run.run_training_ewc_ln:main',                 # Use for EWC on LN layers
+              'nnUNet_train_ewc_unet = nnunet_ext.run.run_training_ewc_unet:main',             # Use for EWC on nnUNet layers
+              'nnUNet_train_ewc_vit = nnunet_ext.run.run_training_ewc_vit:main',               # Use for EWC on ViT layers
+              'nnUNet_train_freezed_nonln = nnunet_ext.run.run_training_freezed_nonln:main',   # Use for freezing all layers except LN
+              'nnUNet_train_freezed_unet = nnunet_ext.run.run_training_freezed_unet:main',     # Use for freezing all nnUNet layers
+              'nnUNet_train_freezed_vit = nnunet_ext.run.run_training_freezed_vit:main',       # Use for freezing all ViT layers
           ],
       },
       keywords=['deep learning', 'image segmentation', 'medical image analysis',
                 'medical image segmentation', 'nnU-Net', 'nnunet', 'CL', 'Continual Learning',
-                'Elastic Weight Consolidation', 'Learning without Forgetting', 'nnU-Net extensions']
+                'Lifelon Learning', 'Learning without Forgetting', 'nnU-Net extensions']
       )

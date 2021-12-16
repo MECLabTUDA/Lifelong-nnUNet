@@ -33,7 +33,7 @@ class nnUNetTrainerEWC(nnUNetTrainerMultiHead):
         # -- Set the importance variable for the EWC Loss calculation during training -- #
         self.ewc_lambda = ewc_lambda
 
-        # -- Add seed in trained on file for restoring to be able to ensure that seed can not be changed during training -- #
+        # -- Add flags in trained on file for restoring to be able to ensure that seed can not be changed during training -- #
         if already_trained_on is not None:
             # -- If the current fold does not exists initialize it -- #
             if self.already_trained_on.get(str(self.fold), None) is None:
@@ -134,7 +134,7 @@ class nnUNetTrainerEWC(nnUNetTrainerMultiHead):
         self.loss.update_ewc_params(self.fisher, self.params)
 
     def run_training(self, task, output_folder):
-        r"""Perform training using ewc trainer. Simply executes training method of parent class (nnUNetTrainerSequential)
+        r"""Perform training using EWC trainer. Simply executes training method of parent class (nnUNetTrainerMultiHead)
             while updating fisher and params dicts.
             NOTE: This class expects that the trainer is already initialized, if not, the calling class will initialize,
                   however the class we inherit from has another initialize function, that does not set the number of epochs
