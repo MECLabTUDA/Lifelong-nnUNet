@@ -6,8 +6,8 @@ In the following, the Multi-Head Architecture and provided Module will be furthe
 
 ### Initialize a Multi-Head Network
 For the initialization of a Multi-Head Network, the following arguments have to be provided:
-*   *class_object*: This is the class (network) that should be used, i.e. that will be split. This needs to be a class inheriting `nn.Module`, where the `.forward()` method is implemented, since this will be used as well.
-*   *split_at*: The path in the network where the split should be performed. Use the dot notation `('.')` to specify the path to a desired split point. Note that the specified path is the very first element in the head, i.e. not included in the shared body.
+*   *class_object*: This is the class (network) that should be used, ie. that will be split. This needs to be a class inheriting `nn.Module`, where the `.forward()` method is implemented, since this will be used as well.
+*   *split_at*: The path in the network where the split should be performed. Use the dot notation `('.')` to specify the path to a desired split point. Note that the specified path is the very first element in the head, ie. not included in the shared body.
 *   *task*: The name of the first head. Since this function will perform a split, the splitted part needs to have a name; this specifies it.
 *   *prev_trainer*: If the split should be performed on a previously trained/existing model, than this can be provided with this variable. Note: The type needs be equal to the provided *class_object*.
 *   *&ast;args* and *&ast;&ast;kwargs*: Provide all further positional and keyword arguments that are necessary to initialize the *class_object*. Note: This needs to be done correctly, since if it is not, *class_object* has missing/too much positional arguments and will fail during runtime in initialization. This is only necessary when *prev_trainer* is not provided or None.

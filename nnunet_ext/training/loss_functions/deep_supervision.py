@@ -86,13 +86,13 @@ class MultipleOutputLossRW(MultipleOutputLossEWC):
            the fisher dictionary, the params dictionary and the network parameters from the current model,
            which is simply model.named_parameters().
         """
-        # -- Initialize using the MultipleOutputLoss2 from nnU-Net -- #
+        # -- Initialize using the MultipleOutputLossEWC from nnU-Net -- #
         super(MultipleOutputLossRW, self).__init__(loss, weight_factors, ewc_lambda, fisher, params, network_params,
                                                    match_sth, match, match_true)
         self.parameter_importance = parameter_importance
 
-    def update_ewc_params(self, fisher, params, parameter_importance):
-        r"""The ewc parameters should be updated after every finished run before training on a new task.
+    def update_rw_params(self, fisher, params, parameter_importance):
+        r"""The ewc parameters should be updated on the fly following EWC++ method.
         """
         # -- Update the parameters -- #
         super(MultipleOutputLossRW, self).update_ewc_params(fisher, params)
@@ -220,7 +220,8 @@ class MultipleOutputLossPLOP(nn.Module):
         self.nr_classes = nr_classes
         self.pod_lambda = pod_lambda
         self.weight_factors = weight_factors
-        self.ce = UnbiasedCrossEntropy(old_cl = self.nr_classes)
+        # self.ce = UnbiasedCrossEntropy(old_cl = self.nr_classes)  # Unbiased CE as in paper
+        self.ce = RobustCrossEntropyLoss(ignore_index=255)    # Use CE --> old_classes is 0 since we don't have changing labels between new tasks
 
     def update_plop_params(self, old_interm_results, interm_results, thresholds, max_entropy):
         r"""The old_interm_results and interm_results should be updated before calculating the loss (every batch).
@@ -257,7 +258,7 @@ class MultipleOutputLossPLOP(nn.Module):
             # --       since we always have the same classes resulting in a weighting of 1 -- #
             
             # -- Update the loss a final time -- #
-            dist_loss /= self.num_layers # Devide by the number of layers we looped through
+            # dist_loss /= self.num_layers # Divide by the number of layers we looped through
         
         # -- Empty the variable that hold the data -- #
         self.thresholds, self.max_entropy, self.interm_results, self.old_interm_results
@@ -293,7 +294,11 @@ class MultipleOutputLossPLOP(nn.Module):
         
         # -- NOT Pseudo Loss -- #
         # -- Calculate the unbiased CE for the non pseudo labels --> Now use the actual output of current model -- #
-        loss_not_pseudo = self.ce(x, y.long(), mask=mask_background & mask_valid_pseudo)
+        mask=mask_background & mask_valid_pseudo
+        lab = copy.deepcopy(y)
+        if mask is not None:
+            lab[mask] = 255
+        loss_not_pseudo = self.ce(x, lab.long())
 
         # -- Pseudo Loss -- #
         # -- Prepare labels for the pseudo loss -- #
@@ -301,8 +306,8 @@ class MultipleOutputLossPLOP(nn.Module):
         _labels[~(mask_background & mask_valid_pseudo)] = 255
         _labels[mask_background & mask_valid_pseudo] = pseudo_labels[mask_background & mask_valid_pseudo].float()
         # -- Calculate the pseudo loss -- #
-        ce = RobustCrossEntropyLoss(ignore_index=255, reduction="none") # We have different datastructure than normal
-        loss_pseudo = ce(x, _labels)
+        # ce = RobustCrossEntropyLoss(ignore_index=255, reduction="none") # We have different datastructure than normal
+        loss_pseudo = self.ce(x, _labels)
         
         # -- Return the joined loss -- #
         loss = classif_adaptive_factor * (loss_pseudo + loss_not_pseudo)
@@ -319,7 +324,7 @@ class MultipleOutputLossPOD(MultipleOutputLoss2):
            NOTE: POD = Pooled Outputs Distillation
         """
         # -- Initialize using the MultipleOutputLoss2 from nnU-Net -- #
-        super(MultipleOutputLossPLOP, self).__init__(loss, weight_factors)
+        super(MultipleOutputLossPOD, self).__init__(loss, weight_factors)
 
         # -- Set all variables that are used by parent class and are necessary for the EWC loss calculation -- #
         self.weight_factors = weight_factors
@@ -337,7 +342,7 @@ class MultipleOutputLossPOD(MultipleOutputLoss2):
 
     def forward(self, x, y):
         # -- Calculate the loss first using the parent class -- #
-        loss = super(MultipleOutputLossPLOP, self).forward(x, y)
+        loss = super(MultipleOutputLossPOD, self).forward(x, y)
         # -- Update the loss as proposed in the paper and return this loss to the calling function instead -- #
         dist_loss = 0
         for name, h_old in self.old_interm_results.items(): # --> Loop over every Layer
@@ -347,7 +352,7 @@ class MultipleOutputLossPOD(MultipleOutputLoss2):
             # --       since we always have the same classes resulting in a weighting of 1 -- #
             
             # -- Update the loss a final time -- #
-            dist_loss /= self.num_layers # Devide by the number of layers we looped through
+            dist_loss /= self.num_layers # Divide by the number of layers we looped through
 
         # -- Return the updated loss value -- #
         return loss + dist_loss
@@ -356,15 +361,14 @@ class MultipleOutputLossPOD(MultipleOutputLoss2):
 class MultipleOutputLossMiB(MultipleOutputLoss2):
     # -- This implementation represents the method proposed in the paper https://arxiv.org/pdf/2002.00718.pdf -- #
     # -- Based on the implementation from here: https://github.com/fcdl94/MiB/blob/1c589833ce5c1a7446469d4602ceab2cdeac1b0e/train.py -- #
-    def __init__(self, nr_classes=1, alpha=1., lkd=10, weight_factors=None):
+    def __init__(self, alpha=1., lkd=10, weight_factors=None):
         """This Loss function is based on the MiB approach. The loss function will be updated using the proposed method in the paper linked above.
-           nr_classes should NOT contain the background class!
         """
         # -- Initialize using grand parent -- #
         super(MultipleOutputLoss2, self).__init__()
 
         # -- Initialize using the MultipleOutputLoss2 from nnU-Net -- #
-        ce = UnbiasedCrossEntropy(old_cl = nr_classes)   # Use unbiased CE as in MiB paper
+        ce = RobustCrossEntropyLoss(ignore_index=255)    # Use CE --> old_classes is 0 since we don't have changing labels between new tasks
         super(MultipleOutputLossMiB, self).__init__(ce, weight_factors)
         
         # -- Set all variables that are used by parent class and are necessary for the MiB loss calculation -- #
@@ -385,3 +389,209 @@ class MultipleOutputLossMiB(MultipleOutputLoss2):
 
         # -- Return the updated loss value -- #
         return loss
+
+# -- Loss function for the own approach -- #
+class MultipleOutputLossOwn1(MultipleOutputLossEWC):
+    # -- This implementation represents our own method -- #
+    def __init__(self, loss, weight_factors=None, alpha=0.9, lkd=0.77, ewc_lambda=0.4, fisher=dict(), params=dict(),
+                 network_params=None, match_sth=False, match=list(), match_true=True, pod_lambda=1e-2, scales=3, do_pod=True):
+        """The loss function will be updated using our own method.
+           It needs the previous task names in form of a list, the ewc lambda representing the importance of previous tasks,
+           the fisher dictionary, the params dictionary and the network parameters from the current model,
+           which is simply model.named_parameters(). It also needs alpha and lkd for the knowledge distillation.
+        """
+        # -- Initialize using the MultipleOutputLossEWC from nnU-Net -- #
+        super(MultipleOutputLossOwn1, self).__init__(loss, weight_factors, ewc_lambda, fisher, params, network_params,
+                                                     match_sth, match, match_true)
+        
+        # -- Set all variables that are necessary for the MiB KD loss -- #
+        self.lkd = lkd
+        self.alpha = alpha
+        self.lkd_loss = UnbiasedKnowledgeDistillationLoss(alpha = self.alpha)
+
+        # -- Set all variables for POD loss -- #
+        self.do_pod = do_pod
+        self.scales = scales
+        self.pod_lambda = pod_lambda
+        self.old_interm_results = None
+
+    def update_fisher_params(self, fisher, params, online=False):
+        r"""The ewc parameters should be updated after every finished run before training on a new task.
+            The ewc parameters can also be updated on the fly following the EWC++ method proposed in RW:
+            https://arxiv.org/pdf/1801.10112.pdf.
+        """
+        # -- Update the parameters -- #
+        super(MultipleOutputLossOwn1, self).update_ewc_params(fisher, params)
+        if online:
+            # -- Omit last one since this is computed on the fly and is reserved for next task -- #
+            self.tasks = list(self.fisher.keys())[:-1]
+        else:
+            # -- Extract the number of tasks -- #
+            self.tasks = list(self.fisher.keys())
+
+    # def update_old_plop_params(self, old_interm_results):
+    #     r"""This function should be executed only once before the training starts. --> the old intermediate
+    #         results should not be updated during the training.
+    #     """
+    #     # -- Update the convolutional outputs -- #
+    #     self.old_interm_results = old_interm_results    # Structure: {layer_name: embedding, ...}
+
+    def update_plop_params(self, interm_results, old_interm_results):
+        r"""The interm_results should be updated before calculating the loss (every batch).
+        """
+        # -- Update the convolutional outputs -- #
+        self.interm_results = interm_results    # Structure: {layer_name: embedding, ...}
+        self.old_interm_results = old_interm_results    # Structure: {layer_name: embedding, ...}
+        self.num_layers = len(self.interm_results.keys())
+
+    def forward(self, x, x_o, y):
+        # -- Calculate the loss first using the parent class with regularization --> considering the matches as well -- #
+        # -- Should only match ViT related parts -- #
+        loss = super().forward(x, y, reg=True)
+
+        # -- Update the loss using MiBs KD approach -- #
+        # -- Knowledge Distillation on every head -- #
+        for i in range(len(x)):
+            loss += self.lkd * self.lkd_loss(x[i], x_o[i])
+
+        # -- Update the loss as well using the POD loss as well --> calling function has to specify which parts -- #
+        # -- are included in the forward hook leading to the intermediate results. NOTE: This should only contain -- #
+        # -- results from the head, but they can be from every conv layer as well --> will be dealt with in the calling -- #
+        # -- function. -- #
+        # -- Update the loss as proposed in the PLOP paper without performing the pseudo-labeling part -- #
+        dist_loss = 0
+        if self.do_pod:
+            self.old_interm_results = self.old_interm_results or dict()
+            for name, h_old in self.old_interm_results.items(): # --> Loop over every Layer
+                # -- Add the local POD loss as distillation loss ontop of the original loss value -- #
+                dist_loss += self.pod_lambda * local_POD(self.interm_results[name], h_old, self.scales)
+                # -- NOTE: The adaptive weighting \sqrt(|C^{1:t}| / |C^{t}|) is not necessary for us -- #
+                # --       since we always have the same classes resulting in a weighting of 1 -- #
+                
+                # -- Update the loss a final time -- #
+                dist_loss /= self.num_layers # Divide by the number of layers we looped through
+
+        # -- Return the updated loss value -- #
+        return loss + dist_loss
+
+# -- Loss function for the own approach -- #
+class MultipleOutputLossOwn2(MultipleOutputLossEWC):
+    # -- This implementation represents our own method -- #
+    def __init__(self, loss, t1, t2, weight_factors=None, alpha=3, ewc_lambda=0.4, fisher=dict(), params=dict(),
+                 network_params=None, match_sth=False, match=list(), match_true=True, pod_lambda=1e-2, scales=3, do_pod=True):
+        """The loss function will be updated using our own method.
+           It needs the previous task names in form of a list, the ewc lambda representing the importance of previous tasks,
+           the fisher dictionary, the params dictionary and the network parameters from the current model,
+           which is simply model.named_parameters(). It also needs alpha and lkd for the knowledge distillation.
+           T1 and T2 are used to specify the weighting for the pseudo labeling loss. If the current epoch is smaller than T1
+           pseudo-labeling has no effect. If it is between T1 and T2, then the alpha is weightes as (epoch-T1) / (T2-T1). In
+           the case epoch > T2 then alpha is used.
+        """
+        # -- Initialize using the MultipleOutputLossEWC from nnU-Net -- #
+        super(MultipleOutputLossOwn2, self).__init__(loss, weight_factors, ewc_lambda, fisher, params, network_params,
+                                                     match_sth, match, match_true)
+
+        # -- Set all variables for POD loss -- #
+        self.do_pod = do_pod
+        self.scales = scales
+        self.pod_lambda = pod_lambda
+        self.old_interm_results = None
+
+        # -- Set the boundaries for pseudo-loss -- #
+        self.t1 = t1
+        self.t2 = t2
+        self.alpha = alpha
+
+        # -- Define our MSELoss for pseudo labeling -- #
+        self.mse = nn.MSELoss()
+
+    def update_fisher_params(self, fisher, params, online=False):
+        r"""The ewc parameters should be updated after every finished run before training on a new task.
+            The ewc parameters can also be updated on the fly following the EWC++ method proposed in RW:
+            https://arxiv.org/pdf/1801.10112.pdf.
+        """
+        # -- Update the parameters -- #
+        super(MultipleOutputLossOwn2, self).update_ewc_params(fisher, params)
+        if online:
+            # -- Omit last one since this is computed on the fly and is reserved for next task -- #
+            self.tasks = list(self.fisher.keys())[:-1]
+        else:
+            # -- Extract the number of tasks -- #
+            self.tasks = list(self.fisher.keys())
+
+    def update_plop_params(self, interm_results, old_interm_results):
+        r"""The interm_results should be updated before calculating the loss (every batch).
+        """
+        # -- Update the convolutional outputs -- #
+        self.interm_results = interm_results    # Structure: {layer_name: embedding, ...}
+        self.old_interm_results = old_interm_results    # Structure: {layer_name: embedding, ...}
+        self.num_layers = len(self.interm_results.keys())
+
+    def forward(self, x, x_o, y, pseudo, epoch):
+        r"""
+            :param x: current models output
+            :param x_o: previous models output
+            :param y: current label
+            :param pseudo: bool specifying if pseudo or not
+            :param epoch: current epoch we are in
+        """
+        # -- Every nth epoch do EWC on real data instead of pseudo-labeling -- #
+        if not pseudo:
+            # -- Calculate the loss first using the parent class with regularization --> considering the matches as well -- #
+            # -- Should only match ViT related parts -- #
+            loss = super().forward(x, y, reg=True)
+        else:
+            # -- Determine the weighting factor of the pseudo-labeling -- #
+            if epoch < self.t1:     # Do no pseudo labeling
+                weight = 0
+            elif epoch > self.t2:   # Do pseudo labeling with full weight
+                weight = self.alpha
+            else:                   # T1 < epoch < T2: weight the alpha
+                weight = self.alpha * ((epoch - self.t1) / (self.t2 - self.t1))
+
+            if weight != 0: # Otherwise there is no pseudo-labeling
+
+                # -- Calculate correct loss with no regularization -- #
+                loss = super().forward(x, y, reg=False)
+            
+                # -- Check that the format fits -- #
+                assert isinstance(x, (tuple, list)), "x must be either tuple or list"
+                assert isinstance(x_o, (tuple, list)), "x_o must be either tuple or list"
+                # -- Extract the weight factors per segmentation head -- #
+                if self.weight_factors is None:
+                    weights = [1] * len(x)
+                else:
+                    weights = self.weight_factors
+                        
+                # -- Calculate pseudo-loss adapted from https://towardsdatascience.com/pseudo-labeling-to-deal-with-small-datasets-what-why-how-fd6f903213af -- #
+                # -- Use old models output as GT -- #
+                loss_pseudo = weights[0] * self.mse(x[0], x_o[0]) #self.loss(x[0], x_o[0])
+                for i in range(1, len(x)):
+                    if weights[i] != 0:
+                        loss_pseudo += weights[i] * self.mse(x[i], x_o[i]) #self.loss(x[i], x_o[i])
+                loss += weight * loss_pseudo
+
+            else:   # --> Use normal loss calculation since we can not perform pseudo-labeling just yet -- #
+                # -- Calculate the loss first using the parent class with regularization --> considering the matches as well -- #
+                # -- Should only match ViT related parts -- #
+                loss = super().forward(x, y, reg=True)
+        
+        # -- Update the loss as well using the POD loss as well --> calling function has to specify which parts -- #
+        # -- are included in the forward hook leading to the intermediate results. NOTE: This should only contain -- #
+        # -- results from the head, but they can be from every conv layer as well --> will be dealt with in the calling -- #
+        # -- function. -- #
+        # -- Update the loss as proposed in the PLOP paper without performing the pseudo-labeling part -- #
+        dist_loss = 0
+        if self.do_pod:
+            self.old_interm_results = self.old_interm_results or dict()
+            for name, h_old in self.old_interm_results.items(): # --> Loop over every Layer
+                # -- Add the local POD loss as distillation loss ontop of the original loss value -- #
+                dist_loss += self.pod_lambda * local_POD(self.interm_results[name], h_old, self.scales)
+                # -- NOTE: The adaptive weighting \sqrt(|C^{1:t}| / |C^{t}|) is not necessary for us -- #
+                # --       since we always have the same classes resulting in a weighting of 1 -- #
+                
+                # -- Update the loss a final time -- #
+                dist_loss /= self.num_layers # Divide by the number of layers we looped through
+
+        # -- Return the updated loss value -- #
+        return loss + dist_loss

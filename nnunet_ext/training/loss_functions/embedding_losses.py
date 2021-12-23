@@ -21,6 +21,10 @@ def local_POD(h_, h_old, scales):
             # -- Calculate step sizes -- #
             w = int(W/(2**scale))
             h = int(H/(2**scale))
+            # -- Throw an error if scale is too big resulting in a step size of 0 -- #
+            assert w > 0 and h > 0,\
+                "The number of scales ({}) are too big in such a way that during scale {} either the step size for H ({}) or W ({}) is 0..".format(scales, scale, h, w)
+
             # -- Loop through W and H in h and w steps -- #
             for i in range(0, W-w, w):
                 for j in range(0, H-h, h):
@@ -35,10 +39,3 @@ def local_POD(h_, h_old, scales):
         # -- https://github.com/arthurdouillard/CVPR2021_PLOP/blob/0fb13774735961a6cb50ccfee6ca99d0d30b27bc/train.py#L934 -- #
         layer_loss = torch.stack([torch.linalg.norm(p_ - p_o, dim=-1) for p_, p_o in zip(POD_, POD_old)])
         return torch.mean(layer_loss)
-
-def pseudo_labeling(output_old):
-    r"""This function extracts the pseudo-labels that should be used during a pseudo-labeling loss
-        instead of the actual GT. Input for this is the old models output of the current batch.
-    """
-    _, pseudo_labeled = torch.max(output_old, 1)
-    return pseudo_labeled

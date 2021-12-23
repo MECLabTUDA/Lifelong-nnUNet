@@ -29,13 +29,18 @@ class nnUNetTrainerLWF(nnUNetTrainerMultiHead):
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
                  identifier=default_plans_identifier, extension='lwf', lwf_temperature=2.0, tasks_list_with_char=None,
                  mixed_precision=True, save_csv=True, del_log=False, use_vit=False, vit_type='base', version=1, split_gpu=False,
-                 transfer_heads=False):
+                 transfer_heads=False, ViT_task_specific_ln=False):
         r"""Constructor of LwF trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
         """
         # -- Initialize using parent class -- #
         super().__init__(split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic,
                          fp16, save_interval, already_trained_on, use_progress, identifier, extension, tasks_list_with_char,
-                         mixed_precision, save_csv, del_log, use_vit, vit_type, version, split_gpu, transfer_heads)
+                         mixed_precision, save_csv, del_log, use_vit, vit_type, version, split_gpu, transfer_heads,
+                         ViT_task_specific_ln)
+        
+        # -- Define a variable that specifies the hyperparameters for this trainer --> this is used for the parameter search method -- #
+        self.hyperparams = {'lwf_temperature': float}
+        
         # -- Set the temperature variable for the LWF Loss calculation during training -- #
         self.lwf_temperature = lwf_temperature
 
@@ -66,7 +71,7 @@ class nnUNetTrainerLWF(nnUNetTrainerMultiHead):
         self.init_args = (split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
                           deterministic, fp16, save_interval, already_trained_on, use_progress, identifier, extension,
                           lwf_temperature, tasks_list_with_char, mixed_precision, save_csv, del_log, use_vit, self.vit_type,
-                          version, split_gpu, transfer_heads)
+                          version, split_gpu, transfer_heads, ViT_task_specific_ln)
 
         # -- Define a variable for the original and LwF loss -- #
         self.loss_orig = None
@@ -85,12 +90,12 @@ class nnUNetTrainerLWF(nnUNetTrainerMultiHead):
         # -- Define an empty dict for the target_logits -- #
         self.target_logits = dict()
 
-    def initialize(self, training=True, force_load_plans=False, num_epochs=500, prev_trainer_path=None):
+    def initialize(self, training=True, force_load_plans=False, num_epochs=500, prev_trainer_path=None, call_for_eval=False):
         r"""Overwrite the initialize function so the correct Loss function for the LWF method can be set.
             NOTE: The previous tasks are already set in self.mh_network, so everything is in self.
         """
         # -- Perform initialization of parent class -- #
-        super().initialize(training, force_load_plans, num_epochs, prev_trainer_path)
+        super().initialize(training, force_load_plans, num_epochs, prev_trainer_path, call_for_eval)
  
         # -- Create a backup loss, so we can switch between original and LwF loss -- #
         self.loss_orig = copy.deepcopy(self.loss)
@@ -145,6 +150,15 @@ class nnUNetTrainerLWF(nnUNetTrainerMultiHead):
             # -- Reset the freeze_run flag since this task is a new one -- #
             self.freeze_run = True
 
+        # -- Register the task in the ViT if task specific ViT is used -- #
+        if self.use_vit and self.ViT_task_specific_ln:
+            if task not in self.network.ViT.norm:
+                self.network.ViT.register_new_task(task)
+                # -- Update self.mh_network.model as well since we now have a set of new LNs -- #
+                self.mh_network.model = copy.deepcopy(self.network)
+            # -- Set the correct task_name for training -- #
+            self.network.ViT.use_task(task)
+
         # -- Delete the trainer_model (used for restoring) -- #
         self.trainer_model = None
 
@@ -157,6 +171,9 @@ class nnUNetTrainerLWF(nnUNetTrainerMultiHead):
             self.loss = self.loss_orig
             # -- Train -- #
             self.network = self.mh_network.assemble_model(task)
+            # -- Set the correct task_name for training -- #
+            if self.use_vit and self.ViT_task_specific_ln:
+                self.network.ViT.use_task(task)
             ret = super().run_training(task, output_folder)
             self.freeze_run = True
         else:
@@ -170,6 +187,9 @@ class nnUNetTrainerLWF(nnUNetTrainerMultiHead):
             elif self.freeze_run:
                 # -- Activate the model based on task freezing the body accordingly -- #
                 self.network = self.mh_network.assemble_model(task, freeze_body=True)
+                # -- Set the correct task_name for training -- #
+                if self.use_vit and self.ViT_task_specific_ln:
+                    self.network.ViT.use_task(task)
                 # -- Train this task for n epochs without updating the body while using the standard loss function (not LwF one) -- #
                 # -- Set the correct loss -- #
                 self.loss = self.loss_orig
@@ -217,6 +237,9 @@ class nnUNetTrainerLWF(nnUNetTrainerMultiHead):
                 self.already_trained_on[str(self.fold)]['freezed_model_at'] = join(self.output_folder, "model_freezed.model")
                 # -- Reset network to the assembled model to continue training however unfreeze the body now -- #
                 self.network = self.mh_network.assemble_model(task, freeze_body=False)
+                # -- Set the correct task_name for training -- #
+                if self.use_vit and self.ViT_task_specific_ln:
+                    self.network.ViT.use_task(task)
 
                 # -- Update the log -- #
                 self.print_to_log_file("Calculate the target_logits before training..")
@@ -289,6 +312,9 @@ class nnUNetTrainerLWF(nnUNetTrainerMultiHead):
                 for task in list(self.mh_network.heads.keys()):
                     # -- Build the current network -- #
                     self.network = self.mh_network.assemble_model(task)
+                    # -- Set the correct task_name for training -- #
+                    if self.use_vit and self.ViT_task_specific_ln:
+                        self.network.ViT.use_task(task)
                     # -- Remove the softmax layer at the end by replacing the corresponding element with an identity function -- #
                     self.network.inference_apply_nonlin = lambda x: x
                     # -- Set network to eval -- #
@@ -367,6 +393,9 @@ class nnUNetTrainerLWF(nnUNetTrainerMultiHead):
             
             # -- Reset the network to the current task -- #
             self.network = self.mh_network.assemble_model(self.task)
+            # -- Set the correct task_name for training -- #
+            if self.use_vit and self.ViT_task_specific_ln:
+                self.network.ViT.use_task(self.task)
             # -- Put model into train mode -- #
             self.network.train()
 

@@ -4,8 +4,9 @@
 
 # -- This implementation represents the method proposed in the paper https://arxiv.org/pdf/1801.10112.pdf -- #
 # -- Original implementation in tensorflow can be found here: https://github.com/facebookresearch/agem -- #
+# -- Used implementation for PyTorch from here: https://github.com/fcdl94/MiB/blob/master/utils/regularizer.py -- #
 
-import copy, torch
+import torch
 from nnunet.utilities.to_torch import to_cuda
 from nnunet_ext.paths import default_plans_identifier
 from batchgenerators.utilities.file_and_folder_operations import *
@@ -13,26 +14,32 @@ from nnunet.training.loss_functions.dice_loss import DC_and_CE_loss
 from nnunet_ext.training.loss_functions.deep_supervision import MultipleOutputLossRW as RWLoss
 from nnunet_ext.training.network_training.multihead.nnUNetTrainerMultiHead import nnUNetTrainerMultiHead
 
-EPSILON = 1e-32
-PARAM_XI_STEP = 1e-3
+EPSILON = 1e-8
+# EPSILON = 1e-8    # From MiB re-implementation: https://github.com/fcdl94/MiB/blob/master/utils/regularizer.py#L4
+# EPSILON = 1e-32   # From original implementation: https://github.com/facebookresearch/agem/blob/main/model/model.py#L20
 
 class nnUNetTrainerRW(nnUNetTrainerMultiHead):
     def __init__(self, split, task, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
-                 identifier=default_plans_identifier, extension='rw', fisher_update_after=10, rw_alpha=0.5, rw_lambda=0.4, tasks_list_with_char=None,
+                 identifier=default_plans_identifier, extension='rw', fisher_update_after=10, rw_alpha=0.9, rw_lambda=0.4, tasks_list_with_char=None,
                  mixed_precision=True, save_csv=True, del_log=False, use_vit=False, vit_type='base', version=1, split_gpu=False,
-                 transfer_heads=True):
+                 transfer_heads=True, ViT_task_specific_ln=False):
         r"""Constructor of RW trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
         """
         # -- Initialize using parent class -- #
         super().__init__(split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic,
                          fp16, save_interval, already_trained_on, use_progress, identifier, extension,
-                         tasks_list_with_char, mixed_precision, save_csv, del_log, use_vit, vit_type, version, split_gpu, transfer_heads)
+                         tasks_list_with_char, mixed_precision, save_csv, del_log, use_vit, vit_type, version, split_gpu, transfer_heads,
+                         ViT_task_specific_ln)
+        
+        # -- Define a variable that specifies the hyperparameters for this trainer --> this is used for the parameter search method -- #
+        self.hyperparams = {'rw_alpha': float, 'rw_lambda': float, 'fisher_update_after': int}
         
         # -- Set the alpha for moving average fisher calculation -- #
         self.alpha = rw_alpha
         self.rw_lambda = rw_lambda
         self.fisher_update_after = fisher_update_after
+        assert self.alpha > 0 and self.alpha <= 1, "rw_alpha should be between 0 and 1: [0, 1]."
 
         # -- Add flags in trained on file for restoring to be able to ensure that seed can not be changed during training -- #
         if already_trained_on is not None:
@@ -64,7 +71,7 @@ class nnUNetTrainerRW(nnUNetTrainerMultiHead):
         self.init_args = (split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
                           deterministic, fp16, save_interval, already_trained_on, use_progress, identifier, extension, fisher_update_after,
                           rw_alpha, rw_lambda, tasks_list_with_char, mixed_precision, save_csv, del_log, use_vit, self.vit_type,
-                          version, split_gpu, True)
+                          version, split_gpu, transfer_heads, ViT_task_specific_ln)
         
         # -- Initialize dicts that hold the fisher and param values -- #
         if self.already_trained_on[str(self.fold)]['fisher_at'] is None\
@@ -76,26 +83,18 @@ class nnUNetTrainerRW(nnUNetTrainerMultiHead):
             self.params = load_pickle(self.already_trained_on[str(self.fold)]['params_at'])
             self.scores = load_pickle(self.already_trained_on[str(self.fold)]['scores_at'])
 
-            # -- Put data on GPU since the data is moved to CPU before it is stored -- #
-            for task in self.fisher.keys():
-                for key in self.fisher[task].keys():
-                    to_cuda(self.fisher[task][key])
-            for task in self.params.keys():
-                for key in self.params[task].keys():
-                    to_cuda(self.params[task][key])
-            for task in self.scores.keys():
-                for key in self.scores[task].keys():
-                    to_cuda(self.scores[task][key])
-
         # -- Define the path where the fisher and param values should be stored/restored -- #
         self.rw_data_path = join(self.trained_on_path, 'rw_data')
-        self.prev_param, self.prev_fisher = None, None
+        self.prev_param, self.prev_fisher, self.count = None, None, 0
 
-    def initialize(self, training=True, force_load_plans=False, num_epochs=500, prev_trainer_path=None):
+    def initialize(self, training=True, force_load_plans=False, num_epochs=500, prev_trainer_path=None, call_for_eval=False):
         r"""Overwrite the initialize function so the correct Loss function for the RW method can be set.
         """
+        # -- Asert if self.fisher_update_after > than nr of epochs to train on -- #
+        assert self.fisher_update_after < num_epochs,\
+            "How should the fisher values and importance scores be calculated if update_after is greater than the number of epochs to train.."
         # -- Perform initialization of parent class -- #
-        super().initialize(training, force_load_plans, num_epochs, prev_trainer_path)
+        super().initialize(training, force_load_plans, num_epochs, prev_trainer_path, call_for_eval)
         
         # -- If this trainer has already trained on other tasks, then extract the fisher and params -- #
         if prev_trainer_path is not None and self.already_trained_on[str(self.fold)]['fisher_at'] is not None\
@@ -105,17 +104,6 @@ class nnUNetTrainerRW(nnUNetTrainerMultiHead):
             self.params = load_pickle(self.already_trained_on[str(self.fold)]['params_at'])
             self.scores = load_pickle(self.already_trained_on[str(self.fold)]['scores_at'])
 
-            # -- Put data on GPU since the data is moved to CPU before it is stored -- #
-            for task in self.fisher.keys():
-                for key in self.fisher[task].keys():
-                    to_cuda(self.fisher[task][key])
-            for task in self.params.keys():
-                for key in self.params[task].keys():
-                    to_cuda(self.params[task][key])
-            for task in self.scores.keys():
-                for key in self.scores[task].keys():
-                    to_cuda(self.scores[task][key])
-    
         # -- Reset self.loss from MultipleOutputLoss2 to DC_and_CE_loss so the RW Loss can be initialized properly -- #
         self.loss = DC_and_CE_loss({'batch_dice': self.batch_dice, 'smooth': 1e-5, 'do_bg': False}, {})
 
@@ -149,8 +137,8 @@ class nnUNetTrainerRW(nnUNetTrainerMultiHead):
             for key in self.scores[task].keys():
                 to_cuda(self.scores[task][key])
 
-        # -- Update the fisher and param values in the loss function -- #
-        self.loss.update_ewc_params(self.fisher, self.params ,self.scores)
+        # -- Update the fisher, param and score values in the loss function -- #
+        self.loss.update_rw_params(self.fisher, self.params, self.scores)
 
     def run_training(self, task, output_folder):
         r"""Perform training using RW trainer. Simply executes training method of parent class (nnUNetTrainerMultiHead)
@@ -167,17 +155,21 @@ class nnUNetTrainerRW(nnUNetTrainerMultiHead):
             "The number of tasks in the fisher/param values are not as expected --> should be the same as in the Multi Head network."
 
         # -- Define the fisher and params before the training -- #
-        self.fisher[task], self.params[task], self.scores[task] = dict(), dict(), dict()
+        # self.fisher[task], self.params[task], self.scores[task] = dict(), dict(), dict()
+        self.params[task] = dict()
 
         # -- Set all fisher values to zero --> default to simply add the values easily -- #
-        for name, _ in self.network.named_parameters():
-            self.fisher[task][name] = torch.tensor([0], device='cuda:0')
+        self.fisher[task] = {n: torch.zeros_like(p, device='cuda:0', requires_grad=False)
+                      for n, p in self.network.named_parameters() if p.requires_grad}
+
+        self.scores[task] = {n: torch.zeros_like(p, device='cuda:0', requires_grad=False)
+                      for n, p in self.network.named_parameters() if p.requires_grad}
 
         # -- Execute the training for the desired epochs -- #
         ret = super().run_training(task, output_folder)  # Execute training from parent class --> already_trained_on will be updated there
 
         # -- Reset score param variable -- #
-        self.prev_param = None
+        self.prev_param, self.count = None, 0
 
         # -- Extract the current params as well -- #
         self._extract_params()
@@ -198,7 +190,6 @@ class nnUNetTrainerRW(nnUNetTrainerMultiHead):
                 self.scores[self.task][k] = 2 * curr_score_norm
         elif len(self.already_trained_on[str(self.fold)]['finished_training_on']) > 2:   # Scores are now computed differently since they are averaged
             prev_scores = {k: v.clone() for k, v in self.scores[self.already_trained_on[str(self.fold)]['finished_training_on'][-1]].items()}
-            # prev_scores = copy.deepcopy(self.scores[self.already_trained_on[str(self.fold)]['finished_training_on'][-1]])
             for k, v in self.scores[self.task].items():
                 # -- Normalize the score -- #
                 curr_score_norm = (v - minim) / (maxim - minim + EPSILON)
@@ -211,48 +202,63 @@ class nnUNetTrainerRW(nnUNetTrainerMultiHead):
         return ret  # Finished with training for the specific task
 
     def on_epoch_end(self):
-        """Use this function to update the fisher values after every nth epoch.
+        """Use this function to save the fisher values after every nth epoch.
         """
         # -- Perform everything the parent class makes -- #
         res = super().on_epoch_end()
-
-        # -- Calculate the Fisher values for the current task (EWC++ method) as moving average -- #
-        # -- Do this before the loss gets detached since then the computation graph is killed and we have no grads -- #
-        if (self.epoch + 1) % self.fisher_update_after == 0:
-            self.print_to_log_file("Calculating the Fisher values and parameter importance scores..")
-            if self.prev_param is None:
-                self.prev_param = {k:v for k, v in self.network.named_parameters()}
-            else:
-                # -- Update the importance score using distance in Riemannian Manifold -- #
-                for name, param in self.network.named_parameters():
-                    # -- Extract the gradient at t and old param -- #
-                    param_t = self.prev_param[name]
-                    if param_t.grad is None:
-                        gradient_t = torch.tensor([1], device='cuda:0')
-                    else:
-                        gradient_t = param_t.grad.data.clone()
-                    # -- Get parameter difference from old param and current param t -- #
-                    param_diff = (param - param_t)
-                    # -- Add the score: delat(L) / 0.5*F_t*delta(param)^2 --> only positive or zero values -- #
-                    scores = (-gradient_t * param_diff) / (0.5 * (self.fisher[self.task][name] * param_diff.pow(2)) + PARAM_XI_STEP)
-                    scores[scores < 0] = 0  # Ensure no negative values
-                    self.scores[self.task][name] = scores
-
-            # -- Update the fisher values -- #
-            for name, param in self.network.named_parameters():
-                # -- F_t = alpha * F_t + (1-alpha) * F_t-1
-                if param.grad is None:
-                    f_t = torch.tensor([1], device='cuda:0')
-                else:
-                    f_t = param.grad.data.clone().pow(2)
-                f_to = self.fisher[self.task][name] if self.fisher[self.task][name] is not None else torch.tensor([0], device='cuda:0')
-                self.fisher[self.task][name] = (self.alpha * f_t) + ((1 - self.alpha) * f_to)
-        
+       
         # -- Store the fisher values in case training fails so we don't loose the values -- #
         self.save_f_p_s_values()
 
         # -- Return the result -- #
         return res
+
+    def run_iteration(self, data_generator, do_backprop=True, run_online_evaluation=False, detach=True):
+        r"""Run the iteration and then update the fisher and score values.
+        """
+        # -- Run the iteration but do not detach the loss -- #
+        loss = super().run_iteration(data_generator, do_backprop, run_online_evaluation, detach=False)
+        # -- Update the values -- #
+        self._update_f_s_values()
+        # -- Now detach and return the loss if desired -- #
+        if detach:
+            loss = loss.detach().cpu().numpy()
+        return loss
+
+    def _update_f_s_values(self):
+        r"""This function updates after every desired epoch the fisher and score values as proposed in the paper.
+            Call this function before the loss is detached, otherwise the gradients are 0.
+        """
+        # -- Only do this every fisher_update_after epoch -- #
+        if self.count % self.fisher_update_after == 0:
+            # -- Update the scores -- #
+            if self.prev_param is not None:
+                # -- Update the importance score using distance in Riemannian Manifold -- #
+                for name, param in self.network.named_parameters():
+                    if param.grad is not None:
+                        # -- Get parameter difference from old param and current param t -- #
+                        delta = param.grad.detach() * (self.prev_param[name].to(param.device) - param.detach())
+                        # -- Calculate score denominator -- #
+                        den = 0.5 * self.fisher[self.task][name] * (param.detach() - self.prev_param[name].to(param.device)).pow(2) + EPSILON
+                        # -- Score: delat(L) / 0.5*F_t*delta(param)^2 --> only positive or zero values -- #
+                        scores = (delta / den)
+                        scores[scores < 0] = 0  # Ensure no negative values
+                        # -- Update the scores -- #
+                        self.scores[self.task][name] += scores
+
+            # -- Update the prev params -- #
+            self.prev_param = {k: torch.clone(v).detach().cpu() for k, v in self.network.named_parameters() if v.grad is not None}
+
+            # -- Update the fisher values -- #
+            for name, param in self.network.named_parameters():
+                # -- F_t = alpha * F_t + (1-alpha) * F_t-1
+                if param.grad is not None:
+                    f_t = param.grad.data.clone().pow(2)
+                    f_to = self.fisher[self.task][name] if self.fisher[self.task][name] is not None else torch.tensor([0], device='cuda:0')
+                    self.fisher[self.task][name] = (self.alpha * f_t) + ((1 - self.alpha) * f_to)
+        
+        # -- Increase our count variable -- #
+        self.count += 1
 
     def save_f_p_s_values(self):
         r"""This function stores the fisher, param and score values.
@@ -292,13 +298,16 @@ class nnUNetTrainerRW(nnUNetTrainerMultiHead):
         # -- Put data from CPU back to GPU -- #
         for task in self.fisher.keys():
             for key in self.fisher[task].keys():
-                to_cuda(self.fisher[task][key])
+                if key == self.task:
+                    to_cuda(self.fisher[task][key])
         for task in self.params.keys():
             for key in self.params[task].keys():
-                to_cuda(self.params[task][key])
+                if key == self.task:
+                    to_cuda(self.params[task][key])
         for task in self.scores.keys():
             for key in self.scores[task].keys():
-                to_cuda(self.scores[task][key])
+                if key == self.task:
+                    to_cuda(self.scores[task][key])
 
     def _extract_params(self):
         r"""This function is used to extract the parameters after the finished training.

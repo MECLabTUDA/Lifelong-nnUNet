@@ -35,7 +35,7 @@ All other methods have been used for experiments and are not further discussed s
 * Sequential Training while freezing all parameters from the Vision Transformer after the successfull training of the first task ([freezed_vit](/nnunet_ext/training/network_training/freezed_vit/nnUNetTrainerFreezedViT.py))
 * Sequential Training while freezing all parameters from the nnU-Net after the successfull training of the first task ([freezed_unet](/nnunet_ext/training/network_training/freezed_unet/nnUNetTrainerFreezedUNet.py))
 
-Note that all those just described trainers are not further described in the [documentations](documentation/continual_learning.md). Further, all those trainers use the [Generic_ViT_UNet](https://github.com/camgbus/Lifelong-nnUNet/blob/continual_learning/nnunet_ext/network_architecture/generic_ViT_UNet.py#L14) architecture instead of the classic [Generic_UNet](https://github.com/MIC-DKFZ/nnUNet/blob/master/nnunet/network_architecture/generic_UNet.py#L167) architecture.
+Note that all those just described trainers are not further described in the [documentations](documentation/continual_learning.md). Further, all those trainers can only be used with the [Generic_ViT_UNet](https://github.com/camgbus/Lifelong-nnUNet/blob/continual_learning/nnunet_ext/network_architecture/generic_ViT_UNet.py#L14) architecture instead of the classic [Generic_UNet](https://github.com/MIC-DKFZ/nnUNet/blob/master/nnunet/network_architecture/generic_UNet.py#L167) architecture, so the `--use_vit` and all corresponding ViT related arguments have to be set or the training will fail.
 
 
 For instructions on how to run these please see [here](documentation/continual_learning.md).

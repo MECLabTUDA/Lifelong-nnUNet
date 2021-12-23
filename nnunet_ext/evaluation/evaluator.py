@@ -23,15 +23,13 @@ from nnunet.run.default_configuration import get_default_configuration as get_de
 # -- Import the trainer classes -- #
 from nnunet_ext.training.network_training.nnViTUNetTrainer import nnViTUNetTrainer
 from nnunet_ext.training.network_training.multihead.nnUNetTrainerMultiHead import nnUNetTrainerMultiHead
-# from nnunet_ext.training.network_training.sequential.nnUNetTrainerSequential import nnUNetTrainerSequential
-# from nnunet_ext.training.network_training.freezed_vit.nnUNetTrainerFreezedViT import nnUNetTrainerFreezedViT
 
 class Evaluator():  # Do not inherit the one from the nnunet implementation since ours is different
     r"""Class that can be used to perform an Evaluation on any nnUNet related Trainer.
     """
     def __init__(self, network, network_trainer, tasks_list_with_char, model_list_with_char, version=1, vit_type='base',
                  plans_identifier=default_plans_identifier, mixed_precision=True, extension='multihead', save_csv=True,
-                 transfer_heads=False, use_vit=False):
+                 transfer_heads=False, use_vit=False, ViT_task_specific_ln=False):
         r"""Constructor for evaluator.
         """
         # -- Set all the relevant attributes -- #
@@ -52,6 +50,7 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
         self.version = 'V' + str(version)
         
         # -- Create the variable indicating which ViT Architecture to use, base, large or huge and if to use it -- #
+        self.ViT_task_specific_ln = ViT_task_specific_ln
         self.vit_type = vit_type.lower()
         self.use_vit = use_vit
 
@@ -88,9 +87,11 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
             else:   # Any other extension like CL extension for example (using MH Architecture)
                 if self.use_vit:
                     trainer_path = join(network_training_output_dir, self.network, self.tasks_joined_name, self.model_joined_name,\
-                                        self.network_trainer+'__'+self.plans_identifier, Generic_ViT_UNet.__name__+self.version, self.vit_type, 'SEQ' if self.transfer_heads else 'MH', 'fold_'+str(t_fold))
+                                        self.network_trainer+'__'+self.plans_identifier, Generic_ViT_UNet.__name__+self.version, self.vit_type,\
+                                            'task_specific' if self.ViT_task_specific_ln else 'not_task_specific', 'SEQ' if self.transfer_heads else 'MH', 'fold_'+str(t_fold))
                     output_path = join(evaluation_output_dir, self.network, self.tasks_joined_name, self.model_joined_name,\
-                                        self.network_trainer+'__'+self.plans_identifier, Generic_ViT_UNet.__name__+self.version, self.vit_type, 'SEQ' if self.transfer_heads else 'MH')
+                                        self.network_trainer+'__'+self.plans_identifier, Generic_ViT_UNet.__name__+self.version, self.vit_type,\
+                                            'task_specific' if self.ViT_task_specific_ln else 'not_task_specific', 'SEQ' if self.transfer_heads else 'MH')
                 else:
                     trainer_path = join(network_training_output_dir, self.network, self.tasks_joined_name, self.model_joined_name,\
                                         self.network_trainer+'__'+self.plans_identifier, Generic_UNet.__name__, 'SEQ' if self.transfer_heads else 'MH', 'fold_'+str(t_fold))
@@ -166,7 +167,6 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
 
             # -- Delete all heads except the last one if it is a Sequential Trainer, since then always the last head should be used -- #
             if always_use_last_head:
-            # if nnUNetTrainerSequential.__name__ in self.network_trainer or nnUNetTrainerFreezedViT.__name__ in self.network_trainer or always_use_last_head:
                 # -- Create new heads dict that only contains the last head -- #
                 last_name = list(trainer.mh_network.heads.keys())[-1]
                 last_head = trainer.mh_network.heads[last_name]

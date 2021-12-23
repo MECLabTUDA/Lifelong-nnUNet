@@ -22,14 +22,18 @@ class nnUNetTrainerEWC(nnUNetTrainerMultiHead):
     def __init__(self, split, task, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
                  identifier=default_plans_identifier, extension='ewc', ewc_lambda=0.4, tasks_list_with_char=None, mixed_precision=True,
-                 save_csv=True, del_log=False, use_vit=False, vit_type='base', version=1, split_gpu=False, transfer_heads=False):
+                 save_csv=True, del_log=False, use_vit=False, vit_type='base', version=1, split_gpu=False, transfer_heads=False,
+                 ViT_task_specific_ln=False):
         r"""Constructor of EWC trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
         """
         # -- Initialize using parent class -- #
         super().__init__(split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic,
                          fp16, save_interval, already_trained_on, use_progress, identifier, extension, tasks_list_with_char, mixed_precision,
-                         save_csv, del_log, use_vit, vit_type, version, split_gpu, transfer_heads)
+                         save_csv, del_log, use_vit, vit_type, version, split_gpu, transfer_heads, ViT_task_specific_ln)
 
+        # -- Define a variable that specifies the hyperparameters for this trainer --> this is used for the parameter search method -- #
+        self.hyperparams = {'ewc_lambda': float}
+        
         # -- Set the importance variable for the EWC Loss calculation during training -- #
         self.ewc_lambda = ewc_lambda
 
@@ -58,7 +62,7 @@ class nnUNetTrainerEWC(nnUNetTrainerMultiHead):
         self.init_args = (split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
                           deterministic, fp16, save_interval, self.already_trained_on, use_progress, identifier, extension,
                           ewc_lambda, tasks_list_with_char, mixed_precision, save_csv, del_log, use_vit, self.vit_type,
-                          version, split_gpu, transfer_heads)
+                          version, split_gpu, transfer_heads, ViT_task_specific_ln)
 
         # -- Initialize dicts that hold the fisher and param values -- #
         if self.already_trained_on[str(self.fold)]['fisher_at'] is None or self.already_trained_on[str(self.fold)]['params_at'] is None:
@@ -79,11 +83,11 @@ class nnUNetTrainerEWC(nnUNetTrainerMultiHead):
         # -- Define the path where the fisher and param values should be stored/restored -- #
         self.ewc_data_path = join(self.trained_on_path, 'ewc_data')
 
-    def initialize(self, training=True, force_load_plans=False, num_epochs=500, prev_trainer_path=None):
+    def initialize(self, training=True, force_load_plans=False, num_epochs=500, prev_trainer_path=None, call_for_eval=False):
         r"""Overwrite the initialize function so the correct Loss function for the EWC method can be set.
         """
         # -- Perform initialization of parent class -- #
-        super().initialize(training, force_load_plans, num_epochs, prev_trainer_path)
+        super().initialize(training, force_load_plans, num_epochs, prev_trainer_path, call_for_eval)
         
         # -- If this trainer has already trained on other tasks, then extract the fisher and params -- #
         if prev_trainer_path is not None and self.already_trained_on[str(self.fold)]['fisher_at'] is not None\

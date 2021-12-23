@@ -40,6 +40,7 @@ setup(name='nnunet_ext',
               'nnUNet_train_mib = nnunet_ext.run.run_training_mib:main',                       # Use for MiB training
               'nnUNet_train_plop = nnunet_ext.run.run_training_plop:main',                     # Use for PLOP training
               'nnUNet_evaluate = nnunet_ext.run.run_evaluation:main',                          # Use for evaluation of any method
+              'nnUNet_parameter_search = nnunet_ext.run.run_param_search:main',                # Use for parameter search for any parameter using extension trainer
                             ## -- Experimental Trainers -- ##
               'nnUNet_train_ewc_ln = nnunet_ext.run.run_training_ewc_ln:main',                 # Use for EWC on LN layers
               'nnUNet_train_ewc_unet = nnunet_ext.run.run_training_ewc_unet:main',             # Use for EWC on nnUNet layers
@@ -51,5 +52,5 @@ setup(name='nnunet_ext',
       },
       keywords=['deep learning', 'image segmentation', 'medical image analysis',
                 'medical image segmentation', 'nnU-Net', 'nnunet', 'CL', 'Continual Learning',
-                'Lifelon Learning', 'Learning without Forgetting', 'nnU-Net extensions']
+                'Lifelong Learning', 'Learning without Forgetting', 'nnU-Net extensions']
       )

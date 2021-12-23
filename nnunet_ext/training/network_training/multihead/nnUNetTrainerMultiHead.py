@@ -3,13 +3,15 @@
 #----------inspired by original implementation (--> nnUNetTrainerV2), copied code is marked as such.----#
 #########################################################################################################
 
-import os, torch
 import numpy as np
+import os, copy, torch
 from itertools import tee
+from torch.cuda.amp import autocast
 from collections import OrderedDict
 from nnunet.utilities.nd_softmax import softmax_helper
 from nnunet.utilities.tensor_utilities import sum_tensor
 from nnunet_ext.training.model_restore import restore_model
+from nnunet.utilities.to_torch import maybe_to_torch, to_cuda
 from nnunet.network_architecture.generic_UNet import Generic_UNet
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet.training.loss_functions.dice_loss import DC_and_CE_loss
@@ -32,7 +34,8 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
     def __init__(self, split, task, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
                  identifier=default_plans_identifier, extension='multihead', tasks_list_with_char=None, mixed_precision=True,
-                 save_csv=True, del_log=False, use_vit=False, vit_type='base', version=1, split_gpu=False, transfer_heads=False):
+                 save_csv=True, del_log=False, use_vit=False, vit_type='base', version=1, split_gpu=False, transfer_heads=False,
+                 ViT_task_specific_ln=False):
         r"""Constructor of Multi Head Trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
             The transfer_heads flag is used when adding a new head, if True, the state_dict from the last head will be used
             instead of the one from the initialization. This is the basic transfer learning (difference between MH and SEQ folder structure).
@@ -43,6 +46,9 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         """
         # -- Create a backup of the original output folder that is provided -- #
         self.output_folder_orig = output_folder
+
+        # -- Set ViT task specific flags -- #
+        self.ViT_task_specific_ln = ViT_task_specific_ln
 
         # -- Check and set everything if the user wants to use the Generic_ViT_UNet -- #
         self.use_vit = use_vit
@@ -108,7 +114,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                                                         'active_task_at_time_of_checkpoint': None}}
 
         # -- Set the path were the trained_on file will be stored -- #
-        self.trained_on_path = os.path.dirname(os.path.dirname(os.path.realpath(self.output_folder_orig))) #os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(self.output_folder))))
+        self.trained_on_path = os.path.dirname(os.path.dirname(os.path.realpath(self.output_folder_orig)))
         self.trained_on_path = self._build_output_path(self.trained_on_path, True)
         
         # -- Create the folder if necessary -- #
@@ -125,7 +131,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         help_path = os.path.normpath(self.output_folder)    # Normalize path in order to avoid errors
         help_path = help_path.split(os.sep) # Split the path using '\' seperator
         if self.use_vit:
-            self.network_name = help_path[-8]   # 8th element from back is the name of the used network
+            self.network_name = help_path[-9]   # 9th element from back is the name of the used network
         else:
             self.network_name = help_path[-7]   # 7th element from back is the name of the used network
 
@@ -178,7 +184,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         self.init_args = (split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
                           deterministic, fp16, save_interval, self.already_trained_on, use_progress, identifier, extension,
                           tasks_list_with_char, mixed_precision, save_csv, del_log, use_vit, self.vit_type, version, split_gpu,
-                          transfer_heads)
+                          transfer_heads, ViT_task_specific_ln)
 
     def process_plans(self, plans):
         r"""Modify the original function. This just reduces the batch_size by half and manages the correct initialization of the network.
@@ -197,8 +203,8 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         """
         # -- The Trainer embodies the actual model that will be used as foundation to continue training on -- #
         # -- It should be already initialized since the output_folder will be used. If it is None, the model will be initialized and trained. -- #
-        # -- Further the trainer needs to be of class nnUNetTrainerV2 or nnUNetTrainerMultiHead for this method, nothing else. -- #
-        # -- Set prev_trainer_path correctly as class instance and not a string -- #
+        # -- Further, the trainer needs to be of class nnUNetTrainerV2 or nnUNetTrainerMultiHead for this method, nothing else. -- #
+        # -- Set prev_trainer_path correctly as a string and not any class instance -- #
         if prev_trainer_path is not None and not call_for_eval:
             self.trainer_path = join(self._build_output_path(prev_trainer_path, False), "fold_%s" % str(self.fold))
         else:   # If for eval, then this is a nnUNetTrainerV2 whereas the path is not build as implemented in _build_output_path
@@ -243,13 +249,15 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             # -- however for self.plans, the user needs to extract the correct plans_file path by himself using always the -- #
             # -- first task from a list of tasks since the network is build using the plans_file and thus the structure might vary -- #
             if self.use_vit:
+                self.first_task_name = self.tasks_list_with_char[0][0]
                 # -- Initialize from beginning and start training, since no model is provided using ViT architecture -- #
                 nnViTUNetTrainer.initialize_network(self) # --> This updates the corresponding variables automatically since we inherit this class
                 self.mh_network = MultiHead_Module(Generic_ViT_UNet, self.split, self.tasks_list_with_char[0][0], prev_trainer=self.network,
                                                    input_channels=self.num_input_channels, base_num_features=self.base_num_features,\
                                                    num_classes=self.num_classes, num_pool=len(self.net_num_pool_op_kernel_sizes),\
                                                    patch_size=patch_size.tolist(), vit_version=self.version, vit_type=self.vit_type,\
-                                                   split_gpu=self.split_gpu)
+                                                   split_gpu=self.split_gpu, ViT_task_specific_ln=self.ViT_task_specific_ln,\
+                                                   first_task_name=self.tasks_list_with_char[0][0])
             else:
                 # -- Initialize from beginning and start training, since no model is provided -- #
                 super().initialize_network() # --> This updates the corresponding variables automatically since we inherit this class
@@ -321,7 +329,8 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                                                input_channels=self.num_input_channels, base_num_features=self.base_num_features,\
                                                num_classes=self.num_classes, num_pool=len(self.net_num_pool_op_kernel_sizes),\
                                                patch_size=self.patch_size.tolist(), vit_version=self.version, vit_type=self.vit_type,\
-                                               split_gpu=self.split_gpu)
+                                               split_gpu=self.split_gpu, ViT_task_specific_ln=self.ViT_task_specific_ln,\
+                                               first_task_name=self.tasks_list_with_char[0][0])
         else:
             self.mh_network = self.trainer_model.mh_network
 
@@ -400,7 +409,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                                 also_print_to_console=False)
         #--------------------------------- Copied from original implementation ---------------------------------#
 
-    def run_training(self, task, output_folder):
+    def run_training(self, task, output_folder, build_folder=True):
         r"""Perform training using Multi Head Trainer. Simply executes training method of parent class
             while updating trained_on.pkl file. It is important to provide the right path, in which the results
             for the desired task should be stored.
@@ -418,7 +427,11 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # -- Update the self.output_folder, otherwise the data will always be in the same folder for every task -- #
         # -- and everything will be overwritten over and over again -- #
         # -- Do this after reinitialization since the function might change the path -- #
-        self.output_folder = join(self._build_output_path(output_folder, False), "fold_%s" % str(self.fold))
+        if build_folder:
+            self.output_folder = join(self._build_output_path(output_folder, False), "fold_%s" % str(self.fold))
+        else:   # --> The output_folder is already built
+            self.output_folder = output_folder
+
 
         # -- Make the directory so there will no problems when trying to save some files -- #
         maybe_mkdir_p(self.output_folder)
@@ -429,6 +442,15 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # -- Register the task if it does not exist in one of the heads -- #
         if task not in self.mh_network.heads:
             self.mh_network.add_new_task(task, use_init=not self.transfer_heads)
+
+        # -- Register the task in the ViT if task specific ViT is used -- #
+        if self.use_vit and self.ViT_task_specific_ln:
+            if task not in self.network.ViT.norm:
+                self.network.ViT.register_new_task(task)
+                # -- Update self.mh_network.model as well since we now have a set of new LNs -- #
+                self.mh_network.model = copy.deepcopy(self.network)
+            # -- Set the correct task_name for training -- #
+            self.network.ViT.use_task(task)
 
         # -- Activate the model based on task --> self.mh_network.active_task is now set to task as well -- #
         self.network = self.mh_network.assemble_model(task)
@@ -465,20 +487,62 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
 
         return ret  # Finished with training for the specific task
     
-    def run_iteration(self, data_generator, do_backprop=True, run_online_evaluation=False):
-        r"""This function runs an iteration based on the underlying model.
+    def run_iteration(self, data_generator, do_backprop=True, run_online_evaluation=False, detach=True):
+        r"""This function runs an iteration based on the underlying model. It returns the detached or undetached loss.
+            The undetached loss might be important for methods that have to extract gradients without always copying
+            the run_iteration function.
             NOTE: The calling class needs to set self.network according to the desired task, this is not done in this
                   function but expected by the user.
         """
-        # -- Run iteration as usual -- #
-        loss = super().run_iteration(data_generator, do_backprop, run_online_evaluation)
+        # -- Run iteration as usual --> copied and modified from nnUNetTrainerV2 -- #
+        data_dict = next(data_generator)
+        data = data_dict['data']
+        target = data_dict['target']
+
+        data = maybe_to_torch(data)
+        target = maybe_to_torch(target)
+
+        if torch.cuda.is_available():
+            data = to_cuda(data)
+            target = to_cuda(target)
+
+        self.optimizer.zero_grad()
+
+        if self.fp16:
+            with autocast():
+                output = self.network(data)
+                del data
+                l = self.loss(output, target)
+
+            if do_backprop:
+                self.amp_grad_scaler.scale(l).backward()
+                self.amp_grad_scaler.unscale_(self.optimizer)
+                torch.nn.utils.clip_grad_norm_(self.network.parameters(), 12)
+                self.amp_grad_scaler.step(self.optimizer)
+                self.amp_grad_scaler.update()
+        else:
+            output = self.network(data)
+            del data
+            l = self.loss(output, target)
+
+            if do_backprop:
+                l.backward()
+                torch.nn.utils.clip_grad_norm_(self.network.parameters(), 12)
+                self.optimizer.step()
+
+        if run_online_evaluation:
+            self.run_online_evaluation(output, target)
+
+        del target
         
         # -- Update the Multi Head Network after one iteration only if backprop is performed (during training) -- #
         if do_backprop:
             self.mh_network.update_after_iteration()
         
         # -- Return the loss -- #
-        return loss
+        if detach:
+            l = l.detach().cpu().numpy()
+        return l
 
     def on_epoch_end(self):
         """Overwrite this function, since we want to perform a validation after every nth epoch on all tasks
@@ -578,14 +642,17 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             # -- Activate the current task to train on the right model -- #
             # -- Set self.network, since the parent classes all use self.network to train -- #
             # -- NOTE: self.mh_network.model is also updated to task split ! -- #
-            #if not call_for_eval:
-            #    self.network = self.mh_network.assemble_model(task)
-            #else:
             if task in self.mh_network.heads:
                 self.network = self.mh_network.assemble_model(task)
+                # -- Set the correct task_name for training -- #
+                if self.use_vit and self.ViT_task_specific_ln:
+                    self.network.ViT.use_task(task)
             else:
                 assert use_head is not None, "The task to perform validation/evaluation on is not in the head and no head_name that should be used instead (use_head) is provided."
                 self.network = self.mh_network.assemble_model(use_head)
+                # -- Set the correct task_name for training -- #
+                if self.use_vit and self.ViT_task_specific_ln:
+                    self.network.ViT.use_task(use_head)
             # -- ELSE: nn-UNet is used to perform evaluation, ie. external call, so there are -- #
             # --       no heads except one so omit it --> NOTE: The calling function needs to ensure -- #
             # --       that self.network is assembled correctly ! -- #
@@ -846,6 +913,10 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             # -- Set self.network, since the parent classes all use self.network to train -- #
             # -- NOTE: self.mh_network.model is also updated to task split ! -- #
             self.network = self.mh_network.assemble_model(task)
+            # -- Set the correct task_name for training -- #
+            if self.use_vit and self.ViT_task_specific_ln:
+                self.network.ViT.use_task(task)
+            
 
             # -- Perform individual validations with updated self.gt_niftis_folder -- #
             ret_joined.append(super().validate(do_mirroring=do_mirroring, use_sliding_window=use_sliding_window, step_size=step_size,
@@ -976,7 +1047,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             output_folder = os.path.join(*output_folder.split(os.path.sep)[:-1])
 
         # -- Specify if this is a ViT Architecture or not, since the paths are different -- #
-        if self.use_vit:# or nnViTUNetTrainer.__name__ in output_folder:
+        if self.use_vit:
             # -- Update the output_folder accordingly -- #
             if self.version != output_folder.split(os.path.sep)[-1] and self.version not in output_folder:
                 if not meta_data:
@@ -987,6 +1058,15 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             # -- Add the vit_type before the fold -- #
             if self.vit_type != output_folder.split(os.path.sep)[-1] and self.vit_type not in output_folder:
                 output_folder = os.path.join(output_folder, self.vit_type)
+
+            # -- Add the ViT_task_specific_ln before the fold -- #
+            if self.ViT_task_specific_ln:
+                if 'task_specific'!= output_folder.split(os.path.sep)[-1] and 'task_specific' not in output_folder:
+                    output_folder = os.path.join(output_folder, 'task_specific')
+            else:
+                if 'not_task_specific'!= output_folder.split(os.path.sep)[-1] and 'not_task_specific' not in output_folder:
+                    output_folder = os.path.join(output_folder, 'not_task_specific')
+
         elif nnViTUNetTrainer.__name__ not in output_folder:    # Then Generic_UNet is used --> will not apply if ViT Trainer + evaluation
             # -- Generic_UNet will be used so update the path accordingly -- #
             if Generic_UNet.__name__ != output_folder.split(os.path.sep)[-1] and Generic_UNet.__name__ not in output_folder:

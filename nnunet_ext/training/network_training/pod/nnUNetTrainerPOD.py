@@ -1,31 +1,30 @@
 #########################################################################################################
-#----------------------This class represents the nnUNet trainer for PLOP training.----------------------#
+#-----------------------This class represents the nnUNet trainer for POD training.----------------------#
 #########################################################################################################
 
 # -- This implementation represents the method proposed in the paper https://arxiv.org/pdf/2011.11390.pdf -- #
 # -- PODNet for further details: https://arxiv.org/pdf/2004.13513.pdf -- #
+# -- This Trainer however does not use the pseudo-labeling approach presented in the paper, for this, we -- #
+# -- have the PLOP Trainer -- #
 
 import copy, torch
-from time import time
-from tqdm import trange
 from operator import attrgetter
 from torch.cuda.amp import autocast
 from nnunet_ext.paths import default_plans_identifier
-from nnunet.utilities.nd_softmax import softmax_helper
 from nnunet.utilities.to_torch import maybe_to_torch, to_cuda
 from batchgenerators.utilities.file_and_folder_operations import *
-from nnunet_ext.training.loss_functions.crossentropy import entropy
-from nnunet_ext.training.loss_functions.deep_supervision import MultipleOutputLossPLOP as PLOPLoss
+from nnunet.training.loss_functions.dice_loss import DC_and_CE_loss
+from nnunet_ext.training.loss_functions.deep_supervision import MultipleOutputLossPOD as PODLoss
 from nnunet_ext.training.network_training.multihead.nnUNetTrainerMultiHead import nnUNetTrainerMultiHead
 
 
-class nnUNetTrainerPLOP(nnUNetTrainerMultiHead):
+class nnUNetTrainerPOD(nnUNetTrainerMultiHead):
     def __init__(self, split, task, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
-                 identifier=default_plans_identifier, extension='plop', pod_lambda=1e-2, scales=3, tasks_list_with_char=None,
+                 identifier=default_plans_identifier, extension='pod', pod_lambda=1e-2, scales=3, tasks_list_with_char=None,
                  mixed_precision=True, save_csv=True, del_log=False, use_vit=False, vit_type='base', version=1, split_gpu=False,
                  transfer_heads=True, ViT_task_specific_ln=False):
-        r"""Constructor of PLOP trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
+        r"""Constructor of POD trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
         """
         # -- Initialize using parent class -- #
         super().__init__(split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic,
@@ -43,13 +42,13 @@ class nnUNetTrainerPLOP(nnUNetTrainerMultiHead):
         if already_trained_on is not None:
             # -- If the current fold does not exists initialize it -- #
             if self.already_trained_on.get(str(self.fold), None) is None:
-                # -- Add the PLOP temperature and checkpoint settings -- #
+                # -- Add the POD and checkpoint settings -- #
                 self.already_trained_on[str(self.fold)]['used_scales'] = self.scales
                 self.already_trained_on[str(self.fold)]['used_pod_lambda'] = self.pod_lambda
                 self.already_trained_on[str(self.fold)]['used_batch_size'] = self.batch_size
             else: # It exists, then check if everything is in it
                 # -- Define a list of all expected keys that should be in the already_trained_on dict for the current fold -- #
-                keys = ['used_pod_lambda', 'used_scales', 'used_batch_size']
+                keys = ['used_pod_lambda', 'used_scales', 'used_batch_size', 'used_ewc_lambda',]
                 assert all(key in self.already_trained_on[str(self.fold)] for key in keys),\
                     "The provided already_trained_on dictionary does not contain all necessary elements"
         else:
@@ -70,8 +69,7 @@ class nnUNetTrainerPLOP(nnUNetTrainerMultiHead):
         # -- Define empty dict for the current intermediate results during training -- #
         self.interm_results = dict()
 
-        # -- Define placeholders for the thresholds and max_entropy and a flag to indicate if the loss is switched or not -- #
-        self.thresholds, self.max_entropy = None, dict()
+        # -- Define a flag to indicate if the loss is switched or not -- #
         self.switched = False
 
     def initialize(self, training=True, force_load_plans=False, num_epochs=500, prev_trainer_path=None, call_for_eval=False):
@@ -83,18 +81,23 @@ class nnUNetTrainerPLOP(nnUNetTrainerMultiHead):
         # -- Reset the batch size to something that should fit for every network, so something small but not too small. -- #
         # -- Otherwise the sizes for the convolutional outputs (ie. the batch dim) don't match and they have to -- #
         self.batch_size = 100
+        self.already_trained_on[str(self.fold)]['used_batch_size'] = self.batch_size
+
 
         # -- Create a backup loss, so we can switch between original and LwF loss -- #
         self.loss_orig = copy.deepcopy(self.loss)
         # self.switched = False
 
+        # -- Define a loss_base for the LwFloss so it can be initialized properly -- #
+        loss_base = DC_and_CE_loss({'batch_dice': self.batch_dice, 'smooth': 1e-5, 'do_bg': False}, {})
+
         # -- Choose the right loss function (PLOP) that will be used during training -- #
         # -- --> Look into the Loss function to see how the approach is implemented -- #
         # -- Update the network paramaters during each iteration -- #
-        self.loss_plop = PLOPLoss(self.num_classes-1, # Remove the background class since it has been added during initialization
-                                  self.pod_lambda,
-                                  self.scales,
-                                  self.ds_loss_weights)
+        self.loss_plop = PODLoss(loss_base,
+                                 self.ds_loss_weights,
+                                 self.pod_lambda,
+                                 self.scales)
 
     def reinitialize(self, task):
         r"""This function is used to reinitialize the Trainer when a new task is trained for the PLOP Trainer.
@@ -107,77 +110,6 @@ class nnUNetTrainerPLOP(nnUNetTrainerMultiHead):
         # -- Print Loss update -- #
         self.print_to_log_file("I am using PLOP loss now")
 
-    def extract_max_entropy_and_thresholds(self):
-        r"""This function extracts the max entropy and self.thresholds that are necessary for the pseudo label loss.
-            Call this everytime before a new training starts.
-            It finds the median prediction score per class using the old model.
-            Extracted from here: https://github.com/arthurdouillard/CVPR2021_PLOP/blob/main/train.py#L505
-        """
-        # -- Update the log -- #
-        self.print_to_log_file("Extracting the max_entropy and thresholds for pseudo labeling..")
-        start_time = time()
-        
-        device = 'cuda:1' if self.split_gpu and not self.use_vit else 'cuda:0'
-        self.max_entropy = torch.log(torch.tensor(self.num_classes).float().to(device))
-        nb_bins = 100
-        histograms = torch.zeros(self.num_classes, nb_bins).long().to(device)
-        # -- Set softmax_helper --> just in case it is sth different -- #
-        self.network_old.inference_apply_nonlin = softmax_helper
-        # -- Set network to eval -- #
-        self.network_old.eval()
-        with trange(self.num_batches_per_epoch) as tbar:
-            for _ in tbar:
-                tbar.set_description("Extracting thresholds")
-                data_dict = next(self.tr_gen)
-                images = data_dict['data']
-                labels = data_dict['target']
-                images = maybe_to_torch(images)
-                labels = maybe_to_torch(labels)
-                # -- Put data on GPU -- #
-                if torch.cuda.is_available():
-                    images = to_cuda(images, gpu_id = int(device.split(':')[-1]))
-                    labels = to_cuda(labels, gpu_id = int(device.split(':')[-1]))
-                if self.fp16:
-                    with autocast():
-                        outputs_old = self.network_old(images)
-                else:
-                    outputs_old = self.network_old(images)
-                for idx, outs in enumerate(outputs_old):
-                    mask_bg = labels == 0
-                    probas = self.network_old.inference_apply_nonlin(outs)
-                    _, pseudo_labels = probas.max(dim=1)
-                    values_to_bins = entropy(probas)[mask_bg].view(-1) / self.max_entropy
-                    x_coords = pseudo_labels[mask_bg].view(-1)
-                    y_coords = torch.clamp((values_to_bins * nb_bins).long(), max=nb_bins - 1)
-                    histograms.index_put_((x_coords, y_coords), torch.LongTensor([1]).expand_as(x_coords).to(histograms.device), accumulate=True)
-                    self.thresholds[idx] = torch.zeros(self.num_classes, dtype=torch.float32).to(device)
-                    for c in range(self.num_classes):
-                        total = histograms[c].sum()
-                        if total <= 0.:
-                            continue
-                        half = total / 2
-                        running_sum = 0.
-                        for lower_border in range(nb_bins):
-                            lower_border = lower_border / nb_bins
-                            bin_index = int(lower_border * nb_bins)
-                            if half >= running_sum and half <= (running_sum + histograms[c, bin_index]):
-                                break
-                            running_sum += lower_border * nb_bins
-                        median = lower_border + ((half - running_sum) / histograms[c, bin_index].sum()) * (1 / nb_bins)
-                        self.thresholds[idx][c] = median
-                    base_threshold = 0.001
-                    for c in range(len(self.thresholds[idx])):
-                        self.thresholds[idx][c] = max(self.thresholds[idx][c], base_threshold)
-
-        # -- Put thresholds and max_entropy on device 0 for the loss calculation -- #
-        if self.split_gpu and self.use_vit:
-            self.max_entropy.cuda()
-            for _, threshold in self.thresholds.items():
-                threshold.cuda()
-
-        # -- Update the log -- #
-        self.print_to_log_file("Extraction took %.2f seconds" % (time() - start_time))
-
     def run_training(self, task, output_folder):
         r"""Overwrite super class to adapt for PLOP training method.
         """
@@ -186,23 +118,12 @@ class nnUNetTrainerPLOP(nnUNetTrainerMultiHead):
             self.network_old = copy.deepcopy(self.network)
             if self.split_gpu and not self.use_vit:
                 self.network_old.cuda(1)    # Put on second GPU
-
-            # -- Extract the self.thresholds and self.max_entropy values -- #
-            self.extract_max_entropy_and_thresholds()
             
             # -- Register the hook here as well -- #
             self.register_forward_hooks(old=True)
 
-        # -- In case of restoring this ensures everything will be set -- #
-        if len(self.mh_network.heads) > 1 and (self.max_entropy is None or not self.thresholds):
-            # -- If the max_entropy and thresholds do not exist, calculate them -- #
-            self.extract_max_entropy_and_thresholds()
-
         # -- Run training using parent class -- #
         ret = super().run_training(task, output_folder)
-
-        # -- Reset max_entropy and thresholds -- #
-        self.max_entropy, self.thresholds = None, dict()
 
         # -- Return the result -- #
         return ret
@@ -217,12 +138,12 @@ class nnUNetTrainerPLOP(nnUNetTrainerMultiHead):
             self.loss = self.loss_orig
             self.switched = False
             # -- Run iteration as usual using parent class -- #
-            loss = super().run_iteration(data_generator, do_backprop, run_online_evaluation)
+            loss = super().run_iteration(data_generator, do_backprop, run_online_evaluation, detach)
             # -- NOTE: If this is called during _perform_validation, run_online_evaluation is true --> Does not matter -- #
             # --       which loss is used, since we only calculate Dice and IoU and do not keep track of the loss -- #
         else:   # --> More than one head, ie. trained on more than one task  --> use PLOP
             if not self.switched:
-                # -- Switch to plop loss -- #
+                # -- Switch to POD loss -- #
                 self.loss = self.loss_plop
                 # -- We are at a further sequence of training, so we train using the PLOP method -- #
                 self.register_forward_hooks()   # --> Just in case it is not already done, ie. after first task training!
@@ -248,7 +169,7 @@ class nnUNetTrainerPLOP(nnUNetTrainerMultiHead):
                     # -- Extract the old results using the old network -- #
                     if self.split_gpu and not self.use_vit:
                         data = to_cuda(data, gpu_id=1)
-                    output_o = self.network_old(data) # --> self.old_interm_results is filled with intermediate result now!
+                    _ = self.network_old(data) # --> self.old_interm_results is filled with intermediate result now!
                     del data
                     # -- Put old_interm_results on same GPU as interm_results -- #
                     if self.split_gpu and not self.use_vit:
@@ -256,8 +177,8 @@ class nnUNetTrainerPLOP(nnUNetTrainerMultiHead):
                             self.old_interm_results[key] = to_cuda(self.old_interm_results[key], gpu_id=self.interm_results[key].device)
 
                     # -- Update the loss with the data -- #
-                    self.loss.update_plop_params(self.old_interm_results, self.interm_results, self.thresholds, self.max_entropy)
-                    loss = self.loss(output, output_o, target)
+                    self.loss.update_plop_params(self.old_interm_results, self.interm_results)
+                    loss = self.loss(output, target)
 
                 if do_backprop:
                     self.amp_grad_scaler.scale(loss).backward()
@@ -269,15 +190,15 @@ class nnUNetTrainerPLOP(nnUNetTrainerMultiHead):
                 output = self.network(data)
                 if self.split_gpu and not self.use_vit:
                     data = to_cuda(data, gpu_id=1)
-                output_o = self.network_old(data)
+                _ = self.network_old(data)
                 del data
                 # -- Put old_interm_results on same GPU as interm_results -- #
                 if self.split_gpu and not self.use_vit:
                     for key in self.old_interm_results:
                         self.old_interm_results[key] = to_cuda(self.old_interm_results[key], gpu_id=self.interm_results[key].device)
                 # -- Update the loss with the data -- #
-                self.loss.update_plop_params(self.old_interm_results, self.interm_results, self.thresholds, self.max_entropy)
-                loss = self.loss(output, output_o, target)
+                self.loss.update_plop_params(self.old_interm_results, self.interm_results)
+                loss = self.loss(output, target)
                 
                 if do_backprop:
                     loss.backward()

@@ -42,8 +42,10 @@ The nnU-Net CL extension relies on the same environment variables as the convent
 
 4. `EVALUATION_FOLDER`: This specifies where nnU-Net CL extension will store the results from the evaluation. This variable is not a necessesity and certainly does not need to be set if the evaluation method will not be used.
 
+4. `PARAM_SEARCH_FOLDER`: This specifies where nnU-Net CL extension will store the results from the parameter search. This variable is not a necessesity and certainly does not need to be set if the parameter search method will not be used. Note: Parameter Search can only be applied using networks that actually use hyperparameters, the EWC Trainer eg. but not the conventional nnUNetTrainerV2.
+
 #### Note:
-When using `RESULTS_FOLDER` and `EVALUATION_FOLDER`, the extension creates its own subfolder `nnUNet_ext`, so the different methods can be clearly distinguished from the methods/models trained using the conventional nnU-Net *-- stored in its own `nnUNet` folder --*.
+When using `RESULTS_FOLDER`, `EVALUATION_FOLDER` and `PARAM_SEARCH_FOLDER`, the extension creates its own subfolder `nnUNet_ext`, so the different methods can be clearly distinguished from the methods/models trained using the conventional nnU-Net *-- stored in its own `nnUNet` folder --*.
 
 ### How to set environment variables
 The easiest way to set the paths is in the `~/.bashrc`. If Anaconda is used as an environment, conda will certainly be initialized in this file, so it should already exist. The variables will simply be set by specifying them using the `export` command as follows:

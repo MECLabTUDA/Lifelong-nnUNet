@@ -4,6 +4,8 @@
 #########################################################################################################
 
 import copy
+
+from pandas.core import base
 import numpy as np
 import os, argparse
 from nnunet.network_architecture.generic_UNet import Generic_UNet
@@ -20,7 +22,10 @@ from nnunet_ext.training.network_training.rw.nnUNetTrainerRW import nnUNetTraine
 from nnunet_ext.training.network_training.ewc.nnUNetTrainerEWC import nnUNetTrainerEWC # Own implemented class
 from nnunet_ext.training.network_training.lwf.nnUNetTrainerLWF import nnUNetTrainerLWF # Own implemented class
 from nnunet_ext.training.network_training.mib.nnUNetTrainerMiB import nnUNetTrainerMiB # Own implemented class
+from nnunet_ext.training.network_training.pod.nnUNetTrainerPOD import nnUNetTrainerPOD # Own implemented class
 from nnunet_ext.training.network_training.plop.nnUNetTrainerPLOP import nnUNetTrainerPLOP # Own implemented class
+from nnunet_ext.training.network_training.ownm1.nnUNetTrainerOwnM1 import nnUNetTrainerOwnM1 # Own implemented class
+from nnunet_ext.training.network_training.ownm2.nnUNetTrainerOwnM2 import nnUNetTrainerOwnM2 # Own implemented class
 from nnunet_ext.training.network_training.ewc_ln.nnUNetTrainerEWCLN import nnUNetTrainerEWCLN # Own implemented class
 from nnunet_ext.training.network_training.ewc_vit.nnUNetTrainerEWCViT import nnUNetTrainerEWCViT # Own implemented class
 from nnunet_ext.training.network_training.ewc_unet.nnUNetTrainerEWCUNet import nnUNetTrainerEWCUNet # Own implemented class
@@ -134,7 +139,9 @@ def run_training(extension='multihead'):
                              "the intermediate model won't be saved then, remeber that.")
     parser.add_argument('--use_vit', action='store_true', default=False,
                         help='If this is set, the Generic_ViT_UNet will be used instead of the Generic_UNet. '+
-                             'Note that then the flags -v, -v_type and --use_mult_gpus should be set accordingly.')
+                             'Note that then the flags -v, -v_type, --task_specific_ln and --use_mult_gpus should be set accordingly.')
+    parser.add_argument('--task_specific_ln', action='store_true', default=False,
+                        help='If this is set, the Generic_ViT_UNet will have task specific Layer Norms.')
     parser.add_argument('--use_mult_gpus', action='store_true', default=False,
                         help='If this is set, the ViT model will be placed onto a second GPU. '+
                              'When this is set, more than one GPU needs to be provided when using -d.')
@@ -163,7 +170,7 @@ def run_training(extension='multihead'):
                                 ' Default: 0.25, ie. 25% of each previous task will be considered.')
     
     # -- Add arguments for ewc methods -- #
-    if extension == 'ewc' or 'ewc_vit':
+    if extension in ['ewc', 'ewc_vit', 'ownm1', 'ownm2']:
         parser.add_argument('-ewc_lambda', action='store', type=float, nargs=1, required=False, default=0.4,
                             help='Specify the importance of the previous tasks for the EWC method.'
                                 ' This number represents the lambda value in the loss function calculation as proposed in the paper.'
@@ -172,13 +179,13 @@ def run_training(extension='multihead'):
     # -- Add arguments for RW method -- #
     if extension == 'rw':
         parser.add_argument('-rw_alpha', action='store', type=float, nargs=1, required=False, default=0.9,
-                            help='Specify the alpha parameter that is used to calculate the Fisher values --> should be [0, 1].'
-                                ' Default: alpha = 0.9')
+                            help='Specify the mib_alpha parameter that is used to calculate the Fisher values --> should be [0, 1].'
+                                ' Default: mib_alpha = 0.9')
         parser.add_argument('-rw_lambda', action='store', type=float, nargs=1, required=False, default=0.4,
                             help='Specify the importance of the previous tasks for the RW method using the EWC regularization.'
                                 ' Default: rw_lambda = 0.4')
         parser.add_argument('-update_after', action='store', type=int, nargs=1, required=False, default=10,
-                            help='Specify after which epoch interval the fisher values are updated/calculated.'
+                            help='Specify after which iteration (batch iteration, not epoch) the fisher values are updated/calculated.'
                                 ' Default: The result will be updated every 10th epoch.')
 
     # -- Add arguments for lwf method -- #
@@ -188,7 +195,7 @@ def run_training(extension='multihead'):
                                 ' Default: lwf_temperature = 2.0')
 
     # -- Add arguments for PLOP method -- #
-    if extension == 'plop':
+    if extension in ['plop', 'pod', 'ownm1', 'ownm2']:
         parser.add_argument('-pod_lambda', action='store', type=float, nargs=1, required=False, default=1e-2,
                             help='Specify the lambda weighting for the distillation loss.'
                                 ' Default: pod_lambda = 0.01')
@@ -197,20 +204,29 @@ def run_training(extension='multihead'):
                                 ' Default: plop_scales = 3')
 
     # -- Add arguments for MiB method -- #
-    if extension == 'mib':
+    if extension in ['mib', 'ownm1', 'ownm2']:
         parser.add_argument('-mib_alpha', action='store', type=float, nargs=1, required=False, default=1.0,
-                            help='Specify the alpha parameter to hard-ify the soft-labels.'
-                                ' Default: alpha = 1.0')
+                            help='Specify the mib_alpha parameter to hard-ify the soft-labels.'
+                                ' Default: mib_alpha = 1.0')
         parser.add_argument('-lkd', action='store', type=float, nargs=1, required=False, default=10,
                             help='Specify the weighting of the KL loss.'
                                 ' Default: lkd = 10')
+
+    # -- Add arguments for own method -- #
+    if extension in ['ownm2']:
+        parser.add_argument('-pseudo_alpha', action='store', type=float, nargs=1, required=False, default=3.0,
+                            help='Specify the pseudo_alpha parameter to be used during pseudo-labeling.'
+                                ' Default: pseudo_alpha = 3.0')
 
     # -- Build mapping for extension to corresponding class -- #
     trainer_map = {'rw': nnUNetTrainerRW, 'nnUNetTrainerRW': nnUNetTrainerRW,
                    'ewc': nnUNetTrainerEWC, 'nnUNetTrainerEWC': nnUNetTrainerEWC,
                    'lwf': nnUNetTrainerLWF, 'nnUNetTrainerLWF': nnUNetTrainerLWF,
                    'mib': nnUNetTrainerMiB, 'nnUNetTrainerMiB': nnUNetTrainerMiB,
+                   'pod': nnUNetTrainerPOD, 'nnUNetTrainerPOD': nnUNetTrainerPOD,
                    'plop': nnUNetTrainerPLOP, 'nnUNetTrainerPLOP': nnUNetTrainerPLOP,
+                   'ownm1': nnUNetTrainerOwnM1, 'nnUNetTrainerOwnM1': nnUNetTrainerOwnM1,
+                   'ownm2': nnUNetTrainerOwnM2, 'nnUNetTrainerOwnM2': nnUNetTrainerOwnM2,
                    'ewc_ln': nnUNetTrainerEWCLN, 'nnUNetTrainerEWCLN': nnUNetTrainerEWCLN,
                    'ewc_vit': nnUNetTrainerEWCViT, 'nnUNetTrainerEWCViT': nnUNetTrainerEWCViT,
                    'ewc_unet': nnUNetTrainerEWCUNet, 'nnUNetTrainerEWCUNet': nnUNetTrainerEWCUNet,
@@ -272,6 +288,7 @@ def run_training(extension='multihead'):
 
     # -- Extract ViT specific flags to as well -- #
     use_vit = args.use_vit
+    ViT_task_specific_ln = args.task_specific_ln
     
     num_epochs = args.num_epochs    # The number of epochs to train for each task
     if isinstance(num_epochs, list):    # When the num_epochs get returned as a list, extract the number to avoid later appearing errors
@@ -305,14 +322,14 @@ def run_training(extension='multihead'):
     split_gpu = args.use_mult_gpus
     if split_gpu:
         assert len(cuda) > 1, 'When trying to split the models on multiple GPUs, then please provide more than one..'
-        
+    
     cuda = join_texts_with_char(cuda, ',')
     
     # -- Set cuda device as environment variable, otherwise other GPUs will be used as well ! -- #
     os.environ["CUDA_VISIBLE_DEVICES"] = cuda
 
     # -- Reset transfer heads if the Trainer is of sequential type -- #
-    if extension == 'sequential' or 'freezed_' in extension or 'plop' in extension:
+    if extension in ['sequential', 'plop', 'freezed_nonln', 'freezed_unet', 'freezed_vit']:
         # -- Transfer heads is always True here even if the user did not set it -- #
         transfer_heads = True
 
@@ -340,7 +357,7 @@ def run_training(extension='multihead'):
 
     # -- Extract ewc arguments -- #
     ewc_lambda = None  # --> So the dictionary arguments can be build without an error even if not ewc desired ..
-    if 'ewc' in extension:
+    if extension in ['ewc', 'ewc_vit', 'ewc_ln', 'ewc_unet', 'ownm1', 'ownm2']:
         # -- Extract ewc_lambda -- #
         ewc_lambda = args.ewc_lambda
         if isinstance(ewc_lambda, list):
@@ -358,7 +375,7 @@ def run_training(extension='multihead'):
 
     # -- Extract rw arguments -- #
     rw_alpha, rw_lambda, update_fisher_every = None, None, None  # --> So the dictionary arguments can be build without an error even if not ewc desired ..
-    if 'rw' in extension:
+    if extension in ['rw']:
         # -- Extract rw_alpha -- #
         rw_alpha = args.rw_alpha
         if isinstance(rw_alpha, list):
@@ -397,7 +414,7 @@ def run_training(extension='multihead'):
 
     # -- Extract PLOP arguments -- #
     pod_lambda, plop_scales = None, None  # --> So the dictionary arguments can be build without an error even if not plop desired ..
-    if extension == 'plop':
+    if extension in ['plop', 'pod', 'ownm1', 'ownm2']:
         # -- Extract pos lambda for dist_loss -- #
         pod_lambda = args.pod_lambda
         if isinstance(pod_lambda, list):
@@ -413,20 +430,33 @@ def run_training(extension='multihead'):
                   "changed from previous one..")
 
     # -- Extract MiB arguments -- #
-    alpha, lkd = None, None  # --> So the dictionary arguments can be build without an error even if not plop desired ..
-    if extension == 'mib':
-        # -- Extract pos lambda for dist_loss -- #
-        alpha = args.mib_alpha
-        if isinstance(alpha, list):
-            alpha = alpha[0]
+    mib_alpha, lkd = None, None  # --> So the dictionary arguments can be build without an error even if not plop desired ..
+    if extension in ['mib', 'ownm1', 'ownm2']:
+        # -- Extract mib lambda for dist_loss -- #
+        mib_alpha = args.mib_alpha
+        if isinstance(mib_alpha, list):
+            mib_alpha = mib_alpha[0]
         # -- Extract plop scale for dist_loss -- #
         lkd = args.lkd
         if isinstance(lkd, list):
             lkd = lkd[0]
 
-        # -- Notify the user that the alpha and lkd should not have been changed if -c is activated -- #
+        # -- Notify the user that the mib_alpha and lkd should not have been changed if -c is activated -- #
         if continue_training:
-            print("Note: It will be continued with previous training, be sure that the provided alpha and lkd have not "
+            print("Note: It will be continued with previous training, be sure that the provided mib_alpha and lkd have not "
+                  "changed from previous one..")
+
+    # -- Extract own arguments -- #
+    pseudo_alpha = None  # --> So the dictionary arguments can be build without an error even if not plop desired ..
+    if extension in ['ownm2']:
+        # -- Extract pseudo lambda for dist_loss -- #
+        pseudo_alpha = args.pseudo_alpha
+        if isinstance(pseudo_alpha, list):
+            pseudo_alpha = pseudo_alpha[0]
+
+        # -- Notify the user that the mib_alpha and lkd should not have been changed if -c is activated -- #
+        if continue_training:
+            print("Note: It will be continued with previous training, be sure that the provided pseudo_alpha has not "
                   "changed from previous one..")
 
     
@@ -466,13 +496,17 @@ def run_training(extension='multihead'):
     basic_exts = {'save_interval': save_interval, 'identifier': init_identifier, 'extension': extension,
                   'tasks_list_with_char': copy.deepcopy(tasks_list_with_char), 'save_csv': save_csv,
                   'mixed_precision': run_mixed_precision, 'use_vit': use_vit, 'vit_type': vit_type, 'version': version,
-                  'split_gpu': split_gpu, 'transfer_heads': transfer_heads, **basic_args}
+                  'split_gpu': split_gpu, 'transfer_heads': transfer_heads, 'ViT_task_specific_ln': ViT_task_specific_ln,
+                  **basic_args}
     ewc_args = {'ewc_lambda': ewc_lambda, **basic_exts}
-    mib_args = {'lkd': lkd, 'mib_alpha': alpha, **basic_exts}
+    mib_args = {'lkd': lkd, 'mib_alpha': mib_alpha, **basic_exts}
     lwf_args = {'lwf_temperature': lwf_temperature, **basic_exts}
     reh_args = {'samples_per_ds': samples, 'seed': seed, **basic_exts}
     plop_args = {'pod_lambda': pod_lambda, 'scales': plop_scales, **basic_exts}
     rw_args = {'rw_lambda': rw_lambda, 'rw_alpha': rw_alpha, 'fisher_update_after': update_fisher_every, **basic_exts}
+    ownm1_args = {'ewc_lambda': ewc_lambda, 'pod_lambda': pod_lambda, 'scales': plop_scales, 'lkd': lkd, 'mib_alpha': mib_alpha, **basic_exts}
+    ownm2_args = {'ewc_lambda': ewc_lambda, 'pod_lambda': pod_lambda, 'scales': plop_scales, 'lkd': lkd, 'mib_alpha': mib_alpha, **basic_exts}
+    # ownm2_args = {'ewc_lambda': ewc_lambda, 'pod_lambda': pod_lambda, 'scales': plop_scales, 'pseudo_alpha': pseudo_alpha, **basic_exts}
     
     # -- Join the dictionaries into a dictionary with the corresponding class name -- #
     args_f = {'nnUNetTrainerRW': rw_args, 'nnUNetTrainerMultiHead': basic_exts,
@@ -481,7 +515,8 @@ def run_training(extension='multihead'):
               'nnUNetTrainerFreezedUNet': basic_exts, 'nnUNetTrainerEWCUNet': ewc_args,
               'nnUNetTrainerSequential': basic_exts, 'nnUNetTrainerRehearsal': reh_args,
               'nnUNetTrainerMiB': mib_args, 'nnUNetTrainerEWC': ewc_args, 'nnUNetTrainerLWF': lwf_args,
-              'nnUNetTrainerPLOP': plop_args, 'nnUNetTrainerV2': basic_args, 'nnViTUNetTrainer': basic_vit}
+              'nnUNetTrainerPLOP': plop_args, 'nnUNetTrainerV2': basic_args, 'nnViTUNetTrainer': basic_vit,
+              'nnUNetTrainerPOD': plop_args, 'nnUNetTrainerOwnM1': ownm1_args, 'nnUNetTrainerOwnM2': ownm2_args}
 
     
     # ---------------------------------------------
@@ -518,6 +553,10 @@ def run_training(extension='multihead'):
                 base_path = join(network_training_output_dir, network, tasks_joined_name, 'metadata', Generic_ViT_UNet.__name__+'V'+str(version), vit_type.lower())
             else:
                 base_path = join(network_training_output_dir, network, tasks_joined_name, 'metadata', Generic_UNet.__name__)
+            if ViT_task_specific_ln:
+                base_path = join(base_path, 'task_specific')
+            else:
+                base_path = join(base_path, 'not_task_specific')
             if transfer_heads:
                 already_trained_on = load_json(join(base_path, 'SEQ', extension+"_trained_on.json"))
             else:
@@ -662,7 +701,7 @@ def run_training(extension='multihead'):
             plans_file, output_folder_name, dataset_directory, batch_dice, stage, \
             trainer_class = get_default_configuration(network, t, running_task, network_trainer, tasks_joined_name,\
                                                       plans_identifier, extension_type=extension)
-            
+
             if trainer_class is None:
                 raise RuntimeError("Could not find trainer class in nnunet_ext.training.network_training")
 
@@ -770,13 +809,13 @@ def run_training(extension='multihead'):
                     else:
                         trainer.load_final_checkpoint(train=False)
 
-                # -- Evaluate the trainers network -- #
-                trainer.network.eval()
+                # # -- Evaluate the trainers network -- #
+                # trainer.network.eval()
 
-                # -- Perform validation using the trainer -- #
-                trainer.validate(save_softmax=args.npz, validation_folder_name=val_folder,
-                                 run_postprocessing_on_folds=not disable_postprocessing_on_folds,
-                                 overwrite=args.val_disable_overwrite)
+                # # -- Perform validation using the trainer -- #
+                # trainer.validate(save_softmax=args.npz, validation_folder_name=val_folder,
+                #                  run_postprocessing_on_folds=not disable_postprocessing_on_folds,
+                #                  overwrite=args.val_disable_overwrite)
 
             # -- If the models for each sequence should not be stored, delete the last model and only keep the current finished one -- #
             # -- NOTE: If the previous trainer was a nnU-Net, i.e. not an extension, then do not remove it -- #

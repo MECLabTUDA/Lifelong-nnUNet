@@ -62,7 +62,7 @@ class UnbiasedKnowledgeDistillationLoss(nn.Module):
         else:
             outputs_no_bgk = inputs[:, 1:] - den.unsqueeze(dim=1)  # B, OLD_CL, H, W
         outputs_bkg = torch.logsumexp(torch.index_select(inputs, index=new_bkg_idx, dim=1), dim=1) - den     # B, H, W
-        labels = torch.softmax(targets, dim=1)                        # B, BKG + OLD_CL, H, W
+        labels = torch.softmax(targets, dim=1)                     # B, BKG + OLD_CL, H, W
         # make the average on the classes 1/n_cl \sum{c=1..n_cl} L_c
         loss = (labels[:, 0] * outputs_bkg + (labels[:, 1:] * outputs_no_bgk).sum(dim=1)) / targets.shape[1]
         if mask is not None:

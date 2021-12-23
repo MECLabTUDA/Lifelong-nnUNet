@@ -18,13 +18,17 @@ class nnUNetTrainerMiB(nnUNetTrainerMultiHead):
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
                  identifier=default_plans_identifier, extension='mib', mib_alpha=1., lkd=10, tasks_list_with_char=None,
                  mixed_precision=True, save_csv=True, del_log=False, use_vit=False, vit_type='base', version=1, split_gpu=False,
-                 transfer_heads=True):
+                 transfer_heads=True, ViT_task_specific_ln=False):
         r"""Constructor of MiB trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
         """
         # -- Initialize using parent class -- #
         super().__init__(split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic,
                          fp16, save_interval, already_trained_on, use_progress, identifier, extension, tasks_list_with_char,
-                         mixed_precision, save_csv, del_log, use_vit, vit_type, version, split_gpu, transfer_heads)
+                         mixed_precision, save_csv, del_log, use_vit, vit_type, version, split_gpu, transfer_heads, ViT_task_specific_ln)
+        
+        # -- Define a variable that specifies the hyperparameters for this trainer --> this is used for the parameter search method -- #
+        self.hyperparams = {'mib_alpha': float, 'lkd': float}
+        
         # -- Set the alpha and kl variable for the MiB Loss calculation during training -- #
         self.alpha = mib_alpha
         self.lkd = lkd
@@ -33,7 +37,7 @@ class nnUNetTrainerMiB(nnUNetTrainerMultiHead):
         if already_trained_on is not None:
             # -- If the current fold does not exists initialize it -- #
             if self.already_trained_on.get(str(self.fold), None) is None:
-                # -- Add the lwf temperature and checkpoint settings -- #
+                # -- Add the MiB temperature and checkpoint settings -- #
                 self.already_trained_on[str(self.fold)]['used_alpha'] = self.alpha
                 self.already_trained_on[str(self.fold)]['used_lkd'] = self.lkd
             else: # It exists, then check if everything is in it
@@ -42,7 +46,7 @@ class nnUNetTrainerMiB(nnUNetTrainerMultiHead):
                 assert all(key in self.already_trained_on[str(self.fold)] for key in keys),\
                     "The provided already_trained_on dictionary does not contain all necessary elements"
         else:
-            # -- Update lwf_temperature in trained on file for restoring to be able to ensure that scales can not be changed during training -- #
+            # -- Update settings in trained on file for restoring to be able to ensure that scales can not be changed during training -- #
             self.already_trained_on[str(self.fold)]['used_alpha'] = self.alpha
             self.already_trained_on[str(self.fold)]['used_lkd'] = self.lkd
 
@@ -50,13 +54,13 @@ class nnUNetTrainerMiB(nnUNetTrainerMultiHead):
         self.init_args = (split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
                           deterministic, fp16, save_interval, already_trained_on, use_progress, identifier, extension,
                           mib_alpha, lkd, tasks_list_with_char, mixed_precision, save_csv, del_log, use_vit, self.vit_type,
-                          version, split_gpu, True)
+                          version, split_gpu, transfer_heads, ViT_task_specific_ln)
 
-    def initialize(self, training=True, force_load_plans=False, num_epochs=500, prev_trainer_path=None):
+    def initialize(self, training=True, force_load_plans=False, num_epochs=500, prev_trainer_path=None, call_for_eval=False):
         r"""Overwrite the initialize function so the correct Loss function for the MiB method can be set.
         """
         # -- Perform initialization of parent class -- #
-        super().initialize(training, force_load_plans, num_epochs, prev_trainer_path)
+        super().initialize(training, force_load_plans, num_epochs, prev_trainer_path, call_for_eval)
 
         # -- Create a backup loss, so we can switch between original and LwF loss -- #
         self.loss_orig = copy.deepcopy(self.loss)
@@ -64,7 +68,7 @@ class nnUNetTrainerMiB(nnUNetTrainerMultiHead):
         # -- Choose the right loss function (MiB) that will be used during training -- #
         # -- --> Look into the Loss function to see how the approach is implemented -- #
         # -- Update the network paramaters during each iteration -- #
-        self.loss_mib = MiBLoss(self.num_classes-1, # Remove the background class since it has been added during initialization
+        self.loss_mib = MiBLoss(#self.num_classes-1, # Remove the background class since it has been added during initialization
                                 self.alpha,
                                 self.lkd,
                                 self.ds_loss_weights)
@@ -95,18 +99,20 @@ class nnUNetTrainerMiB(nnUNetTrainerMultiHead):
         # -- Return the result -- #
         return ret
 
-    def run_iteration(self, data_generator, do_backprop=True, run_online_evaluation=False):
+    def run_iteration(self, data_generator, do_backprop=True, run_online_evaluation=False, detach=True):
         r"""This function needs to be changed for the MiB method, since the old modekls predictions
             will be used as proposed in the paper.
         """
         # -- Ensure that the first task is trained as usual and the validation without the plop loss as well -- #
-        if self.task in self.mh_network.heads and len(self.mh_network.heads) == 1: # The very first task
+        if self.task in self.mh_network.heads and len(self.mh_network.heads) == 1 or run_online_evaluation: # The very first task
             # -- Use the original loss for this -- #
             self.loss = self.loss_orig
             # -- Run iteration as usual using parent class -- #
             loss = super().run_iteration(data_generator, do_backprop, run_online_evaluation)
+            # -- NOTE: If this is called during _perform_validation, run_online_evaluation is true --> Does not matter -- #
+            # --       which loss is used, since we only calculate Dice and IoU and do not keep track of the loss -- #
         else:   # --> More than one head, ie. trained on more than one task  --> use PLOP
-            # -- Switch to plop loss -- #
+            # -- Switch to MiB loss -- #
             self.loss = self.loss_mib
             #------------------------------------------ Partially copied from original implementation ------------------------------------------#
             # -- Extract data -- #
@@ -163,7 +169,8 @@ class nnUNetTrainerMiB(nnUNetTrainerMultiHead):
                 self.mh_network.update_after_iteration()
 
             # -- Detach the loss -- #
-            loss = loss.detach().cpu().numpy()
+            if detach:
+                loss = loss.detach().cpu().numpy()
 
         # -- Return the loss -- #
         return loss
