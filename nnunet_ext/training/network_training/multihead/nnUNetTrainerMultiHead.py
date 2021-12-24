@@ -432,7 +432,6 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         else:   # --> The output_folder is already built
             self.output_folder = output_folder
 
-
         # -- Make the directory so there will no problems when trying to save some files -- #
         maybe_mkdir_p(self.output_folder)
 

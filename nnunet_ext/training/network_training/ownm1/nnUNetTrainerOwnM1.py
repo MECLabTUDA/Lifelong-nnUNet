@@ -31,13 +31,24 @@ class nnUNetTrainerOwnM1(nnUNetTrainerMultiHead):
                          fp16, save_interval, already_trained_on, use_progress, identifier, extension, tasks_list_with_char,
                          mixed_precision, save_csv, del_log, use_vit, vit_type, version, split_gpu, transfer_heads, ViT_task_specific_ln)
         
+        # -- Remove the old directory -- #
+        try:
+            # -- Only remove if empty -- #
+            os.rmdir(self.trained_on_path)
+        except:
+            pass
+
         # -- Update the folder names including indicating if POD is used or not -- #
-        if self.do_pod:
+        if do_pod:
             self.output_folder = join(self.output_folder, 'pod')
             self.trained_on_path = join(self.trained_on_path, 'pod')
         else:
             self.output_folder = join(self.output_folder, 'no_pod')
             self.trained_on_path = join(self.trained_on_path, 'no_pod')
+
+        # -- Create the folder if necessary -- #
+        maybe_mkdir_p(self.trained_on_path)
+
         # -- Define a variable that specifies the hyperparameters for this trainer --> this is used for the parameter search method -- #
         self.hyperparams = {'mib_alpha': float, 'lkd': float, 'pod_lambda': float, 'scales': int, 'ewc_lambda': float}
         

@@ -182,8 +182,8 @@ class Block(nn.Module):
         """
         if self.task_specific_ln:
             assert self.use_task_name is not None and isinstance(self.use_task_name, str), "When using task specific LNs, than please set a task_name for the forward call using ViT.use_task(..).."
-            x = x + self.drop_path(self.attn(self.norm1[self.use_task_name].to(x.device)(x)))
-            x = x + self.drop_path(self.mlp(self.norm2[self.use_task_name].to(x.device)(x)))
+            x = x + self.drop_path(self.attn(self.norm1[self.use_task_name].to(x.device.index)(x)))
+            x = x + self.drop_path(self.mlp(self.norm2[self.use_task_name].to(x.device.index)(x)))
         else:
             x = x + self.drop_path(self.attn(self.norm1(x)))
             x = x + self.drop_path(self.mlp(self.norm2(x)))
@@ -351,7 +351,7 @@ class VisionTransformer(VisionTransformer2D):
         self.blocks(x)
         # -- For self.norm we have to do it here 'by hand' -- #
         if self.task_specific_ln:
-            x = self.norm[task_name](x)
+            x = self.norm[task_name].to(x.device.index)(x)
         else:
             x = self.norm(x)
         if self.dist_token is None:
