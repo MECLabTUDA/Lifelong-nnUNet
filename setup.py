@@ -34,5 +34,5 @@ setup(name='nnunet_ext',
       },
       keywords=['deep learning', 'image segmentation', 'medical image analysis',
                 'medical image segmentation', 'nnU-Net', 'nnunet', 'CL', 'Continual Learning',
-                'Elastic Weight Consolidation', 'Learning without Forgetting', 'nnU-Net extensions']
+                'Lifelong Learning', 'Learning without Forgetting', 'nnU-Net extensions']
       )

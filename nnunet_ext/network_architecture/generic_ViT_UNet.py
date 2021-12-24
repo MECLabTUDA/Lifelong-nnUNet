@@ -24,7 +24,7 @@ class Generic_ViT_UNet(Generic_UNet):
                  weightInitializer=InitWeights_He(1e-2), pool_op_kernel_sizes=None, conv_kernel_sizes=None,
                  upscale_logits=False, convolutional_pooling=False, convolutional_upsampling=False,
                  max_num_features=None, basic_block=ConvDropoutNormNonlin, seg_output_use_bias=False,
-                 vit_version='V1', vit_type='base', split_gpu=False):
+                 vit_version='V1', vit_type='base', split_gpu=False, ViT_task_specific_ln=False, first_task_name=None):
         r"""This function represents the constructor of the Generic_ViT_UNet architecture. It basically uses the
             Generic_UNet class from the nnU-Net Framework as initialization since the presented architecture is
             based on this network. The vit_type needs to be set, which can be one of three possibilities:
@@ -33,8 +33,12 @@ class Generic_ViT_UNet(Generic_UNet):
                 V1: use first skip connection as input for ViT and use the result from ViT as Decoder input (original skips are intact)
                 V2: use first and last downsampled element (fused) as input for ViT and use the result from ViT as Decoder input (original skips are intact)
                 V3: use all skip connections (fused) as input of ViT and use the result from ViT as Decoder input (original skips are intact)
+                V3: Before entering the models output through the segmentation head, it will be passed through the ViT
             split_gpu is used to put the ViT architecture onto a second GPU and everything else onto the first one. Use this if
             the training does not start because of CUDA out of Memory error. In this case the model is too large for one GPU.
+            ViT_task_specific_ln is used if the user wants to create task specific LayerNorms in the ViT --> Makes only sense when
+            using any provided extension that trains on a sequence of tasks --> This makes no sense for the Generic_ViT_UNet but works
+            either way. When this flag is used, the user needs to provide the first tasks name as well to name the LN layers accordingly.
         """
         # -- Initialize using parent class --> gives us a generic U-Net we need to alter to create our combined architecture -- #
         super(Generic_ViT_UNet, self).__init__(input_channels, base_num_features, num_classes, num_pool, num_conv_per_stage,
@@ -151,7 +155,6 @@ class Generic_ViT_UNet(Generic_UNet):
         custom_config = {
             'ViT_2d': len(patch_size) == 2,
             'img_size': self.img_size,    # --> 3D image size (depth, height, width) --> skip the depth since extra argument
-            # 'img_size': self.img_size[1:] if len(patch_size) == 3 else self.img_size,    # --> 3D image size (depth, height, width) --> skip the depth since extra argument
             'img_depth': img_depth,
             'patch_size': self.patch_size,    # --> 2D patch size (height, width)
             'in_chans': self.in_chans,
@@ -169,8 +172,11 @@ class Generic_ViT_UNet(Generic_UNet):
             'embed_layer': PatchEmbed,
             'norm_layer': None,
             'act_layer': None,
-            'weight_init': ''
+            'weight_init': '',
+            'task_specific_ln': ViT_task_specific_ln,
+            'task_name': first_task_name
             }
+
         # -- Initialize ViT generically -- #
         self.ViT = VisionTransformer(**custom_config)
         

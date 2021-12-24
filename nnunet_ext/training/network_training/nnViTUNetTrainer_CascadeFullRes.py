@@ -14,9 +14,14 @@ torch.multiprocessing.set_sharing_strategy('file_system')
 class nnViTUNetTrainerCascadeFullRes(nnUNetTrainerV2CascadeFullRes): # Inherit default trainer class for 2D, 3D low resolution and 3D full resolution U-Net 
     def __init__(self, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
                  unpack_data=True, deterministic=True, previous_trainer="nnViTUNetTrainer",
-                 fp16=False, save_interval=5, use_progress=True, version=1, vit_type='base', split_gpu=False):
+                 fp16=False, save_interval=5, use_progress=True, version=1, vit_type='base', split_gpu=False,
+                 ViT_task_specific_ln=False, first_task_name=None):
         r"""Constructor of ViT_U-Net Trainer for full resolution cascaded nnU-Nets.
         """
+        # -- Set ViT task specific flags -- #
+        self.ViT_task_specific_ln = ViT_task_specific_ln
+        self.first_task_name = first_task_name
+
         # -- Set the desired network version -- #
         self.version = 'V' + str(version)
 
@@ -30,6 +35,14 @@ class nnViTUNetTrainerCascadeFullRes(nnUNetTrainerV2CascadeFullRes): # Inherit d
         # -- Add the vit_type before the fold -- #
         if self.vit_type != output_folder.split(os.path.sep)[-1] and self.vit_type not in output_folder:
             output_folder = os.path.join(output_folder, self.vit_type)
+
+        # -- Add the ViT_task_specific_ln before the fold -- #
+        if self.ViT_task_specific_ln:
+            if 'task_specific'!= output_folder.split(os.path.sep)[-1] and 'task_specific' not in output_folder:
+                output_folder = os.path.join(output_folder, 'task_specific')
+        else:
+            if 'not_task_specific'!= output_folder.split(os.path.sep)[-1] and 'not_task_specific' not in output_folder:
+                output_folder = os.path.join(output_folder, 'not_task_specific')
 
         # -- Initialize using parent class -- #
         super().__init__(plans_file, fold, output_folder, dataset_directory, batch_dice, stage,

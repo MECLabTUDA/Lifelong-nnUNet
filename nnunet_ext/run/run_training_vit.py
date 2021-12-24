@@ -93,8 +93,8 @@ def main():
                         help='If this is set, the ViT model will be placed onto a second GPU. '+
                              'When this is set, more than one GPU needs to be provided when using -d.')
     parser.add_argument("-v", "--version", action='store', type=int, nargs=1, default=[1],
-                        help='Select the ViT input building version. Currently there are only three'+
-                            ' possibilities: 1, 2 or 3.'+
+                        help='Select the ViT input building version. Currently there are only four'+
+                            ' possibilities: 1, 2, 3 or 4.'+
                             ' Default: version one will be used. For more references wrt, to the versions, see the docs.')
     parser.add_argument("-v_type", "--vit_type", action='store', type=str, nargs=1, default='base',
                         help='Specify the ViT architecture. Currently there are only three'+
@@ -136,7 +136,7 @@ def main():
     version = args.version
     if isinstance(version, list):    # When the version gets returned as a list, extract the number to avoid later appearing errors
         version = version[0]
-    assert version in [1, 2, 3], 'We only provide three versions, namely 1, 2 or 3, but not {}..'.format(version)
+    assert version in range(1, 5), 'We only provide three versions, namely 1, 2, 3 or 4 but not {}..'.format(version)
     
     save_interval = args.save_interval
     if isinstance(save_interval, list):    # When the save_interval gets returned as a list, extract the number to avoid later appearing errors
