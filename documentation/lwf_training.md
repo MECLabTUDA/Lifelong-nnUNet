@@ -7,7 +7,7 @@ The exact same Command Line Arguments as presented in the [Multi-Head](multihead
 
 | tag_name | description | required | choices | default | 
 |:-:|-|:-:|:-:|:-:|
-| `-lwf_temperature` | Specify the temperature variable for the LWF method. | no | -- | 2.0 |
+| `-lwf_temperature` | Specify the temperature variable for the LWF method. | no | -- | `2.0` |
 
 ### Exemplary use cases
 In the following, a few examples are shown representing possible use cases on how to use the LwF Trainer.

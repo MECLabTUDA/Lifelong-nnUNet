@@ -7,8 +7,8 @@ The exact same Command Line Arguments as presented in the [Multi-Head](multihead
 
 | tag_name | description | required | choices | default | 
 |:-:|-|:-:|:-:|:-:|
-| `-mib_alpha` | Specify the alpha parameter to hard-ify the soft-labels. | no | -- | 1.0 |
-| `-mib_lkd` | Specify the weighting of the KD loss. | no | -- | 10 |
+| `-mib_alpha` | Specify the alpha parameter to hard-ify the soft-labels. | no | -- | `1.0` |
+| `-mib_lkd` | Specify the weighting of the KD loss. | no | -- | `10` |
 
 ### Exemplary use cases
 In the following, a few examples are shown representing possible use cases on how to use the MiB Trainer.

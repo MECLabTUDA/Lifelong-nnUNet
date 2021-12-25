@@ -4,8 +4,6 @@
 #########################################################################################################
 
 import copy
-
-from pandas.core import base
 import numpy as np
 import os, argparse
 from nnunet.network_architecture.generic_UNet import Generic_UNet
@@ -199,10 +197,10 @@ def run_training(extension='multihead'):
         parser.add_argument('-pod_lambda', action='store', type=float, nargs=1, required=False, default=1e-2,
                             help='Specify the lambda weighting for the distillation loss.'
                                 ' Default: pod_lambda = 0.01')
-        parser.add_argument('-plop_scales', action='store', type=int, nargs=1, required=False, default=3,
+        parser.add_argument('-pod_scales', action='store', type=int, nargs=1, required=False, default=3,
                             help='Specify the number of scales for the PLOP method.'
-                                ' Default: plop_scales = 3')
-
+                                ' Default: pod_scales = 3')
+    
     # -- Add arguments for MiB method -- #
     if extension in ['mib', 'ownm1', 'ownm2']:
         parser.add_argument('-mib_alpha', action='store', type=float, nargs=1, required=False, default=1.0,
@@ -217,6 +215,12 @@ def run_training(extension='multihead'):
         parser.add_argument('-pseudo_alpha', action='store', type=float, nargs=1, required=False, default=3.0,
                             help='Specify the pseudo_alpha parameter to be used during pseudo-labeling.'
                                 ' Default: pseudo_alpha = 3.0')
+
+    # -- Add arguments for own method -- #
+    if extension in ['ownm1', 'ownm2']:
+        parser.add_argument('--no_pod', required=False, default=False, action="store_true",
+                            help='Set this flag if the POD embedding should not be included in the loss calculation.'
+                                ' Default: POD embedding will be included.')
 
     # -- Build mapping for extension to corresponding class -- #
     trainer_map = {'rw': nnUNetTrainerRW, 'nnUNetTrainerRW': nnUNetTrainerRW,
@@ -413,20 +417,20 @@ def run_training(extension='multihead'):
                   "changed from previous one..")
 
     # -- Extract PLOP arguments -- #
-    pod_lambda, plop_scales = None, None  # --> So the dictionary arguments can be build without an error even if not plop desired ..
+    pod_lambda, pod_scales = None, None  # --> So the dictionary arguments can be build without an error even if not plop desired ..
     if extension in ['plop', 'pod', 'ownm1', 'ownm2']:
         # -- Extract pos lambda for dist_loss -- #
         pod_lambda = args.pod_lambda
         if isinstance(pod_lambda, list):
             pod_lambda = pod_lambda[0]
         # -- Extract plop scale for dist_loss -- #
-        plop_scales = args.plop_scales
-        if isinstance(plop_scales, list):
-            plop_scales = plop_scales[0]
+        pod_scales = args.pod_scales
+        if isinstance(pod_scales, list):
+            pod_scales = pod_scales[0]
 
-        # -- Notify the user that the plop_scales should not have been changed if -c is activated -- #
+        # -- Notify the user that the pod_scales should not have been changed if -c is activated -- #
         if continue_training:
-            print("Note: It will be continued with previous training, be sure that the provided pod_lambda and plop_scales have not "
+            print("Note: It will be continued with previous training, be sure that the provided pod_lambda and pod_scales have not "
                   "changed from previous one..")
 
     # -- Extract MiB arguments -- #
@@ -458,6 +462,10 @@ def run_training(extension='multihead'):
         if continue_training:
             print("Note: It will be continued with previous training, be sure that the provided pseudo_alpha has not "
                   "changed from previous one..")
+
+    do_pod = True
+    if extension in ['ownm1', 'ownm2']:
+        do_pod = not args.no_pod
 
     
     # -------------------------------
@@ -502,11 +510,11 @@ def run_training(extension='multihead'):
     mib_args = {'lkd': lkd, 'mib_alpha': mib_alpha, **basic_exts}
     lwf_args = {'lwf_temperature': lwf_temperature, **basic_exts}
     reh_args = {'samples_per_ds': samples, 'seed': seed, **basic_exts}
-    plop_args = {'pod_lambda': pod_lambda, 'scales': plop_scales, **basic_exts}
+    plop_args = {'pod_lambda': pod_lambda, 'scales': pod_scales, **basic_exts}
     rw_args = {'rw_lambda': rw_lambda, 'rw_alpha': rw_alpha, 'fisher_update_after': update_fisher_every, **basic_exts}
-    ownm1_args = {'ewc_lambda': ewc_lambda, 'pod_lambda': pod_lambda, 'scales': plop_scales, 'lkd': lkd, 'mib_alpha': mib_alpha, **basic_exts}
-    ownm2_args = {'ewc_lambda': ewc_lambda, 'pod_lambda': pod_lambda, 'scales': plop_scales, 'lkd': lkd, 'mib_alpha': mib_alpha, **basic_exts}
-    # ownm2_args = {'ewc_lambda': ewc_lambda, 'pod_lambda': pod_lambda, 'scales': plop_scales, 'pseudo_alpha': pseudo_alpha, **basic_exts}
+    ownm1_args = {'ewc_lambda': ewc_lambda, 'pod_lambda': pod_lambda, 'scales': pod_scales, 'do_pod': do_pod, 'lkd': lkd, 'mib_alpha': mib_alpha, **basic_exts}
+    ownm2_args = {'ewc_lambda': ewc_lambda, 'pod_lambda': pod_lambda, 'scales': pod_scales, 'do_pod': do_pod, 'lkd': lkd, 'mib_alpha': mib_alpha, **basic_exts}
+    # ownm2_args = {'ewc_lambda': ewc_lambda, 'pod_lambda': pod_lambda, 'scales': pod_scales, 'pseudo_alpha': pseudo_alpha, **basic_exts}
     
     # -- Join the dictionaries into a dictionary with the corresponding class name -- #
     args_f = {'nnUNetTrainerRW': rw_args, 'nnUNetTrainerMultiHead': basic_exts,

@@ -71,7 +71,7 @@ class nnUNetTrainerOwnM1(nnUNetTrainerMultiHead):
                 self.already_trained_on[str(self.fold)]['used_alpha'] = self.alpha
                 self.already_trained_on[str(self.fold)]['used_scales'] = self.scales
                 self.already_trained_on[str(self.fold)]['used_pod_lambda'] = self.pod_lambda
-                self.already_trained_on[str(self.fold)]['used_batch_size'] = self.batch_size
+                self.already_trained_on[str(self.fold)]['used_batch_size'] = int(self.batch_size) if self.batch_size is not None else None
                 self.already_trained_on[str(self.fold)]['used_ewc_lambda'] = self.ewc_lambda
             else: # It exists, then check if everything is in it
                 # -- Define a list of all expected keys that should be in the already_trained_on dict for the current fold -- #
@@ -86,7 +86,7 @@ class nnUNetTrainerOwnM1(nnUNetTrainerMultiHead):
             self.already_trained_on[str(self.fold)]['used_alpha'] = self.alpha
             self.already_trained_on[str(self.fold)]['used_scales'] = self.scales
             self.already_trained_on[str(self.fold)]['used_pod_lambda'] = self.pod_lambda
-            self.already_trained_on[str(self.fold)]['used_batch_size'] = self.batch_size
+            self.already_trained_on[str(self.fold)]['used_batch_size'] = int(self.batch_size) if self.batch_size is not None else None
             self.already_trained_on[str(self.fold)]['used_ewc_lambda'] = self.ewc_lambda
 
         # -- Update self.init_tasks so the storing works properly -- #
@@ -143,7 +143,7 @@ class nnUNetTrainerOwnM1(nnUNetTrainerMultiHead):
         # -- Otherwise the sizes for the convolutional outputs (ie. the batch dim) don't match and they have to -- #
         if self.do_pod:
             self.batch_size = 100
-        self.already_trained_on[str(self.fold)]['used_batch_size'] = self.batch_size
+        self.already_trained_on[str(self.fold)]['used_batch_size'] = int(self.batch_size)
         
         # -- If this trainer has already trained on other tasks, then extract the fisher and params -- #
         if prev_trainer_path is not None and self.already_trained_on[str(self.fold)]['fisher_at'] is not None\

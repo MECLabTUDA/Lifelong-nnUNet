@@ -46,7 +46,7 @@ class nnUNetTrainerPLOP(nnUNetTrainerMultiHead):
                 # -- Add the PLOP temperature and checkpoint settings -- #
                 self.already_trained_on[str(self.fold)]['used_scales'] = self.scales
                 self.already_trained_on[str(self.fold)]['used_pod_lambda'] = self.pod_lambda
-                self.already_trained_on[str(self.fold)]['used_batch_size'] = self.batch_size
+                self.already_trained_on[str(self.fold)]['used_batch_size'] = int(self.batch_size) if self.batch_size is not None else None
             else: # It exists, then check if everything is in it
                 # -- Define a list of all expected keys that should be in the already_trained_on dict for the current fold -- #
                 keys = ['used_pod_lambda', 'used_scales', 'used_batch_size']
@@ -56,7 +56,7 @@ class nnUNetTrainerPLOP(nnUNetTrainerMultiHead):
             # -- Update settings in trained on file for restoring to be able to ensure that scales can not be changed during training -- #
             self.already_trained_on[str(self.fold)]['used_scales'] = self.scales
             self.already_trained_on[str(self.fold)]['used_pod_lambda'] = self.pod_lambda
-            self.already_trained_on[str(self.fold)]['used_batch_size'] = self.batch_size
+            self.already_trained_on[str(self.fold)]['used_batch_size'] = int(self.batch_size) if self.batch_size is not None else None
 
         # -- Update self.init_tasks so the storing works properly -- #
         self.init_args = (split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
@@ -83,10 +83,10 @@ class nnUNetTrainerPLOP(nnUNetTrainerMultiHead):
         # -- Reset the batch size to something that should fit for every network, so something small but not too small. -- #
         # -- Otherwise the sizes for the convolutional outputs (ie. the batch dim) don't match and they have to -- #
         self.batch_size = 100
+        self.already_trained_on[str(self.fold)]['used_batch_size'] = int(self.batch_size)
 
-        # -- Create a backup loss, so we can switch between original and LwF loss -- #
+        # -- Create a backup loss, so we can switch between original and PLOP loss -- #
         self.loss_orig = copy.deepcopy(self.loss)
-        # self.switched = False
 
         # -- Choose the right loss function (PLOP) that will be used during training -- #
         # -- --> Look into the Loss function to see how the approach is implemented -- #

@@ -7,9 +7,9 @@ The exact same Command Line Arguments as presented in the [Multi-Head](multihead
 
 | tag_name | description | required | choices | default | 
 |:-:|-|:-:|:-:|:-:|
-| `-rw_alpha` | Specify the alpha parameter that is used to calculate the Fisher values --> should be [0, 1]. | no | -- | 0.9 |
-| `-rw_lambda` | Specify the importance of the previous tasks for the RW method using the EWC regularization. | no | -- | 0.4 |
-| `-update_after` | Specify after which iteration (batch iteration, not epoch) the fisher values are updated/calculated. | no | -- | 10 |
+| `-rw_alpha` | Specify the alpha parameter that is used to calculate the Fisher values --> should be [0, 1]. | no | -- | `0.9` |
+| `-rw_lambda` | Specify the importance of the previous tasks for the RW method using the EWC regularization. | no | -- | `0.4` |
+| `-update_after` | Specify after which iteration (batch iteration, not epoch) the fisher values are updated/calculated. | no | -- | `10` |
 
 ### Exemplary use cases
 In the following, a few examples are shown representing possible use cases on how to use the RW Trainer.

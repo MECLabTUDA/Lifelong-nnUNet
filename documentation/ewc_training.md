@@ -7,7 +7,7 @@ The exact same Command Line Arguments as presented in the [Multi-Head](multihead
 
 | tag_name | description | required | choices | default | 
 |:-:|-|:-:|:-:|:-:|
-| `-ewc_lambda` | Specify the importance of the previous tasks for the EWC method. This number represents the lambda value in the loss function calculation as proposed in the paper. | no | -- | 0.4 |
+| `-ewc_lambda` | Specify the importance of the previous tasks for the EWC method. This number represents the lambda value in the loss function calculation as proposed in the paper. | no | -- | `0.4` |
 
 ### Exemplary use cases
 In the following, a few examples are shown representing possible use cases on how to use the EWC Trainer.

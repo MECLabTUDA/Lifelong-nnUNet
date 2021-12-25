@@ -7,8 +7,8 @@ The exact same Command Line Arguments as presented in the [Multi-Head](multihead
 
 | tag_name | description | required | choices | default | 
 |:-:|-|:-:|:-:|:-:|
-| `-seed` | Specify the seed with which the samples will be selected for building the dataset. | no | -- | 3299 |
-| `-samples_in_perc` | Specify how much of the previous tasks should be considered during training. The number should be between 0 and 1 specifying the percentage that will be considered. This percentage is used for each previous task individually. | no | -- | 0.25 |
+| `-seed` | Specify the seed with which the samples will be selected for building the dataset. | no | -- | `3299` |
+| `-samples_in_perc` | Specify how much of the previous tasks should be considered during training. The number should be between 0 and 1 specifying the percentage that will be considered. This percentage is used for each previous task individually. | no | -- | `0.25` |
 
 ### Exemplary use cases
 In the following, a few examples are shown representing possible use cases on how to use the Rehearsal Trainer.

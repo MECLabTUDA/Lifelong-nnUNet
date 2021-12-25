@@ -7,8 +7,8 @@ The exact same Command Line Arguments as presented in the [Multi-Head](multihead
 
 | tag_name | description | required | choices | default | 
 |:-:|-|:-:|:-:|:-:|
-| `-pod_lambda` | Specify the lambda weighting for the distillation loss. | no | -- | 0.01 |
-| `-plop_scales` | Specify the number of scales for the PLOP method. | no | -- | 3 |
+| `-pod_lambda` | Specify the lambda weighting for the distillation loss. | no | -- | `0.01` |
+| `-pod_scales` | Specify the number of scales for the PLOP method. | no | -- | `3` |
 
 ### Exemplary use cases
 In the following, a few examples are shown representing possible use cases on how to use the PLOP Trainer.
@@ -19,16 +19,16 @@ One of the easiest and simplest example is to simply train on a bunch of tasks, 
           ~ $ source activate <your_anaconda_env>
 (<your_anaconda_env>) $ nnUNet_train_plop 3d_fullres -t 11 12 13 -f 0 -pod_lambda 0.01
                              -num_epoch 250 -d <GPU_ID> -save_interval 25 -s seg_outputs --store_csv
-                             [--use_vit -v <VERSION> -v_type <TYPE> -plop_scales <SCALE> ...]
+                             [--use_vit -v <VERSION> -v_type <TYPE> -pod_scales <SCALE> ...]
 ```
 
-The following example uses Version 1 (out of 3) of the [Generic_ViT_UNet](https://github.com/camgbus/Lifelong-nnUNet/blob/continual_learning/nnunet_ext/network_architecture/generic_ViT_UNet.py#L14) using the smallest one (out of 3 types). More informations with regard to the ViT_U-Net architecture can be found [here](https://github.com/camgbus/Lifelong-nnUNet/blob/ViT_U-Net/documentation/ViT_U-Net.md). Further, only 2 scales should be used instead of 3:
+The following example uses Version 1 (out of 3) of the [Generic_ViT_UNet](https://github.com/camgbus/Lifelong-nnUNet/blob/continual_learning/nnunet_ext/network_architecture/generic_ViT_UNet.py#L14) using the smallest one (out of 3 types). More informations with regard to the ViT_U-Net architecture can be found [here](https://github.com/camgbus/Lifelong-nnUNet/blob/ViT_U-Net/documentation/ViT_U-Net.md). Further, only 2 scales should be used instead of 3 and no POD embedding should be included in the loss calculation:
 ```bash
           ~ $ source ~/.bashrc
           ~ $ source activate <your_anaconda_env>
 (<your_anaconda_env>) $ nnUNet_train_plop 3d_fullres -t 11 12 13 -f 0
                              -num_epoch 250 -d <GPU_ID> -save_interval 25 -s seg_outputs --store_csv
-                             --use_vit -v 1 -v_type base -plop_scales 2
+                             --use_vit -v 1 -v_type base -pod_scales 2
                              [-pod_lambda <VALUE> --use_mult_gpus ...]
                              
 ```
