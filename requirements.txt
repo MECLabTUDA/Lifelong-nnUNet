@@ -1,4 +1,0 @@
-pytest
-git+https://github.com/MIC-DKFZ/nnUNet.git@77bc485ee025a61feb91cb0a0ed1c61a32a0f39f
-git+https://github.com/FabianIsensee/hiddenlayer.git@more_plotted_details#egg=hiddenlayer
--e.
