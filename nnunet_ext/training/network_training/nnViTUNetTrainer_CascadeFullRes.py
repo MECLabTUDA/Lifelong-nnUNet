@@ -15,7 +15,7 @@ class nnViTUNetTrainerCascadeFullRes(nnUNetTrainerV2CascadeFullRes): # Inherit d
     def __init__(self, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
                  unpack_data=True, deterministic=True, previous_trainer="nnViTUNetTrainer",
                  fp16=False, save_interval=5, use_progress=True, version=1, vit_type='base', split_gpu=False,
-                 ViT_task_specific_ln=False, first_task_name=None):
+                 ViT_task_specific_ln=False, first_task_name=None, do_LSA=False, do_SPT=False):
         r"""Constructor of ViT_U-Net Trainer for full resolution cascaded nnU-Nets.
         """
         # -- Set ViT task specific flags -- #
@@ -27,6 +27,9 @@ class nnViTUNetTrainerCascadeFullRes(nnUNetTrainerV2CascadeFullRes): # Inherit d
 
         # -- Create the variable indicating which ViT Architecture to use, base, large or huge -- #
         self.vit_type = vit_type.lower()
+
+        # -- LSA and SPT flags -- #
+        self.LSA, self.SPT = do_LSA, do_SPT
 
         # -- Update the output_folder accordingly -- #
         if self.version not in output_folder:
@@ -43,6 +46,18 @@ class nnViTUNetTrainerCascadeFullRes(nnUNetTrainerV2CascadeFullRes): # Inherit d
         else:
             if 'not_task_specific'!= output_folder.split(os.path.sep)[-1] and 'not_task_specific' not in output_folder:
                 output_folder = os.path.join(output_folder, 'not_task_specific')
+
+        # -- Add the LSA and SPT before the fold -- #
+        folder_n = ''
+        if self.SPT:
+            folder_n += 'SPT'
+        if self.LSA:
+            folder_n += 'LSA' if len(folder_n) == 0 else '_LSA'
+        if len(folder_n) == 0:
+            folder_n = 'traditional'
+        # -- Add to the path -- #
+        if folder_n != output_folder.split(os.path.sep)[-1] and folder_n not in output_folder:
+            output_folder = os.path.join(output_folder, folder_n)
 
         # -- Initialize using parent class -- #
         super().__init__(plans_file, fold, output_folder, dataset_directory, batch_dice, stage,
@@ -62,7 +77,7 @@ class nnViTUNetTrainerCascadeFullRes(nnUNetTrainerV2CascadeFullRes): # Inherit d
         # -- Update self.init_tasks so the storing works properly -- #
         self.init_args = (plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
                           deterministic, previous_trainer, fp16, save_interval, use_progress, version,
-                          self.vit_type, split_gpu)
+                          self.vit_type, split_gpu, ViT_task_specific_ln, first_task_name, do_LSA, do_SPT)
 
     def process_plans(self, plans):
         r"""Modify the original function. This just reduces the batch_size by half.

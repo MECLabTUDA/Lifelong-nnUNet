@@ -2,9 +2,8 @@
 #------This module contains useful functions that are used throughout the nnUNet_extensions project.-----#
 ##########################################################################################################
 
-import copy
-import torch
 import pandas as pd
+import copy, math, torch
 from types import ModuleType
 import sys, os, shutil, importlib
 from torch.cuda.amp import autocast
@@ -264,3 +263,23 @@ def calculate_target_logits(mh_network, gen, num_batches_per_epoch, fp16, gpu_id
 
     # -- Return the target_logits -- #
     return target_logits
+
+# -- Modified version of https://www.geeksforgeeks.org/common-divisors-of-two-numbers/ -- # 
+# Function to calculate all common divisors
+# of two given numbers
+# a, b --> input integer numbers
+def gcd(a, b):
+    if a == 0:
+        return b
+    return gcd(b % a, a)
+
+def commDiv(a, b):
+    # -- GCD of a, b -- #
+    n = gcd(a, b)
+
+    # -- Extract divisors of n -- #
+    result = []
+    for i in range(1, n+1):
+        if n % i == 0:
+            result.append(i)         
+    return result

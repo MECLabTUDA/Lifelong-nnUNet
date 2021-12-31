@@ -100,6 +100,10 @@ def main():
                         help='Specify the ViT architecture. Currently there are only three'+
                             ' possibilities: base, large or huge.'+
                             ' Default: The smallest ViT architecture, i.e. base will be used.')
+    parser.add_argument('--do_LSA', action='store_true', default=False,
+                        help='Set this flag if Locality Self-Attention should be used for the ViT.')
+    parser.add_argument('--do_SPT', action='store_true', default=False,
+                        help='Set this flag if Shifted Patch Tokenization should be used for the ViT.')
     parser.add_argument('-num_epochs', action='store', type=int, nargs=1, required=False, default=500,
                         help='Specify the number of epochs to train the model.'
                             ' Default: Train for 500 epochs.')
@@ -141,6 +145,10 @@ def main():
     save_interval = args.save_interval
     if isinstance(save_interval, list):    # When the save_interval gets returned as a list, extract the number to avoid later appearing errors
         save_interval = save_interval[0]
+
+    # -- LSA and SPT flags -- #
+    do_LSA = args.do_LSA
+    do_SPT = args.do_SPT
 
     # -- Extract the arguments specific for all trainers from argument parser -- #
     task = args.task
@@ -208,7 +216,7 @@ def main():
     trainer = trainer_class(plans_file, fold, output_folder=output_folder_name, dataset_directory=dataset_directory,
                             batch_dice=batch_dice, stage=stage, unpack_data=decompress_data,
                             deterministic=deterministic, fp16=run_mixed_precision, save_interval=save_interval,
-                            version=version, vit_type=vit_type, split_gpu=split_gpu)
+                            version=version, vit_type=vit_type, split_gpu=split_gpu, do_LSA=do_LSA, do_SPT=do_SPT)
     
     # -- Disable the saving of checkpoints if desired -- #                        
     if args.disable_saving:
