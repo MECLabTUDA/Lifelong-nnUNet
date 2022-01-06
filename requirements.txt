@@ -5,4 +5,4 @@ python-telegram-bot==12.8
 seaborn==0.11.1
 natsort==7.1.1
 nilearn==0.7.0
--e.
+-e .

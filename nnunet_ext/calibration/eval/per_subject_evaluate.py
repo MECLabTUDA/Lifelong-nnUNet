@@ -178,7 +178,7 @@ def per_subject_evaluation(eval_path, base_names, predictions_path, targets_path
             json.dump(std_dict, json_file)
     return all_eval_dicts
 
-def evaluate_subject(prediction_path, target_path, label=1, merge_labels={2: 1}):
+def evaluate_subject(prediction_path, target_path, label=1, merge_labels=None):
     prediction = utils.load_nifty(prediction_path)[0].astype(np.float16)
     ground_truth = utils.load_nifty(target_path)[0].astype(np.float16)
     case_eval = evaluate_case(prediction, ground_truth, label=label, merge_labels=merge_labels)
