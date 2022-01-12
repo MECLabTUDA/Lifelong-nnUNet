@@ -14,20 +14,20 @@ In the following, a few examples are shown representing possible use cases on ho
 
 One of the easiest and simplest example is to simply train on a bunch of tasks, for example `Task011_XYZ`, `Task012_XYZ` and `Task013_XYZ`. Each task should be trained for 250 epochs, whereas every 25th epoch, the stored data is updated and the results are stored in a `.csv` file. Additionally, the network should be split at the `seg_outputs` part of the network and trained on the GPU with ID <GPU_ID> (can be one or multilpe IDs). The importance of the previous tasks for the EWC method should be set to 2.4 instead of 0.4:
 ```bash
-          ~ $ source ~/.bashrc
-          ~ $ source activate <your_anaconda_env>
+                    ~ $ source ~/.bashrc
+                    ~ $ source activate <your_anaconda_env>
 (<your_anaconda_env>) $ nnUNet_train_ewc 3d_fullres -t 11 12 13 -f 0 -ewc_lambda 2.3
-                             -num_epoch 250 -d <GPU_ID> -save_interval 25 -s seg_outputs --store_csv
-                             [--use_vit -v <VERSION> -v_type <TYPE> ...]
+                                         -num_epoch 250 -d <GPU_ID> -save_interval 25 -s seg_outputs --store_csv
+                                         [--use_vit -v <VERSION> -v_type <TYPE> ...]
 ```
 
 The following example uses Version 1 (out of 3) of the [Generic_ViT_UNet](https://github.com/camgbus/Lifelong-nnUNet/blob/continual_learning/nnunet_ext/network_architecture/generic_ViT_UNet.py#L14) using the smallest one (out of 3 types). More informations with regard to the ViT_U-Net architecture can be found [here](https://github.com/camgbus/Lifelong-nnUNet/blob/ViT_U-Net/documentation/ViT_U-Net.md):
 ```bash
-          ~ $ source ~/.bashrc
-          ~ $ source activate <your_anaconda_env>
+                    ~ $ source ~/.bashrc
+                    ~ $ source activate <your_anaconda_env>
 (<your_anaconda_env>) $ nnUNet_train_ewc 3d_fullres -t 11 12 13 -f 0
-                             -num_epoch 250 -d <GPU_ID> -save_interval 25 -s seg_outputs --store_csv
-                             --use_vit -v 1 -v_type base [-ewc_lambda <VALUE> --use_mult_gpus ...]
+                                         -num_epoch 250 -d <GPU_ID> -save_interval 25 -s seg_outputs --store_csv
+                                         --use_vit -v 1 -v_type base [-ewc_lambda <VALUE> --use_mult_gpus ...]
                              
 ```
 
