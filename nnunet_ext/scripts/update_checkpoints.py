@@ -41,7 +41,7 @@ def modify_checkpoints():
                         help='If this is set, the Generic_ViT_UNet will be used instead of the Generic_UNet. '+
                              'Note that then the flags -v, -v_type, --task_specific_ln and --use_mult_gpus should be set accordingly.')
     parser.add_argument('--task_specific_ln', action='store_true', default=False,
-                        help='If this is set, the Generic_ViT_UNet will have task specific Layer Norms.')
+                        help='If this is set, the Generic_ViT_UNet has task specific Layer Norms.')
     parser.add_argument("-v", "--version", action='store', type=int, nargs=1, default=[1], choices=[1, 2, 3, 4],
                         help='Select the ViT input building version. Currently there are four'+
                             ' possibilities: 1, 2, 3 or 4.'+
