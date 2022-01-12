@@ -4,6 +4,7 @@
 #########################################################################################################
 
 import os, torch
+from nnunet_ext.utilities.helpful_functions import get_ViT_LSA_SPT_folder_name
 from nnunet_ext.training.network_training.nnViTUNetTrainer import nnViTUNetTrainer
 from nnunet.training.network_training.nnUNetTrainerV2_CascadeFullRes import nnUNetTrainerV2CascadeFullRes
 
@@ -48,13 +49,7 @@ class nnViTUNetTrainerCascadeFullRes(nnUNetTrainerV2CascadeFullRes): # Inherit d
                 output_folder = os.path.join(output_folder, 'not_task_specific')
 
         # -- Add the LSA and SPT before the fold -- #
-        folder_n = ''
-        if self.SPT:
-            folder_n += 'SPT'
-        if self.LSA:
-            folder_n += 'LSA' if len(folder_n) == 0 else '_LSA'
-        if len(folder_n) == 0:
-            folder_n = 'traditional'
+        folder_n = get_ViT_LSA_SPT_folder_name(self.LSA, self.SPT)
         # -- Add to the path -- #
         if folder_n != output_folder.split(os.path.sep)[-1] and folder_n not in output_folder:
             output_folder = os.path.join(output_folder, folder_n)

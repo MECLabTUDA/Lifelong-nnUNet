@@ -9,8 +9,8 @@ from batchgenerators.utilities.file_and_folder_operations import maybe_mkdir_p, 
 my_output_identifier = "nnUNet_ext"
 default_plans_identifier = "nnUNetPlansv2.1"
 default_data_identifier = 'nnUNetData_plans_v2.1'
-default_trainer = "nnViTUNetTrainer"
-default_cascade_trainer = "nnUNetTrainerV2CascadeFullRes"
+default_trainer = "nnUNetTrainerSequential"
+#default_cascade_trainer = "nnUNetTrainerV2CascadeFullRes"
 
 #------------------------------------------- Copied and adapted from original implementation -------------------------------------------#
 """
@@ -23,6 +23,7 @@ network_training_output_dir_base = os.path.join(os.environ['RESULTS_FOLDER']) if
 
 # -- New variable for evaluation -- #
 evaluation_output_dir_base = os.path.join(os.environ['EVALUATION_FOLDER']) if "EVALUATION_FOLDER" in os.environ.keys() else None
+param_search_output_dir = os.path.join(os.environ['PARAM_SEARCH_FOLDER']) if "PARAM_SEARCH_FOLDER" in os.environ.keys() else None
 
 if base is not None:
     nnUNet_raw_data = join(base, "nnUNet_raw_data")
@@ -32,14 +33,14 @@ if base is not None:
 else:
     print("nnUNet_raw_data_base is not defined and nnU-Net can only be used on data for which preprocessed files "
           "are already present on your system. nnU-Net cannot be used for experiment planning and preprocessing like "
-          "this. If this is not intended, please read documentation/setting_up_paths.md for information on how to set this up properly.")
+          "this. If this is not intended, please read documentation/setting_up_paths.md for information on how to set this up properly.\n")
     nnUNet_cropped_data = nnUNet_raw_data = None
 
 if preprocessing_output_dir is not None:
     maybe_mkdir_p(preprocessing_output_dir)
 else:
     print("nnUNet_preprocessed is not defined and nnU-Net can not be used for preprocessing "
-          "or training. If this is not intended, please read documentation/setting_up_paths.md for information on how to set this up.")
+          "or training. If this is not intended, please read documentation/setting_up_paths.md for information on how to set this up.\n")
     preprocessing_output_dir = None
 
 if network_training_output_dir_base is not None:
@@ -48,7 +49,7 @@ if network_training_output_dir_base is not None:
 else:
     print("RESULTS_FOLDER is not defined and nnU-Net cannot be used for training or "
           "inference. If this is not intended behavior, please read documentation/setting_up_paths.md for information on how to set this "
-          "up.")
+          "up.\n")
     network_training_output_dir = None
 
 # -- Set new path for evaluation -- #
@@ -58,6 +59,16 @@ if evaluation_output_dir_base is not None:
 else:
     print("EVALUATION_FOLDER is not defined and nnU-Net extension cannot be used for evaluation. "
           "If this is not intended behavior, please read documentation/setting_up_paths.md for information on how to set this "
-          "up.")
+          "up.\n")
     evaluation_output_dir = None
+
+# -- Set new path for parameter search -- #
+if param_search_output_dir is not None:
+    param_search_output_dir = join(param_search_output_dir, my_output_identifier)
+    maybe_mkdir_p(param_search_output_dir)
+else:
+    print("PARAM_SEARCH_FOLDER is not defined and nnU-Net extension cannot be used for a parameter search. "
+          "If this is not intended behavior, please read documentation/setting_up_paths.md for information on how to set this "
+          "up.\n")
+    param_search_output_dir = None
 #------------------------------------------- Copied and adapted from original implementation -------------------------------------------#

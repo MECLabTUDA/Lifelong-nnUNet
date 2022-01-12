@@ -2,7 +2,6 @@ pytest
 einops==0.3.2
 batchgenerators==0.21
 git+https://github.com/MIC-DKFZ/nnUNet.git@77bc485ee025a61feb91cb0a0ed1c61a32a0f39f
-# git+https://github.com/aanna0701/SPT_LSA_ViT.git@3bd50cf9cdd26b3fa5604cbdc57569ae2e3e4e24
 git+https://github.com/FabianIsensee/hiddenlayer.git@more_plotted_details#egg=hiddenlayer
 git+https://github.com/rwightman/pytorch-image-models.git@a41de1f666f9187e70845bbcf5b092f40acaf097
 -e.

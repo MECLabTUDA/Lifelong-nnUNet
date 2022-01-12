@@ -92,11 +92,11 @@ def main():
     parser.add_argument('--use_mult_gpus', action='store_true', default=False,
                         help='If this is set, the ViT model will be placed onto a second GPU. '+
                              'When this is set, more than one GPU needs to be provided when using -d.')
-    parser.add_argument("-v", "--version", action='store', type=int, nargs=1, default=[1],
+    parser.add_argument("-v", "--version", action='store', type=int, nargs=1, default=[1], choices=[1, 2, 3, 4],
                         help='Select the ViT input building version. Currently there are only four'+
                             ' possibilities: 1, 2, 3 or 4.'+
                             ' Default: version one will be used. For more references wrt, to the versions, see the docs.')
-    parser.add_argument("-v_type", "--vit_type", action='store', type=str, nargs=1, default='base',
+    parser.add_argument("-v_type", "--vit_type", action='store', type=str, nargs=1, default='base', choices=['base', 'large', 'huge'],
                         help='Specify the ViT architecture. Currently there are only three'+
                             ' possibilities: base, large or huge.'+
                             ' Default: The smallest ViT architecture, i.e. base will be used.')
@@ -134,13 +134,13 @@ def main():
     vit_type = args.vit_type
     if isinstance(vit_type, list):    # When the vit_type gets returned as a list, extract the type to avoid later appearing errors
         vit_type = vit_type[0].lower()
-    assert vit_type in ['base', 'large', 'huge'], 'Please provide one of the following three existing ViT types: base, large or huge..'
+    # assert vit_type in ['base', 'large', 'huge'], 'Please provide one of the following three existing ViT types: base, large or huge..'
     
     # -- Extract the desired version -- #
     version = args.version
     if isinstance(version, list):    # When the version gets returned as a list, extract the number to avoid later appearing errors
         version = version[0]
-    assert version in range(1, 5), 'We only provide three versions, namely 1, 2, 3 or 4 but not {}..'.format(version)
+    # assert version in range(1, 5), 'We only provide three versions, namely 1, 2, 3 or 4 but not {}..'.format(version)
     
     save_interval = args.save_interval
     if isinstance(save_interval, list):    # When the save_interval gets returned as a list, extract the number to avoid later appearing errors
@@ -160,7 +160,7 @@ def main():
 
     cuda = args.device
 
-    # -- Assert if device value is ot of predefined range and create string to set cuda devices -- #
+    # -- Assert if device value is out of predefined range and create string to set cuda devices -- #
     for idx, c in enumerate(cuda):
         assert c > -1 and c < 8, 'GPU device ID out of range (0, ..., 7).'
         cuda[idx] = str(c)  # Change type from int to str otherwise join_texts_with_char will throw an error

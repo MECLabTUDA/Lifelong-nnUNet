@@ -9,6 +9,7 @@ from nnunet.utilities.nd_softmax import softmax_helper
 from nnunet.network_architecture.initialization import InitWeights_He
 from nnunet.training.network_training.nnUNetTrainerV2 import nnUNetTrainerV2
 from nnunet_ext.network_architecture.generic_ViT_UNet import Generic_ViT_UNet
+from nnunet_ext.utilities.helpful_functions import get_ViT_LSA_SPT_folder_name
 
 # -- Add this since default option file_descriptor has a limitation on the number of open files. -- #
 # -- Default config might cause the runtime error: RuntimeError: received 0 items of ancdata -- #
@@ -51,13 +52,7 @@ class nnViTUNetTrainer(nnUNetTrainerV2): # Inherit default trainer class for 2D,
                 output_folder = os.path.join(output_folder, 'not_task_specific')
 
         # -- Add the LSA and SPT before the fold -- #
-        folder_n = ''
-        if self.SPT:
-            folder_n += 'SPT'
-        if self.LSA:
-            folder_n += 'LSA' if len(folder_n) == 0 else '_LSA'
-        if len(folder_n) == 0:
-            folder_n = 'traditional'
+        folder_n = get_ViT_LSA_SPT_folder_name(self.LSA, self.SPT)
         # -- Add to the path -- #
         if folder_n != output_folder.split(os.path.sep)[-1] and folder_n not in output_folder:
             output_folder = os.path.join(output_folder, folder_n)

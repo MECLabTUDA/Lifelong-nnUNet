@@ -2,13 +2,13 @@
 #------This module contains useful functions that are used throughout the nnUNet_extensions project.-----#
 ##########################################################################################################
 
+import copy, torch
 import pandas as pd
-import copy, math, torch
 from types import ModuleType
 import sys, os, shutil, importlib
 from torch.cuda.amp import autocast
 from nnunet.utilities.to_torch import maybe_to_torch, to_cuda
-from batchgenerators.utilities.file_and_folder_operations import join
+from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet_ext.paths import nnUNet_raw_data, nnUNet_cropped_data, preprocessing_output_dir
 
 def delete_dir_con(path):
@@ -283,3 +283,74 @@ def commDiv(a, b):
         if n % i == 0:
             result.append(i)         
     return result
+
+def get_ViT_LSA_SPT_folder_name(do_LSA, do_SPT):
+    r"""Use this function when the ViT_U-Net is used and the output folder needs to be build.
+    """
+    # -- Specify the folder name based on do_LSA and do_SPT -- #
+    folder_n = ''
+    if do_SPT:
+        folder_n += 'SPT'
+    if do_LSA:
+        folder_n += 'LSA' if len(folder_n) == 0 else '_LSA'
+    if len(folder_n) == 0:
+        folder_n = 'traditional'
+    # -- Return the folder name -- #
+    return folder_n
+
+def get_nr_parameters(model):
+    r"""This function returns the number of parameters and trainable parameters of a network.
+        Based on: https://stackoverflow.com/questions/49201236/check-the-total-number-of-parameters-in-a-pytorch-model
+    """
+    # -- Extract and count nr of parameters -- #
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    # -- Return the information -- #
+    return total_params, trainable_params
+
+def get_model_size(model):
+    r"""This function return the size in MB of a model.
+        Based on: https://discuss.pytorch.org/t/finding-model-size/130275
+    """
+    # -- Extract parameter and buffer sizes -- #
+    param_size = 0
+    for param in model.parameters():
+        param_size += param.nelement() * param.element_size()
+    buffer_size = 0
+    for buffer in model.buffers():
+        buffer_size += buffer.nelement() * buffer.element_size()
+    # -- Transform into MB -- #
+    size_all_mb = (param_size + buffer_size) / 1024**2
+    # -- Return the size -- #
+    return size_all_mb
+
+#-------------------------- Copied from nnU-Net implementation but changed -----------------------------------#
+def print_to_log_file(log_file, output_folder, prefix_name, *args):
+    r"""This function is used to log information into a txt file."""
+    # -- Get the current timestamp -- #
+    timestamp = time()
+    dt_object = datetime.fromtimestamp(timestamp)
+
+    # -- Extract the arguments -- #
+    args = ("%s:" % dt_object, *args)
+
+    # -- Create the log file if it does not exist -- #
+    if log_file is None:
+        maybe_mkdir_p(output_folder)
+        timestamp = datetime.now()
+        log_file = join(output_folder, prefix_name+"_%d_%d_%d_%02.0d_%02.0d_%02.0d.txt" %
+                                (timestamp.year, timestamp.month, timestamp.day, timestamp.hour, timestamp.minute,
+                                timestamp.second))
+        with open(log_file, 'w') as f:
+            f.write("Start with testing... \n\n")
+
+    # -- Write everything form args into the log file -- #
+    with open(log_file, 'a+') as f:
+        for a in args:
+            f.write(str(a))
+            f.write(" ")
+        f.write("\n")
+
+    # -- Return the log file since we do not use global variables and then the file will be overwritten over and over again since log_file is always None -- #
+    return log_file
+#-------------------------- Copied from nnU-Net implementation but changed -----------------------------------#

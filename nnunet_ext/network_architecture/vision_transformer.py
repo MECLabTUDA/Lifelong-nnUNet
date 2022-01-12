@@ -9,7 +9,6 @@ from functools import partial
 from timm.models.layers.mlp import Mlp
 from einops.layers.torch import Rearrange
 from timm.models.layers.drop import DropPath
-# from SPT_LSA_ViT.models.SPT import ShiftedPatchTokenization
 from timm.models.vision_transformer import Attention as AttentionTimm
 from timm.models.layers.patch_embed import PatchEmbed as PatchEmbed2D
 from timm.models.vision_transformer import VisionTransformer as VisionTransformer2D
