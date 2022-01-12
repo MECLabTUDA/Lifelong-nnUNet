@@ -24,13 +24,14 @@ class nnUNetTrainerPLOP(nnUNetTrainerMultiHead):
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
                  identifier=default_plans_identifier, extension='plop', pod_lambda=1e-2, scales=3, tasks_list_with_char=None,
                  mixed_precision=True, save_csv=True, del_log=False, use_vit=False, vit_type='base', version=1, split_gpu=False,
-                 transfer_heads=True, ViT_task_specific_ln=False):
+                 transfer_heads=True, ViT_task_specific_ln=False, do_LSA=False, do_SPT=False):
         r"""Constructor of PLOP trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
         """
         # -- Initialize using parent class -- #
         super().__init__(split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic,
                          fp16, save_interval, already_trained_on, use_progress, identifier, extension, tasks_list_with_char,
-                         mixed_precision, save_csv, del_log, use_vit, vit_type, version, split_gpu, transfer_heads, ViT_task_specific_ln)
+                         mixed_precision, save_csv, del_log, use_vit, vit_type, version, split_gpu, transfer_heads, ViT_task_specific_ln,
+                         do_LSA, do_SPT)
         
         # -- Define a variable that specifies the hyperparameters for this trainer --> this is used for the parameter search method -- #
         self.hyperparams = {'pod_lambda': float, 'scales': int}
@@ -62,7 +63,7 @@ class nnUNetTrainerPLOP(nnUNetTrainerMultiHead):
         self.init_args = (split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
                           deterministic, fp16, save_interval, already_trained_on, use_progress, identifier, extension,
                           pod_lambda, scales, tasks_list_with_char, mixed_precision, save_csv, del_log, use_vit, self.vit_type,
-                          version, split_gpu, transfer_heads, ViT_task_specific_ln)
+                          version, split_gpu, transfer_heads, ViT_task_specific_ln, do_LSA, do_SPT)
 
         # -- Define the place holders for our results from the previous model on the current data -- #
         self.old_interm_results = dict()
@@ -184,6 +185,9 @@ class nnUNetTrainerPLOP(nnUNetTrainerMultiHead):
         # -- Create a deepcopy of the previous, ie. currently set model if we do PLOP training -- #
         if task not in self.mh_network.heads:
             self.network_old = copy.deepcopy(self.network)
+            # -- Save this network using checkpoint saving for restoring purposes -- #
+            self.save_checkpoint(join(self.output_folder, "model_latest.model"), old_model=True, fname_old=join(self.output_folder, "model_old.model"))
+
             if self.split_gpu and not self.use_vit:
                 self.network_old.cuda(1)    # Put on second GPU
 
@@ -207,7 +211,7 @@ class nnUNetTrainerPLOP(nnUNetTrainerMultiHead):
         # -- Return the result -- #
         return ret
 
-    def run_iteration(self, data_generator, do_backprop=True, run_online_evaluation=False, detach=True):
+    def run_iteration(self, data_generator, do_backprop=True, run_online_evaluation=False, detach=True, no_loss=False, pod=False):
         r"""This function needs to be changed for the PLOP method, since intermediate results will be used within
             the Loss function to compute the Loss as proposed in the paper.
         """
@@ -217,7 +221,7 @@ class nnUNetTrainerPLOP(nnUNetTrainerMultiHead):
             self.loss = self.loss_orig
             self.switched = False
             # -- Run iteration as usual using parent class -- #
-            loss = super().run_iteration(data_generator, do_backprop, run_online_evaluation)
+            loss = super().run_iteration(data_generator, do_backprop, run_online_evaluation, detach, no_loss)
             # -- NOTE: If this is called during _perform_validation, run_online_evaluation is true --> Does not matter -- #
             # --       which loss is used, since we only calculate Dice and IoU and do not keep track of the loss -- #
         else:   # --> More than one head, ie. trained on more than one task  --> use PLOP
@@ -248,7 +252,7 @@ class nnUNetTrainerPLOP(nnUNetTrainerMultiHead):
                     # -- Extract the old results using the old network -- #
                     if self.split_gpu and not self.use_vit:
                         data = to_cuda(data, gpu_id=1)
-                    output_o = self.network_old(data) # --> self.old_interm_results is filled with intermediate result now!
+                    output_o = self.network_old(data)#.detach() # --> self.old_interm_results is filled with intermediate result now!
                     del data
                     # -- Put old_interm_results on same GPU as interm_results -- #
                     if self.split_gpu and not self.use_vit:
@@ -256,8 +260,14 @@ class nnUNetTrainerPLOP(nnUNetTrainerMultiHead):
                             self.old_interm_results[key] = to_cuda(self.old_interm_results[key], gpu_id=self.interm_results[key].device)
 
                     # -- Update the loss with the data -- #
-                    self.loss.update_plop_params(self.old_interm_results, self.interm_results, self.thresholds, self.max_entropy)
-                    loss = self.loss(output, output_o, target)
+                    if pod:
+                        self.loss.update_plop_params(self.old_interm_results, self.interm_results)
+                        if not no_loss:
+                            loss = self.loss(output, target)
+                    else:
+                        self.loss.update_plop_params(self.old_interm_results, self.interm_results, self.thresholds, self.max_entropy)
+                        if not no_loss:
+                            loss = self.loss(output, output_o, target)
 
                 if do_backprop:
                     self.amp_grad_scaler.scale(loss).backward()
@@ -269,15 +279,21 @@ class nnUNetTrainerPLOP(nnUNetTrainerMultiHead):
                 output = self.network(data)
                 if self.split_gpu and not self.use_vit:
                     data = to_cuda(data, gpu_id=1)
-                output_o = self.network_old(data)
+                output_o = self.network_old(data)#.detach()
                 del data
                 # -- Put old_interm_results on same GPU as interm_results -- #
                 if self.split_gpu and not self.use_vit:
                     for key in self.old_interm_results:
                         self.old_interm_results[key] = to_cuda(self.old_interm_results[key], gpu_id=self.interm_results[key].device)
                 # -- Update the loss with the data -- #
-                self.loss.update_plop_params(self.old_interm_results, self.interm_results, self.thresholds, self.max_entropy)
-                loss = self.loss(output, output_o, target)
+                if pod:
+                    self.loss.update_plop_params(self.old_interm_results, self.interm_results)
+                    if not no_loss:
+                        loss = self.loss(output, target)
+                else:
+                    self.loss.update_plop_params(self.old_interm_results, self.interm_results, self.thresholds, self.max_entropy)
+                    if not no_loss:
+                        loss = self.loss(output, output_o, target)
                 
                 if do_backprop:
                     loss.backward()
@@ -303,7 +319,8 @@ class nnUNetTrainerPLOP(nnUNetTrainerMultiHead):
             self.interm_results = dict()
 
         # -- Return the loss -- #
-        return loss
+        if not no_loss:
+            return loss
 
     def register_forward_hooks(self, old=False):
         r"""This function sets the forward hooks for every convolutional layer in the network.
@@ -317,7 +334,6 @@ class nnUNetTrainerPLOP(nnUNetTrainerMultiHead):
 
         # -- Register hooks -- #
         for mod in module_names:
-            # if 'seg_outputs' in mod:
             attrgetter(mod)(use_network).register_forward_hook(self._get_activation(mod, old))
 
     def _get_activation(self, name, old=False):

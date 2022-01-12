@@ -4,7 +4,6 @@
 #########################################################################################################
 
 import nnunet, nnunet_ext
-# from nnunet_ext.utilities.helpful_functions import copy_dir
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet.training.model_restore import recursive_find_python_class
 from nnunet.experiment_planning.summarize_plans import summarize_plans
@@ -14,7 +13,7 @@ from nnunet_ext.paths import network_training_output_dir, preprocessing_output_d
 
 #------------------------------------------- Partially copied from original implementation -------------------------------------------#
 def get_default_configuration(network, task, running_task, network_trainer, tasks_joined_name, plans_identifier=default_plans_identifier,
-                              search_in=None, base_module=None, extension_type='multihead', print_loss_info=True):
+                              search_in=None, base_module=None, extension_type='multihead', print_loss_info=True, param_search=False):
     r"""This function extracts paths to the plans_file, specifies the output_folder_name, dataset_directory, batch_dice, stage, and trainer_class.
         The extension type specifies which nnUNet extension will be used (multihead, rehearsal, etc.).
         When using the Generic_Vit_UNet (and only then), the running_task, tasks_joined_name and extension_type
@@ -103,5 +102,9 @@ def get_default_configuration(network, task, running_task, network_trainer, task
     print("\nI am using data from this folder: ", join(dataset_directory, plans['data_identifier']))
     print("###############################################")
     
-    return plans_file, output_folder_name, dataset_directory, batch_dice, stage, trainer_class
+    if param_search:
+        # -- Only return the dataset_directory, batch_dice, stage and trainer_class -- #
+        return dataset_directory, batch_dice, stage, trainer_class
+    else:
+        return plans_file, output_folder_name, dataset_directory, batch_dice, stage, trainer_class
 #------------------------------------------- Partially copied from original implementation -------------------------------------------#

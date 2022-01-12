@@ -8,6 +8,7 @@ from torch import nn
 from torch.autograd import Variable
 from nnunet.utilities.to_torch import to_cuda
 from nnunet.utilities.nd_softmax import softmax_helper
+from nnunet_ext.utilities.helpful_functions import commDiv
 from nnunet.network_architecture.initialization import InitWeights_He
 from nnunet.network_architecture.generic_UNet import ConvDropoutNormNonlin, Generic_UNet
 from nnunet_ext.network_architecture.vision_transformer import PatchEmbed, VisionTransformer
@@ -24,7 +25,8 @@ class Generic_ViT_UNet(Generic_UNet):
                  weightInitializer=InitWeights_He(1e-2), pool_op_kernel_sizes=None, conv_kernel_sizes=None,
                  upscale_logits=False, convolutional_pooling=False, convolutional_upsampling=False,
                  max_num_features=None, basic_block=ConvDropoutNormNonlin, seg_output_use_bias=False,
-                 vit_version='V1', vit_type='base', split_gpu=False, ViT_task_specific_ln=False, first_task_name=None):
+                 vit_version='V1', vit_type='base', split_gpu=False, ViT_task_specific_ln=False, first_task_name=None,
+                 do_LSA=False, do_SPT=False):
         r"""This function represents the constructor of the Generic_ViT_UNet architecture. It basically uses the
             Generic_UNet class from the nnU-Net Framework as initialization since the presented architecture is
             based on this network. The vit_type needs to be set, which can be one of three possibilities:
@@ -34,11 +36,15 @@ class Generic_ViT_UNet(Generic_UNet):
                 V2: use first and last downsampled element (fused) as input for ViT and use the result from ViT as Decoder input (original skips are intact)
                 V3: use all skip connections (fused) as input of ViT and use the result from ViT as Decoder input (original skips are intact)
                 V3: Before entering the models output through the segmentation head, it will be passed through the ViT
+                V4: The result of Encoder-Decoder will be passed through ViT before it goes through the segmentation heads --> not recommended since huge amount of parameters
             split_gpu is used to put the ViT architecture onto a second GPU and everything else onto the first one. Use this if
             the training does not start because of CUDA out of Memory error. In this case the model is too large for one GPU.
             ViT_task_specific_ln is used if the user wants to create task specific LayerNorms in the ViT --> Makes only sense when
             using any provided extension that trains on a sequence of tasks --> This makes no sense for the Generic_ViT_UNet but works
             either way. When this flag is used, the user needs to provide the first tasks name as well to name the LN layers accordingly.
+            If the user wants to use the proposed LSA or SPT methods from https://arxiv.org/pdf/2112.13492v1.pdf, the flags can be set. Note,
+            one can set either one flag or both at the same time. --> This functionality is only provided for non task specific LNs and it
+            can not be combined with V4!
         """
         # -- Initialize using parent class --> gives us a generic U-Net we need to alter to create our combined architecture -- #
         super(Generic_ViT_UNet, self).__init__(input_channels, base_num_features, num_classes, num_pool, num_conv_per_stage,
@@ -119,9 +125,7 @@ class Generic_ViT_UNet(Generic_UNet):
         del sample, skips
 
         # -- Determine the img_size of the feature map that should be used -- #
-        if vit_version == 'V14':
-            self.img_size = list(self.skip_sizes[0][2:])
-        elif vit_version == 'V4':
+        if vit_version == 'V4':
             self.img_size = [list(size[1:]) for size in self.out_sizes]  # Remove batch dimension
         else:
             self.img_size = list(self.skip_sizes[self.use_skip][2:])
@@ -132,14 +136,18 @@ class Generic_ViT_UNet(Generic_UNet):
             self.patch_size = list()
             self.in_chans = list()
             for img_size in self.img_size:
-                patch_dim = min(min(img_size), 32)
-                self.patch_size.append((patch_dim//2, patch_dim//2))
+                # patch_dim = min(min(img_size), 32)  # Max patch size is 16
+                patch_dim = max([x for x in commDiv(img_size[0], img_size[1]) if x <= 16])  # Max patch size is 16*16, ie. 32
+                # self.patch_size.append((patch_dim//2, patch_dim//2))
+                self.patch_size.append((patch_dim, patch_dim))
                 self.in_chans.append(img_size[0])
             # -- Remove the input channels from the img_size -- #
             self.img_size = [img_size[1:] for img_size in self.img_size]
         else:
-            patch_dim = min(min(self.img_size), 32)
-            self.patch_size = (patch_dim//2, patch_dim//2)
+            # patch_dim = min(min(self.img_size), 32) if not do_SPT else min(min(self.img_size), 16)
+            patch_dim = max([x for x in commDiv(self.img_size[0], self.img_size[1]) if x <= 16])  # Max patch size is 16*16, ie. 32
+            self.patch_size = (patch_dim, patch_dim)
+            # self.patch_size = (patch_dim//2, patch_dim//2)
             self.in_chans = self.skip_sizes[self.use_skip][1]   # Use 1 since skip_size are torch tensors with batch dimension
             
         # -- Set img_depth -- #
@@ -154,9 +162,9 @@ class Generic_ViT_UNet(Generic_UNet):
         # -- Determine the parameters -- #
         custom_config = {
             'ViT_2d': len(patch_size) == 2,
-            'img_size': self.img_size,    # --> 3D image size (depth, height, width) --> skip the depth since extra argument
+            'img_size': self.img_size,          # --> 3D image size (depth, height, width) --> skip the depth since extra argument
             'img_depth': img_depth,
-            'patch_size': self.patch_size,    # --> 2D patch size (height, width)
+            'patch_size': self.patch_size,      # --> 2D patch size (height, width)
             'in_chans': self.in_chans,
             'num_classes':  self.num_classesViT,
             'embed_dim': self.ViT_types[vit_type]['embed_size'],
@@ -174,7 +182,9 @@ class Generic_ViT_UNet(Generic_UNet):
             'act_layer': None,
             'weight_init': '',
             'task_specific_ln': ViT_task_specific_ln,
-            'task_name': first_task_name
+            'task_name': first_task_name,
+            'is_LSA': do_LSA,
+            'is_SPT': do_SPT
             }
 
         # -- Initialize ViT generically -- #
@@ -250,7 +260,6 @@ class Generic_ViT_UNet(Generic_UNet):
             x = torch.cat((x, skips[-(u + 1)]), dim=1)
             x = self.conv_blocks_localization[u](x)
             # -- ViT Version 4 --> Last upsampling will go through ViT before the sog_outputs
-            # if u == len(self.tu)-1 and self.version == 'V14':    #  --> Do not forget the ViT before seg_outputs, but only on the last upsample
             if self.version == 'V4':    #  --> Do not forget the ViT before seg_outputs, but only on the last upsample
                 # -- Copy the size of the input for the Transformer -- #
                 size_seg = x.size()

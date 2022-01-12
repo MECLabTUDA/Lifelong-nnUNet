@@ -9,6 +9,7 @@ from time import time
 import time as time_mod
 from datetime import datetime
 from nnunet.configuration import default_num_threads
+from nnunet_ext.utilities.helpful_functions import *
 from nnunet_ext.paths import nnUNet_raw_data as old_nnUNet_raw_data # Do this otherwise reassignment does not work
 from nnunet_ext.run.default_configuration import get_default_configuration
 from nnunet_ext.paths import nnUNet_cropped_data as old_nnUNet_cropped_data
@@ -18,42 +19,10 @@ from nnunet_ext.paths import preprocessing_output_dir as old_preprocessing_outpu
 from nnunet_ext.utilities.helpful_functions import refresh_mod_imports as refresh_imports
 from nnunet_ext.paths import network_training_output_dir as old_network_training_output_dir
 from nnunet_ext.experiment_planning.dataset_label_mapping import main as dataset_label_mapping
-from nnunet_ext.utilities.helpful_functions import delete_dir_con, join_texts_with_char, move_dir
 from nnunet_ext.paths import network_training_output_dir_base as old_network_training_output_dir_base
 from nnunet.run.default_configuration import get_default_configuration as nn_get_default_configuration
 from nnunet_ext.training.network_training.multihead.nnUNetTrainerMultiHead import nnUNetTrainerMultiHead # Own implemented class
 from batchgenerators.utilities.file_and_folder_operations import maybe_mkdir_p, join, load_json, save_json
-
-#-------------------------- Copied from nnU-Net implementation but changed -----------------------------------#
-def print_to_log_file(log_file, output_folder, *args):
-    r"""This function is used to log information into a txt file."""
-    # -- Get the current timestamp -- #
-    timestamp = time()
-    dt_object = datetime.fromtimestamp(timestamp)
-
-    # -- Extract the arguments -- #
-    args = ("%s:" % dt_object, *args)
-
-    # -- Create the log file if it does not exist -- #
-    if log_file is None:
-        maybe_mkdir_p(output_folder)
-        timestamp = datetime.now()
-        log_file = join(output_folder, "pytest_log_%d_%d_%d_%02.0d_%02.0d_%02.0d.txt" %
-                                (timestamp.year, timestamp.month, timestamp.day, timestamp.hour, timestamp.minute,
-                                timestamp.second))
-        with open(log_file, 'w') as f:
-            f.write("Start with testing... \n\n")
-
-    # -- Write everything form args into the log file -- #
-    with open(log_file, 'a+') as f:
-        for a in args:
-            f.write(str(a))
-            f.write(" ")
-        f.write("\n")
-
-    # -- Return the log file since we do not use global variables and then the file will be overwritten over and over again since log_file is always None -- #
-    return log_file
-#-------------------------- Copied from nnU-Net implementation but changed -----------------------------------#
 
 def equal_models(model_1, model_2):
     r"""This function is used to compare two PyTorch Modules and return if they are both identical based
@@ -119,17 +88,17 @@ def test_multi_head_trainer(ext_map=None, args_f=None):
     maybe_mkdir_p(mapping_folder)
 
     # -- Create the Log file and store those folders in there as a note -- #
-    log_file = print_to_log_file(log_file, output_folder, "Take raw data from: {}".format(os.path.dirname(os.path.realpath(old_nnUNet_raw_data))))
-    log_file = print_to_log_file(log_file, output_folder, "Store raw data with new task names at: {}".format(nnUNet_raw_data))
-    log_file = print_to_log_file(log_file, output_folder, "Store preprocessed data at: {}".format(preprocessing_output_dir))
-    log_file = print_to_log_file(log_file, output_folder, "Store copped data at: {}".format(nnUNet_cropped_data))
-    log_file = print_to_log_file(log_file, output_folder, "Store output from training at: {}".format(network_training_output_dir))
-    log_file = print_to_log_file(log_file, output_folder, "The folder that will be deleted once the training is finished sucessfully: {}".format(base))
+    log_file = print_to_log_file(log_file, output_folder, 'pytest_log', "Take raw data from: {}".format(os.path.dirname(os.path.realpath(old_nnUNet_raw_data))))
+    log_file = print_to_log_file(log_file, output_folder, 'pytest_log', "Store raw data with new task names at: {}".format(nnUNet_raw_data))
+    log_file = print_to_log_file(log_file, output_folder, 'pytest_log', "Store preprocessed data at: {}".format(preprocessing_output_dir))
+    log_file = print_to_log_file(log_file, output_folder, 'pytest_log', "Store copped data at: {}".format(nnUNet_cropped_data))
+    log_file = print_to_log_file(log_file, output_folder, 'pytest_log', "Store output from training at: {}".format(network_training_output_dir))
+    log_file = print_to_log_file(log_file, output_folder, 'pytest_log', "The folder that will be deleted once the training is finished sucessfully: {}".format(base))
 
     # -- Preprocess and plan all the data that is necessary for this test suite -- #
     # -- We use Hippocampus, Heart and Prostate, whereas prostate also changes labels and is only done on first channel -- #
     # -- Generate the mapping files for those tasks, whereas the label mapping is not changed -- #
-    log_file = print_to_log_file(log_file, output_folder, "Start creating the mapping files and storing them at: {}".format(mapping_folder))
+    log_file = print_to_log_file(log_file, output_folder, 'pytest_log', "Start creating the mapping files and storing them at: {}".format(mapping_folder))
     # -- Define the list of tasks to load the correct dataset.json file -- #
     tasks = ['Task04_Hippocampus', 'Task02_Heart']#, 'Task05_Prostate'
     # -- Loop through those tasks, load the dataset.json file and build a mapping file -- #
@@ -145,9 +114,9 @@ def test_multi_head_trainer(ext_map=None, args_f=None):
         # -- Save the mappings file with same name as task -- #
         save_json(mapping, join(mapping_folder, str(task)+'.json'))
         # -- Update the log file -- #
-        log_file = print_to_log_file(log_file, output_folder,\
+        log_file = print_to_log_file(log_file, output_folder, 'pytest_log',\
             "Created mapping file for task {}:\n{}".format(task, mapping))
-        log_file = print_to_log_file(log_file, output_folder,\
+        log_file = print_to_log_file(log_file, output_folder, 'pytest_log', \
             "This mapping file is stored at: {}".format(join(mapping_folder, str(task)+'.json')))
     
     # -- Preprocess data using the dataset_label_mapping class -- #
@@ -171,7 +140,7 @@ def test_multi_head_trainer(ext_map=None, args_f=None):
     
     # -- Update the log file for the last time -- #
     execution_time = time() - start_time
-    log_file = print_to_log_file(log_file, output_folder,\
+    log_file = print_to_log_file(log_file, output_folder, 'pytest_log', \
             "This planning and preprocessing took {:.2f} seconds ({}).\n".format(execution_time, time_mod.strftime('%H:%M:%S', time_mod.gmtime(execution_time))))
 
     # ------------------------------- #
@@ -239,7 +208,7 @@ def test_multi_head_trainer(ext_map=None, args_f=None):
                         running_task_list = already_trained_on[str(fold)]['finished_training_on'][:]
                     elif i == 2:
                         # -- Update the log file -- #
-                        log_file = print_to_log_file(log_file, output_folder,\
+                        log_file = print_to_log_file(log_file, output_folder, 'pytest_log', \
                             "Start training with network \'{}\' and trainer \'nnUNetTrainerV2\' for task \'{}\'".format(network, all_tasks[0]))
                         
                         # -- Train first on nnUNetTrainerV2 to use this in the upcoming loop -- #
@@ -284,7 +253,7 @@ def test_multi_head_trainer(ext_map=None, args_f=None):
                         del trainer
                         # -- Update the log file -- #
                         execution_time = time() - start_train_time
-                        log_file = print_to_log_file(log_file, output_folder,\
+                        log_file = print_to_log_file(log_file, output_folder, 'pytest_log', \
                                 "This execution time for training the network \'{}\' with trainer \'{}\' took {:.2f} seconds ({}).\n".format(network, extension, execution_time, time_mod.strftime('%H:%M:%S', time_mod.gmtime(execution_time))))
                         # -- Reset the start_train_time since we do not continue with next element but keep in this loop -- #
                         start_train_time = time()
@@ -301,11 +270,11 @@ def test_multi_head_trainer(ext_map=None, args_f=None):
                         # -- Update the log file given the current state of training -- #
                         if i == 0:
                             # -- Update the log file -- #
-                            log_file = print_to_log_file(log_file, output_folder,\
+                            log_file = print_to_log_file(log_file, output_folder, 'pytest_log', \
                                 "Start training with network \'{}\' and trainer \'{}\' for task \'{}\'".format(network, trainer_to_use.__name__, t))
                         else:
                             # -- Update the log file -- #
-                            log_file = print_to_log_file(log_file, output_folder,\
+                            log_file = print_to_log_file(log_file, output_folder, 'pytest_log', \
                                 "Start training with network \'{}\' and trainer \'{}\' for task \'{}\' using the just trained and existing network as a foundation to continue with training".format(network, trainer_to_use.__name__, t))
                         # -- Update running task list and create running task which are all (trained tasks and current task joined) for output folder name -- #
                         running_task_list.append(t)
@@ -492,7 +461,7 @@ def test_multi_head_trainer(ext_map=None, args_f=None):
 
                     # -- Update the log file -- #
                     execution_time = time() - start_train_time
-                    log_file = print_to_log_file(log_file, output_folder,\
+                    log_file = print_to_log_file(log_file, output_folder, 'pytest_log',\
                             "This execution time for training the network \'{}\' with trainer \'{}\' took {:.2f} seconds ({}).\n".format(network, extension, execution_time, time_mod.strftime('%H:%M:%S', time_mod.gmtime(execution_time))))
 
                 # -- Remove the trainer_class -- #
@@ -500,7 +469,7 @@ def test_multi_head_trainer(ext_map=None, args_f=None):
         # -- Catch only the SkipNetwork error and continue --> only thrown when using 3d_lowres -- #
         except SkipNetwork:
             # -- Write this into the log file and move on with next extension (do this until fionished with network) -- #
-            log_file = print_to_log_file(log_file, output_folder,\
+            log_file = print_to_log_file(log_file, output_folder, 'pytest_log',\
                 "Training on \'3d_lowres\' needs to be skipped, since the initialization for the first task \'{}\' does not work.\n".format(all_tasks[0]) + 
                 "See: https://github.com/MIC-DKFZ/nnUNet/issues/488 for more details.\n")
             continue
@@ -515,17 +484,17 @@ def test_multi_head_trainer(ext_map=None, args_f=None):
         # -- Move from raw_data -- #
         move_dir(join(old_nnUNet_raw_data, task), nnUNet_raw_data)
         # -- Update the log file -- #
-        log_file = print_to_log_file(log_file, output_folder,\
+        log_file = print_to_log_file(log_file, output_folder, 'pytest_log',\
             "Moved raw data from \'{}\' to \'{}\'".format(join(old_nnUNet_raw_data, task), join(nnUNet_raw_data, task)))
         # -- Move from cropped_data -- #
         move_dir(join(old_nnUNet_cropped_data, task), nnUNet_cropped_data)
         # -- Update the log file -- #
-        log_file = print_to_log_file(log_file, output_folder,\
+        log_file = print_to_log_file(log_file, output_folder, 'pytest_log',\
             "Moved cropped data from \'{}\' to \'{}\'".format(join(old_nnUNet_cropped_data, task), join(nnUNet_cropped_data, task)))
         # -- Move from preprocessed_data -- #
         move_dir(join(old_preprocessing_output_dir, task), preprocessing_output_dir)
         # -- Update the log file -- #
-        log_file = print_to_log_file(log_file, output_folder,\
+        log_file = print_to_log_file(log_file, output_folder, 'pytest_log',\
             "Moved preprocessed data from \'{}\' to \'{}\'".format(join(old_preprocessing_output_dir, task), join(preprocessing_output_dir, task)))
 
     # -- Delete the folder with the generated folder, since at this point no test did not failed -- #
@@ -533,7 +502,7 @@ def test_multi_head_trainer(ext_map=None, args_f=None):
     
     # -- Update the log file for the last time -- #
     execution_time = time() - start_time
-    log_file = print_to_log_file(log_file, output_folder,\
+    log_file = print_to_log_file(log_file, output_folder, 'pytest_log',\
             "The execution time for all tests took {:.2f} seconds ({})\n".format(execution_time, time_mod.strftime('%H:%M:%S', time_mod.gmtime(execution_time))))
 
 

@@ -31,6 +31,7 @@ setup(name='nnunet_ext',
           'console_scripts': [
               'nnUNet_dataset_label_mapping = nnunet_ext.experiment_planning.dataset_label_mapping:main',# Use when the labels of the masks need to be changed based on a mapping file
               'nnUNet_delete_tasks = nnunet_ext.scripts.delete_specified_task:main',           # Use for deleting preprocessed and planned data or after clean up when a test failed
+              'nnUNet_update_checkpoints = nnunet_ext.scripts.update_checkpoints:main',        # Use for modifying the checkpoints
               'nnUNet_train_multihead = nnunet_ext.run.run_training_multihead:main',           # Use for multi head training
               'nnUNet_train_sequential = nnunet_ext.run.run_training_sequential:main',         # Use for sequential training --> transfer learning using n tasks
               'nnUNet_train_rehearsal = nnunet_ext.run.run_training_rehearsal:main',           # Use for rehearsal training
@@ -40,6 +41,9 @@ setup(name='nnunet_ext',
               'nnUNet_train_mib = nnunet_ext.run.run_training_mib:main',                       # Use for MiB training
               'nnUNet_train_plop = nnunet_ext.run.run_training_plop:main',                     # Use for PLOP training
               'nnUNet_train_pod = nnunet_ext.run.run_training_pod:main',                       # Use for POD training
+              'nnUNet_train_ownm1 = nnunet_ext.run.run_training_ownm1:main',                   # Use for own methods training
+              'nnUNet_train_ownm2 = nnunet_ext.run.run_training_ownm2:main',                   # Use for own methods training
+              'nnUNet_train_ownm3 = nnunet_ext.run.run_training_ownm3:main',                   # Use for own methods training
               'nnUNet_evaluate = nnunet_ext.run.run_evaluation:main',                          # Use for evaluation of any method
               'nnUNet_parameter_search = nnunet_ext.run.run_param_search:main',                # Use for parameter search for any parameter using extension trainer
                             ## -- Experimental Trainers -- ##

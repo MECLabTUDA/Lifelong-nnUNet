@@ -8,6 +8,7 @@ import os, copy, torch
 from itertools import tee
 from torch.cuda.amp import autocast
 from collections import OrderedDict
+from nnunet_ext.utilities.helpful_functions import *
 from nnunet.utilities.nd_softmax import softmax_helper
 from nnunet.utilities.tensor_utilities import sum_tensor
 from nnunet_ext.training.model_restore import restore_model
@@ -24,7 +25,6 @@ from nnunet_ext.training.network_training.nnViTUNetTrainer import nnViTUNetTrain
 from nnunet.training.dataloading.dataset_loading import load_dataset, unpack_dataset
 from nnunet.training.data_augmentation.data_augmentation_moreDA import get_moreDA_augmentation
 from nnunet_ext.paths import default_plans_identifier, evaluation_output_dir, preprocessing_output_dir, default_plans_identifier
-from nnunet_ext.utilities.helpful_functions import join_texts_with_char, nestedDictToFlatTable, dumpDataFrameToCsv, delete_dir_con
 
 # -- Add this since default option file_descriptor has a limitation on the number of open files. -- #
 # -- Default config might cause the runtime error: RuntimeError: received 0 items of ancdata -- #
@@ -35,7 +35,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
                  identifier=default_plans_identifier, extension='multihead', tasks_list_with_char=None, mixed_precision=True,
                  save_csv=True, del_log=False, use_vit=False, vit_type='base', version=1, split_gpu=False, transfer_heads=False,
-                 ViT_task_specific_ln=False):
+                 ViT_task_specific_ln=False, do_LSA=False, do_SPT=False):
         r"""Constructor of Multi Head Trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
             The transfer_heads flag is used when adding a new head, if True, the state_dict from the last head will be used
             instead of the one from the initialization. This is the basic transfer learning (difference between MH and SEQ folder structure).
@@ -58,6 +58,8 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         self.version = 'V' + str(version)
         # -- Set the flag for initializing the heads -- #
         self.transfer_heads = transfer_heads
+        # -- LSA and SPT flags -- #
+        self.LSA, self.SPT = do_LSA, do_SPT
         # -- Update the output_folder path accordingly -- #
         output_folder = self._build_output_path(output_folder, False)
         
@@ -131,9 +133,9 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         help_path = os.path.normpath(self.output_folder)    # Normalize path in order to avoid errors
         help_path = help_path.split(os.sep) # Split the path using '\' seperator
         if self.use_vit:
-            self.network_name = help_path[-9]   # 9th element from back is the name of the used network
+            self.network_name = help_path[-10]   # 10th element from back is the name of the used network
         else:
-            self.network_name = help_path[-7]   # 7th element from back is the name of the used network
+            self.network_name = help_path[-7]    # 7th element from back is the name of the used network
 
         # -- Adjust the network_name in case of the nnUNetTrainer -- #
         if self.network_name not in ['2d', '3d_lowres', '3d_fullres']:   # <-- happens only in case of a conventional nnUNetTrainerV2 since the path is differently built
@@ -184,7 +186,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         self.init_args = (split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
                           deterministic, fp16, save_interval, self.already_trained_on, use_progress, identifier, extension,
                           tasks_list_with_char, mixed_precision, save_csv, del_log, use_vit, self.vit_type, version, split_gpu,
-                          transfer_heads, ViT_task_specific_ln)
+                          transfer_heads, ViT_task_specific_ln, do_LSA, do_SPT)
 
     def process_plans(self, plans):
         r"""Modify the original function. This just reduces the batch_size by half and manages the correct initialization of the network.
@@ -486,7 +488,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
 
         return ret  # Finished with training for the specific task
     
-    def run_iteration(self, data_generator, do_backprop=True, run_online_evaluation=False, detach=True):
+    def run_iteration(self, data_generator, do_backprop=True, run_online_evaluation=False, detach=True, no_loss=False):
         r"""This function runs an iteration based on the underlying model. It returns the detached or undetached loss.
             The undetached loss might be important for methods that have to extract gradients without always copying
             the run_iteration function.
@@ -511,7 +513,8 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             with autocast():
                 output = self.network(data)
                 del data
-                l = self.loss(output, target)
+                if not no_loss:
+                    l = self.loss(output, target)
 
             if do_backprop:
                 self.amp_grad_scaler.scale(l).backward()
@@ -522,7 +525,8 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         else:
             output = self.network(data)
             del data
-            l = self.loss(output, target)
+            if not no_loss:
+                l = self.loss(output, target)
 
             if do_backprop:
                 l.backward()
@@ -539,9 +543,10 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             self.mh_network.update_after_iteration()
         
         # -- Return the loss -- #
-        if detach:
-            l = l.detach().cpu().numpy()
-        return l
+        if not no_loss:
+            if detach:
+                l = l.detach().cpu().numpy()
+            return l
 
     def on_epoch_end(self):
         """Overwrite this function, since we want to perform a validation after every nth epoch on all tasks
@@ -670,7 +675,11 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                     self.subject_names_raw.append(data['keys'])
 
                     # -- Run iteration without backprop but online_evaluation to be able to get TP, FP, FN for Dice and IoU -- #
-                    _ = self.run_iteration(self.val_gen, False, True)
+                    if call_for_eval:
+                        # -- Call only this run_iteration since only the one from MultiHead has no_loss flag -- #
+                        _ = self.run_iteration(self.val_gen, False, True, no_loss=True)
+                    else:
+                        _ = self.run_iteration(self.val_gen, False, True)
                 del val_gen_copy
 
             # -- Calculate Dice and IoU --> self.validation_results is already updated once the evaluation is done -- #
@@ -967,9 +976,10 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # -- Update self.init_tasks so the storing works properly -- #
         self.update_init_args()
 
-    def save_checkpoint(self, fname, save_optimizer=True):
+    def save_checkpoint(self, fname, save_optimizer=True):#, old_model=False, fname_old=None):
         r"""Overwrite the parent class, since we want to store the body and heads along with the current activated model
-            and not only the current network we train on.
+            and not only the current network we train on. If the class uses an old_model, we have to store this as well.
+            The old model should be stored in self.network_old, always!
         """
         # -- Set the network to the full MultiHead_Module network to save everything in the class not only the current model -- #
         self.network = self.mh_network
@@ -987,6 +997,17 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
 
         # -- Use parent class to save checkpoint for MultiHead_Module model consisting of self.model, self.body and self.heads -- #
         super().save_checkpoint(fname, save_optimizer)
+
+        try:
+            if self.network_old is not None:    # --> If it does not exist, an error will be thrown, NOTE: "easier to ask for forgiveness than permission" (EAFP) rather than "look before you leap"
+                # -- Set the network to the old network -- #
+                self.network = self.network_old
+                # -- Use parent class to save checkpoint -- #
+                super().save_checkpoint(join(self.output_folder, "model_old.model"), save_optimizer)
+                print(join(self.output_folder, "model_old.model"))
+        except AttributeError:
+            # -- Noting to do -- #
+            pass
 
         # -- Reset network to the assembled model to continue training -- #
         self.network = self.mh_network.model
@@ -1017,11 +1038,65 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         write_pickle(info, fname + ".pkl")
         #------------------------------------------ Copied from original implementation ------------------------------------------#
 
-    def load_checkpoint_ram(self, checkpoint, train=True):
+    def load_best_checkpoint(self, train=True, network_old=False):
+        r"""Update the parent class function to also loading the old network if there is one used by any inheriting class.
+        """
+        # -- If there is an old network, then load this as well -- #
+        if network_old:
+            # -- Change the checkpoint loading -- #
+            if isfile(join(self.output_folder, "model_old.model")):
+                if self.fold is None:
+                    raise RuntimeError("Cannot load best checkpoint if self.fold is None")
+                if isfile(join(self.output_folder, "model_best.model")):
+                    self.load_checkpoint(join(self.output_folder, "model_best.model"), train, True, join(self.output_folder, "model_old.model"))
+                else:
+                    self.print_to_log_file("WARNING! model_best.model does not exist! Cannot load best checkpoint. Falling "
+                                           "back to load_latest_checkpoint")
+                    self.load_latest_checkpoint(train)
+        else:
+            # -- use super class to load the checkpoint -- #
+            super().load_best_checkpoint(train)
+
+    def load_latest_checkpoint(self, train=True):
+        r"""Update the parent class function to also loading the old network if there is one used by any inheriting class.
+        """
+        try:
+            if self.network_old is not None:    # --> If it does not exist, an error will be thrown, NOTE: "easier to ask for forgiveness than permission" (EAFP) rather than "look before you leap"
+                # -- Change the checkpoint loading -- #
+                if isfile(join(self.output_folder, "model_old.model")):
+                    if isfile(join(self.output_folder, "model_final_checkpoint.model")):
+                        return self.load_checkpoint(join(self.output_folder, "model_final_checkpoint.model"), train, True, join(self.output_folder, "model_old.model"))
+                    if isfile(join(self.output_folder, "model_latest.model")):
+                        return self.load_checkpoint(join(self.output_folder, "model_latest.model"), train, True, join(self.output_folder, "model_old.model"))
+                    if isfile(join(self.output_folder, "model_best.model")):
+                        return self.load_best_checkpoint(train)
+                raise RuntimeError("No checkpoint of the current or old model found")
+        except AttributeError:
+            # -- Use super function to do the work since there is no old model in this class -- #
+            super().load_latest_checkpoint(train)
+
+    def load_checkpoint(self, fname, train=True, network_old=False, fname_old=None):
+        r"""Update the parent class function to also loading the old network if there is one used by any inheriting class.
+        """
+        # -- Copied from original code -- #
+        self.print_to_log_file("loading checkpoint", fname, "train=", train)
+        if not self.was_initialized:
+            self.initialize(train)
+        saved_model = torch.load(fname, map_location=torch.device('cpu'))
+        # -- Copied from original code -- #
+
+        # -- Load the model with the old model if desired -- #
+        saved_model_old = None
+        if network_old:
+            saved_model_old = torch.load(fname_old, map_location=torch.device('cpu'))
+        self.load_checkpoint_ram(saved_model, train, network_old, saved_model_old)
+
+    def load_checkpoint_ram(self, checkpoint, train=True, network_old=False, checkpoint_old=None):
         r"""Overwrite the parent function since the stored state_dict is for a Multi Head Trainer, however the
             load_checkpoint_ram funtion loads the state_dict into self.network which is the assembled model of 
             the  Multi Head Trainer and this would lead to an error because the expected state_dict structure
-            and the saved one do not match.
+            and the saved one do not match. Set old network if the class uses the previous network during training.
+            The old network is in self.network_old (always).
         """
         # -- For all tasks, create a corresponding head, otherwise the restoring would not work due to mismatching weights -- #
         self.mh_network.add_n_tasks_and_activate(self.already_trained_on[str(self.fold)]['tasks_at_time_of_checkpoint'],
@@ -1032,6 +1107,19 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
 
         # -- Use parent class to save checkpoint for MultiHead_Module model consisting of self.model, self.body and self.heads -- #
         super().load_checkpoint_ram(checkpoint, train)
+
+        # -- Do the same for the old network if there is one -- #
+        if network_old:
+            # -- Ensure that checkpoint old is given as well -- #
+            assert checkpoint_old is not None, "When loading a previous, ie. old network, please provide the checkpoint as well.."
+            # -- Do not use the last head, but the second to last head, since this is actually the previous model -- #
+            # -- whereas the last head is the current model we continue trianing on! --> relevant in case heads -- #
+            # -- are different from each other. -- #
+            self.network = self.mh_network.assemble_model(list(self.mh_network.heads.keys())[-2])
+            # -- Set mode of old network always train = false since it should not be used to train but during training -- #
+            super().load_checkpoint_ram(checkpoint_old, False)
+            # -- Set the network_old model correctly or it does exist otherwise -- #
+            self.network_old = self.network
 
         # -- Reset the running model to train on -- #
         self.network = self.mh_network.model
@@ -1047,6 +1135,9 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
 
         # -- Specify if this is a ViT Architecture or not, since the paths are different -- #
         if self.use_vit:
+            # -- Extract the folder name in case we have a ViT -- #
+            folder_n = get_ViT_LSA_SPT_folder_name(self.LSA, self.SPT)
+
             # -- Update the output_folder accordingly -- #
             if self.version != output_folder.split(os.path.sep)[-1] and self.version not in output_folder:
                 if not meta_data:
@@ -1061,10 +1152,10 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             # -- Add the ViT_task_specific_ln before the fold -- #
             if self.ViT_task_specific_ln:
                 if 'task_specific'!= output_folder.split(os.path.sep)[-1] and 'task_specific' not in output_folder:
-                    output_folder = os.path.join(output_folder, 'task_specific')
+                    output_folder = os.path.join(output_folder, 'task_specific', folder_n)
             else:
                 if 'not_task_specific'!= output_folder.split(os.path.sep)[-1] and 'not_task_specific' not in output_folder:
-                    output_folder = os.path.join(output_folder, 'not_task_specific')
+                    output_folder = os.path.join(output_folder, 'not_task_specific', folder_n)
 
         elif nnViTUNetTrainer.__name__ not in output_folder:    # Then Generic_UNet is used --> will not apply if ViT Trainer + evaluation
             # -- Generic_UNet will be used so update the path accordingly -- #

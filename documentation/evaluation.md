@@ -31,7 +31,7 @@ The exact same Command Line Arguments as presented in the [Multi-Head](multihead
 | `-use_mult_gpus` | If this is set, the ViT model will be placed onto a second GPU. When this is set, more than one GPU needs to be provided when using `-d`. | no | -- | `False` |
 | `-v` or `--version` | Select the ViT input building version. Currently there are only three possibilities: `1`, `2` or `3`. For further references with regards to the versions, see the [docs](https://github.com/camgbus/Lifelong-nnUNet/blob/ViT_U-Net/documentation/ViT_U-Net.md). | no | `1`, `2`, `3` | `1` |
 | `-v_type` or `--vit_type` | Specify the ViT architecture. Currently there are only three possibilities: `base`, `large` or `huge`. | no | `base`, `large`, `huge` | `base` |
-| `--transfer_heads` | Set this flag if a new head will be initialized using the last head during training. | no | -- | `False` |
+| `--no_transfer_heads` | Set this flag if a new head should not be initialized using the last head during training. | no | -- | `False` |
 | `-always_use_last_head` | If this is set, during the evaluation, always the last head will be used, for every dataset the evaluation is performed on. When an extension network was trained with the `-transfer_heads` flag then this should be set, ie. nnUNetTrainerSequential or nnUNetTrainerFreezedViT. Otherwise, the corresponding head to the dataset will be used if available or the last trained head instead. | no | -- | `False` |
 | `-h` or `--help` | Simply shows help on which arguments can and should be used. | -- | -- | -- |
 
@@ -105,4 +105,4 @@ the following example shows how to use a pre-trained nnU-Net as a foundation (tr
                              [--use_vit -v <VERSION> -v_type <TYPE> ...]
 ```
 
-Note that the `--transfer_heads` flag has to be set for all those networks that were trained with the `--transfer_heads` flag.
+Note that the `--no_transfer_heads` flag has to be set for all those networks that were trained with the `--no_transfer_heads` flag.

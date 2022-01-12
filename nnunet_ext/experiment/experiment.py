@@ -7,46 +7,24 @@ from collections import OrderedDict
 import nnunet_ext, random, itertools
 from sklearn.model_selection import train_test_split
 from nnunet_ext.utilities.helpful_functions import *
-from nnunet_ext.experiment.experiment import Experiment
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet.training.model_restore import recursive_find_python_class
 from nnunet_ext.run.default_configuration import get_default_configuration
 from nnunet_ext.paths import param_search_output_dir, default_plans_identifier, preprocessing_output_dir
 
-class ParamSearcher():
-    r"""Class that can be used to perform a parameter search using a specific extension that uses Hyperparameters.
+class Experiment():
+    r"""Class that can be used to perform a specific Experiment using the nnU-Net extension. This was specifically
+        developed for the Parameter Search method but it can also be used for other purposes.
     """
     def __init__(self, network, network_trainer, tasks_list_with_char, version=1, vit_type='base', eval_mode_for_lns='last_lns', fold=0,
                  plans_identifier=default_plans_identifier, mixed_precision=True, extension='multihead', save_csv=True, val_folder='validation_raw',
                  split_at=None, transfer_heads=False, use_vit=False, ViT_task_specific_ln=False, do_LSA=False, do_SPT=False, do_pod=False,
-                 search_mode='grid', grid_picks=None, rand_range=None, rand_pick=None, rand_seed=None, always_use_last_head=True, npz=False,
+                 always_use_last_head=True, npz=False, output_base=None, output_exp=None, output_eval=None, settings_in_folder_name=True,
                  perform_validation=False, continue_training=False, unpack_data=True, deterministic=False, save_interval=5, num_epochs=100,
-                 fp16=True, find_lr=False, valbest=False, disable_postprocessing_on_folds=False, split_gpu=False, fixate_params=None,
-                 val_disable_overwrite=True, disable_next_stage_pred=False, run_in_parallel=False):
-        r"""Constructor for parameter searcher.
+                 fp16=True, find_lr=False, valbest=False, disable_postprocessing_on_folds=False, split_gpu=False,
+                 val_disable_overwrite=True, disable_next_stage_pred=False, exp_id=0, settings=dict()):
+        r"""Constructor for Experiment.
         """
-        # -- Ensure everything is correct transmitted -- #
-        if search_mode == 'random':
-            assert rand_range is not None and rand_pick is not None,\
-                "The user selected a random search method but does not provide the value ranges (and/or) nr of allowed value picks for the search.."
-            # -- Set the seed -- #
-            if rand_seed is not None:
-                random.seed(rand_seed)
-            # -- Define the self param values -- #
-            self.params_to_tune = rand_range.keys()
-        else:
-            assert grid_picks is not None, "The user selected a grid search method but does not provide the value list for the search.."
-            # -- Define the self param values -- #
-            self.params_to_tune = grid_picks.keys()
-
-        # -- Set all parameter search relevant attributes -- #
-        self.rand_pick = rand_pick
-        self.rand_seed = rand_seed
-        self.rand_range = rand_range
-        self.grid_picks = grid_picks
-        self.search_mode = search_mode
-        self.fixate_params = fixate_params if fixate_params is not None else dict()
-
         # -- Define a empty dictionary that is used for backup purposes -- #
         self.backup_information = dict()
 
@@ -68,22 +46,24 @@ class ParamSearcher():
 
         # -- Set all the relevant attributes -- #
         self.fold = fold
+        self.exp_id = exp_id
         self.do_pod = do_pod
         self.network = network
         self.split_at = split_at
         self.save_csv = save_csv
+        self.settings = settings
         self.split_gpu = split_gpu
         self.extension = extension
         self.num_epochs = num_epochs
         self.save_interval = save_interval
         self.transfer_heads = transfer_heads
-        self.run_in_parallel = run_in_parallel
         self.network_trainer = network_trainer
         self.mixed_precision = mixed_precision
         self.plans_identifier = plans_identifier
         self.eval_mode_for_lns = eval_mode_for_lns
         self.always_use_last_head = always_use_last_head
         self.tasks_list_with_char = tasks_list_with_char
+        self.settings_in_folder_name = settings_in_folder_name
         # -- Set tasks_joined_name for validation dataset building -- #
         self.tasks_joined_name = join_texts_with_char(self.tasks_list_with_char[0], self.tasks_list_with_char[1])
         
@@ -96,86 +76,23 @@ class ParamSearcher():
         self.version = 'V' + str(version)
         self.ViT_task_specific_ln = ViT_task_specific_ln
 
-        # -- Everything is fit for now, start building the output_folder, ie. the root one -- #
-        self.output_base = os.path.join(param_search_output_dir, network, self.tasks_joined_name)
-        # -- Within this base folder, we have a folder for the experiments and one for the evaluation results -- #
-        self.output_exp = os.path.join(self.output_base, 'experiments')
-        self.output_eval = os.path.join(self.output_base, 'evaluation')
+        # -- Path related attributes -- #
+        # TODO: Do we need the output_base ??
+        self.output_base = output_base
+        self.output_exp = output_exp
+        self.output_eval = output_eval
+        assert self.output_base is not None and self.output_exp is not None and self.output_eval is not None,\
+            'Please provide all three paths, being output_base, output_exp and output_eval..'
 
         # -- Load the Backup file if it exists -- #
-        backup_file = os.path.join(self.output_base, 'backup.pkl')
-        if os.path.isfile(backup_file):
-            self.backup_information = load_pickle(backup_file)
-        else:
-            # -- Assert if continue training is set, since no backup is stored -- #
-            assert not self.continue_training, "There is no backup file, yet the user wants to continue with the parameter search.. Remove the -c flag."
+        # TODO: Modify for backup of specific experiment, not overall parameter search!
+        # backup_file = os.path.join(self.output_base, 'backup.pkl')
+        # if os.path.isfile(backup_file):
+        #     self.backup_information = load_pickle(backup_file)
+        # else:
+        #     # -- Assert if continue training is set, since no backup is stored -- #
+        #     assert not self.continue_training, "There is no backup file, yet the user wants to continue with the parameter search.. Remove the -c flag."
 
-        # -- Modify the split in such a way, that we split the trained keys into train and val so the -- #
-        # -- original val keys are our unseen test set that is never used in the parameter search method. -- #
-        # -- Here we only use the train data and split it into train and val whereas val is used for evaluation -- #
-        # -- Performing a 80:20 data split on the train split -- #
-        for task in self.tasks_list_with_char[0]:
-            # -- Extract and define the split paths -- #
-            splits_file = os.path.join(preprocessing_output_dir, task, 'splits_final.pkl')
-            p_splits_file = os.path.join(preprocessing_output_dir, task, 'splits_param_search.pkl')
-            # -- Ensure that the splits exists -- #
-            assert os.path.isfile(splits_file), "Before using the parameter search method, please plan and prepare the {} that is used for this method..".format(task)
-            # -- Only if the parameter search splits do not exist do the splitting -- #
-            if not os.path.isfile(p_splits_file):
-                # -- Load the split and define new split list -- #
-                splits = load_pickle(splits_file)
-                new_splits = list()
-                # -- Go through all defined folds and resplit the train set into 80:20 data split -- #
-                for split in splits:
-                    # -- Extract the names of the files in the train split -- #
-                    train = split['train']
-                    # -- Split the train randomly in train and val and add it to the new_splits -- #
-                    train_, val_ = train_test_split(train, random_state=3299, test_size=0.2)
-                    new_splits.append(OrderedDict())
-                    new_splits[-1]['train'] = train_
-                    new_splits[-1]['val'] = val_
-                    new_splits[-1]['test'] = split['val']
-                # -- Save the new splits file -- #
-                save_pickle(new_splits, p_splits_file)
-
-        # -- Create the parameter combinations for the parameter search -- #
-        #TODO
-        self.experiments = OrderedDict()
-        if self.search_mode == 'grid':
-            # -- Create permutation between all possibilities in grid_picks -- #
-            if len(self.params_to_tune) == 1:
-                # -- No permutation possible --> simply add the experiments -- #
-                hyperparam = list(self.params_to_tune)[0]
-                for idx, value in enumerate(*self.grid_picks.values()):
-                    self.experiments['exp_{}'.format(idx)] = {hyperparam: value, **self.fixate_params}
-            else:   # -- Do permutation first -- #
-                combinations = itertools.product(*self.grid_picks.values())
-                for idx, combi in enumerate(combinations):
-                    # -- Build the experiments dictionary -- #
-                    experiment = dict()
-                    for i, k in enumerate(self.params_to_tune):
-                        experiment[k] = combi[i]
-                    self.experiments['exp_{}'.format(idx)] = {**experiment, **fixate_params}
-        else:
-            # -- Do rand_pick times a random pick for every hyperparameter based on random_range attributes -- #
-            picks = dict()
-            for idx, param in enumerate(self.params_to_tune):
-                picked = []
-                for _ in range(self.rand_pick):
-                    picked.append(round(random.uniform(*self.rand_range[param]), 3))    # Make a random pick and round to 3 decimals
-                picks[param] = picked
-            # -- Do permutation first -- #
-            combinations = itertools.product(*picks.values())
-            for idx, combi in enumerate(combinations):
-                # -- Build the experiments dictionary -- #
-                experiment = dict()
-                for i, k in enumerate(self.params_to_tune):
-                    experiment[k] = combi[i]
-                self.experiments['exp_{}'.format(idx)] = {**experiment, **fixate_params}
-
-        # -- Assert if there are no experiments to do -- #
-        assert len(self.experiments.keys()) != 0, "Unfortunately, there are no experiments based on the users arguments.."
-        
         # -- Define dict with arguments for function calls -- # 
         basic_args = {'unpack_data': self.unpack_data, 'deterministic': self.deterministic, 'fp16': self.fp16}
         self.basic_exts = {'save_interval': self.save_interval, 'identifier': self.plans_identifier, 'extension': self.extension,
@@ -184,51 +101,37 @@ class ParamSearcher():
                            'split_gpu': self.split_gpu, 'transfer_heads': self.transfer_heads, 'ViT_task_specific_ln': self.ViT_task_specific_ln,
                            'do_LSA': self.LSA, 'do_SPT': self.SPT, **basic_args}
 
-        # -- Build a list of Experiments in case we do it in Parallel -- #
-        if self.run_in_parallel:
-            self.experiments = list()
-            for exp in self.experiments:
-                exp_ = Experiment(exp)
-                self.experiments.append(exp_)
-            
-        # -- Add the experiments to the backup file -- #
+        # -- Add the experiment to the backup file -- #
         # TODO
         
-        # TODO: Everything around backup file, only at the end ...
-        # TODO: Parallelize, only at the end ...
 
-    def start_searching(self):
-        r"""This function performs the actual parameter search. If more than one GPU is provided and the flag
-            in_parallel is set, this function will run the experiments in parallel. If -c has been set, then
-            it will be continued with training form where it stopped.
+    def reset_experiment(self, exp_id, settings, settings_in_folder_name=True):
+        r"""This function can be used to reset the Experiment this is not a one time Experiment.
         """
-        # -- Make those directories if they don't exist yet -- #
-        maybe_mkdir_p(self.output_exp)
-        maybe_mkdir_p(self.output_eval)
+        # -- Reset the internal exp_id and settings -- #
+        self.exp_id, self.settings, self.settings_in_folder_name = exp_id, settings, settings_in_folder_name
 
-        # TODO: If -c load already trained on file
-        # TODO: make -c flag for every experiment or there will be problems
-        # TODO: maybe do experiment class so every exp is an Experiment with its own attributes..
-        # TODO: Create Experiments and run those sequentially at the beginnin, then do it in parallel ...
-
-
-    def _run_experiment(self, exp_id, settings):
-        r"""This function is used to run a specific experiment with settings. This enables multiprocessing.
+    def run_experiment(self):
+        r"""This function is used to run a specific experiment based on the settings. This enables multiprocessing.
             settings should be a dictionary if structure: {param: value, param:value, ...}
         """
         # -- Define empty list holding all tasks we trained on so far -- #
         running_task_list = list()
 
         # -- Create the folder for a specific experiment -- #
-        experiment_folder = os.path.join(self.output_exp, exp_id, '--'.join([f'{key}_{value}' for key, value in settings.items()]))
-        evaluation_folder = os.path.join(self.output_eval, exp_id, '--'.join([f'{key}_{value}' for key, value in settings.items()]))
+        if self.settings_in_folder_name:    # Set this True for the parameter search method
+            experiment_folder = os.path.join(self.output_exp, self.exp_id, '--'.join([f'{key}_{value}' for key, value in self.settings.items()]))
+            evaluation_folder = os.path.join(self.output_eval, self.exp_id, '--'.join([f'{key}_{value}' for key, value in self.settings.items()]))
+        else:
+            experiment_folder = os.path.join(self.output_exp, self.exp_id)
+            evaluation_folder = os.path.join(self.output_eval, self.exp_id)
 
         # -- Extract the trainer_class based on the extension -- #
         trainer_class_ref = recursive_find_python_class([join(nnunet_ext.__path__[0], "training", "network_training", self.extension)],
                                                         self.network_trainer, current_module='nnunet_ext.training.network_training.' + self.extension)
         
         # -- Build the arguments dict for the trainer -- #
-        arguments = {**settings, **self.basic_exts}
+        arguments = {**self.settings, **self.basic_exts}
 
         # TODO: paths for metafiles, maybe add extra flag to trainer for param so it will be build differently ?
         #       every experiments should have its own metadata folder maybe

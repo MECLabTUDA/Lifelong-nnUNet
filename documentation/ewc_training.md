@@ -31,4 +31,4 @@ The following example uses Version 1 (out of 3) of the [Generic_ViT_UNet](https:
                              
 ```
 
-Note that the `--transfer_heads` flag can be used with this Trainer. If it is set, the previous head will be used as an initialization of the new head. If it is not set *-- as in all use cases above --*, the head from the initial split from Multi-Head Module is used as initialization of the new head.
+Note that the `--no_transfer_heads` flag can be used with this Trainer. If it is set, the previous head will not be used as an initialization of the new head, ie. the head from the initial split from Multi-Head Module is used as initialization of the new head. If it is not set *-- as in all use cases above --*, the previously trained head will be used as an initialization of the new head.

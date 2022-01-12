@@ -23,13 +23,13 @@ class nnUNetTrainerEWC(nnUNetTrainerMultiHead):
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
                  identifier=default_plans_identifier, extension='ewc', ewc_lambda=0.4, tasks_list_with_char=None, mixed_precision=True,
                  save_csv=True, del_log=False, use_vit=False, vit_type='base', version=1, split_gpu=False, transfer_heads=False,
-                 ViT_task_specific_ln=False):
+                 ViT_task_specific_ln=False, do_LSA=False, do_SPT=False):
         r"""Constructor of EWC trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
         """
         # -- Initialize using parent class -- #
         super().__init__(split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic,
                          fp16, save_interval, already_trained_on, use_progress, identifier, extension, tasks_list_with_char, mixed_precision,
-                         save_csv, del_log, use_vit, vit_type, version, split_gpu, transfer_heads, ViT_task_specific_ln)
+                         save_csv, del_log, use_vit, vit_type, version, split_gpu, transfer_heads, ViT_task_specific_ln, do_LSA, do_SPT)
 
         # -- Define a variable that specifies the hyperparameters for this trainer --> this is used for the parameter search method -- #
         self.hyperparams = {'ewc_lambda': float}
@@ -62,7 +62,7 @@ class nnUNetTrainerEWC(nnUNetTrainerMultiHead):
         self.init_args = (split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
                           deterministic, fp16, save_interval, self.already_trained_on, use_progress, identifier, extension,
                           ewc_lambda, tasks_list_with_char, mixed_precision, save_csv, del_log, use_vit, self.vit_type,
-                          version, split_gpu, transfer_heads, ViT_task_specific_ln)
+                          version, split_gpu, transfer_heads, ViT_task_specific_ln, do_LSA, do_SPT)
 
         # -- Initialize dicts that hold the fisher and param values -- #
         if self.already_trained_on[str(self.fold)]['fisher_at'] is None or self.already_trained_on[str(self.fold)]['params_at'] is None:
@@ -190,7 +190,7 @@ class nnUNetTrainerEWC(nnUNetTrainerMultiHead):
         
         return ret  # Finished with training for the specific task
 
-    def run_iteration(self, data_generator, do_backprop=True, run_online_evaluation=False):
+    def run_iteration(self, data_generator, do_backprop=True, run_online_evaluation=False, detach=True, no_loss=False):
         r"""This function needs to be changed for the EWC method, since it is very important, even
             crucial to update the current models network parameters that will be used in the loss function
             after each iteration, and not after each epoch! If this will not be done after each iteration
@@ -199,7 +199,7 @@ class nnUNetTrainerEWC(nnUNetTrainerMultiHead):
             It is the same with the loss, we do not calculate the loss once every epoch, but with every iteration (batch).
         """
         # -- Run iteration as usual -- #
-        loss = super().run_iteration(data_generator, do_backprop, run_online_evaluation)
+        loss = super().run_iteration(data_generator, do_backprop, run_online_evaluation, detach, no_loss)
         
         # -- After running one iteration and calculating the loss, update the parameters of the loss for the next iteration -- #
         # -- NOTE: The gradients DO exist even after the loss detaching of the super function, however the loss function -- #

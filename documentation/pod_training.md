@@ -17,4 +17,4 @@ One of the easiest and simplest example is to simply train on a bunch of tasks, 
                              [--use_vit -v <VERSION> -v_type <TYPE> -pod_scales <SCALE> ...]
 ```
 
-Note that the `--transfer_heads` flag can be used with this Trainer. If it is set, the previous head will be used as an initialization of the new head. If it is not set *-- as in all use cases above --*, the head from the initial split from Multi-Head Module is used as initialization of the new head.
+Note that the `--no_transfer_heads` flag can be used with this Trainer. If it is set, the previous head will not be used as an initialization of the new head, ie. the head from the initial split from Multi-Head Module is used as initialization of the new head. If it is not set *-- as in all use cases above --*, the previously trained head will be used as an initialization of the new head.

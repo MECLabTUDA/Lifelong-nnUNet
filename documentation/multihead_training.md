@@ -41,9 +41,11 @@ The following arguments are specifically added for all Trainers, including the M
 | `--use_vit` | If this is set, the [Generic_ViT_UNet](https://github.com/camgbus/Lifelong-nnUNet/blob/continual_learning/nnunet_ext/network_architecture/generic_ViT_UNet.py#L14) will be used instead of the [Generic_UNet](https://github.com/MIC-DKFZ/nnUNet/blob/master/nnunet/network_architecture/generic_UNet.py#L167). Note that then the flags `-v`, `-v_type`, `use_mult_gpus` and `--use_mult_gpus` should be set accordingly if applicable. | no | -- | `False` |
 | `--task_specific_ln` | If this is set, the Generic_ViT_UNet will have task specific Layer Norms. | no | -- | `False` |
 | `--use_mult_gpus` | If this is set, the ViT model will be placed onto a second GPU. When this is set, more than one GPU have to be provided when using `-d`. | no | -- | `False` |
-| `-v` or `--version` | Select the ViT input building version. Currently there are only three possibilities: `1`, `2` or `3`. For further references with regards to the versions, see the [docs](https://github.com/camgbus/Lifelong-nnUNet/blob/ViT_U-Net/documentation/ViT_U-Net.md). | no | `1`, `2`, `3` | `1` |
+| `-v` or `--version` | Select the ViT input building version. Currently there are only three possibilities: `1`, `2`, `3` or `4`. For further references with regards to the versions, see the [docs](https://github.com/camgbus/Lifelong-nnUNet/blob/ViT_U-Net/documentation/ViT_U-Net.md). | no | `1`, `2`, `3`, `4` | `1` |
 | `-v_type` or `--vit_type` | Specify the ViT architecture. Currently there are only three possibilities: `base`, `large` or `huge`. | no | `base`, `large`, `huge` | `base` |
-| `--transfer_heads` | Set this flag if a new head will be initialized using the last head during training. | no | -- | `False` |
+| `--do_LSA` | Set this flag if Locality Self-Attention should be used for the ViT. | no | -- | `False` |
+| `--do_SPT` | Set this flag if Shifted Patch Tokenization should be used for the ViT. | no | -- | `False` |
+| `--no_transfer_heads` | Set this flag if a new head should not be initialized using the last head during training. | no | -- | `False` |
 | `-h` or `--help` | Simply shows help on which arguments can and should be used. | -- | -- | -- |
 
 When talking about lists in command lines, this does not mean to provide a real list, like values in brackets *--* `[.., .., ...]`  *--*, but rather does it mean to provide an enumeration of values *--* `val_1 val2 val3 ...` *--*.
@@ -71,7 +73,7 @@ One more complex example showing how to define a deeper split using the `.` nota
                              [--use_vit -v <VERSION> -v_type <TYPE> ...]
 ```
 
-All the so far provided examples use the [Generic_UNet](https://github.com/MIC-DKFZ/nnUNet/blob/master/nnunet/network_architecture/generic_UNet.py#L167) architecture as foundation, however as proposed in the Command Line Arguments, one can use our proposed [Generic_ViT_UNet](https://github.com/camgbus/Lifelong-nnUNet/blob/continual_learning/nnunet_ext/network_architecture/generic_ViT_UNet.py#L14) from the [ViT_U-Net branch](https://github.com/camgbus/Lifelong-nnUNet/tree/ViT_U-Net) instead. The following example uses Version 1 (out of 3) of the [Generic_ViT_UNet](https://github.com/camgbus/Lifelong-nnUNet/blob/continual_learning/nnunet_ext/network_architecture/generic_ViT_UNet.py#L14) specifying the Vision Transformer itself as a base Transformer, ie. the smallest one (out of 3 types). More informations with regard to the ViT_U-Net architecture can be found [here](https://github.com/camgbus/Lifelong-nnUNet/blob/ViT_U-Net/documentation/ViT_U-Net.md):
+All the so far provided examples use the [Generic_UNet](https://github.com/MIC-DKFZ/nnUNet/blob/master/nnunet/network_architecture/generic_UNet.py#L167) architecture as foundation, however as proposed in the Command Line Arguments, one can use our proposed [Generic_ViT_UNet](https://github.com/camgbus/Lifelong-nnUNet/blob/continual_learning/nnunet_ext/network_architecture/generic_ViT_UNet.py#L14) from the [ViT_U-Net branch](https://github.com/camgbus/Lifelong-nnUNet/tree/ViT_U-Net) instead. The following example uses Version 1 (out of 4) of the [Generic_ViT_UNet](https://github.com/camgbus/Lifelong-nnUNet/blob/continual_learning/nnunet_ext/network_architecture/generic_ViT_UNet.py#L14) specifying the Vision Transformer itself as a base Transformer, ie. the smallest one (out of 3 types). More informations with regard to the ViT_U-Net architecture can be found [here](https://github.com/camgbus/Lifelong-nnUNet/blob/ViT_U-Net/documentation/ViT_U-Net.md):
 ```bash
           ~ $ source ~/.bashrc
           ~ $ source activate <your_anaconda_env>
@@ -101,4 +103,4 @@ Last but not least, the following example shows how to use a pre-trained nnU-Net
                              [--use_vit -v <VERSION> -v_type <TYPE> ...]
 ```
 
-Note that the `--transfer_heads` flag makes no sense to use in combination with the Multi-Head Trainer, since then this will be a classical Transfer Learning case represented by the Sequential Trainer, described [here](sequential_training.md). This flag makes more sense when using the EWC or LwF Trainer as shown [here](ewc_training.md) and [here](lwf_training.md).
+Note that the `--no_transfer_heads` flag makes sense to use in combination with the Multi-Head Trainer, otherwise this will be a classical Transfer Learning case represented by the Sequential Trainer, described [here](sequential_training.md). This flag might make more sense when using the EWC or LwF Trainer as shown [here](ewc_training.md) and [here](lwf_training.md).

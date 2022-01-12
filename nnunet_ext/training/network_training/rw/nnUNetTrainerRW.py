@@ -23,14 +23,14 @@ class nnUNetTrainerRW(nnUNetTrainerMultiHead):
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
                  identifier=default_plans_identifier, extension='rw', fisher_update_after=10, rw_alpha=0.9, rw_lambda=0.4, tasks_list_with_char=None,
                  mixed_precision=True, save_csv=True, del_log=False, use_vit=False, vit_type='base', version=1, split_gpu=False,
-                 transfer_heads=True, ViT_task_specific_ln=False):
+                 transfer_heads=True, ViT_task_specific_ln=False, do_LSA=False, do_SPT=False):
         r"""Constructor of RW trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
         """
         # -- Initialize using parent class -- #
         super().__init__(split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic,
                          fp16, save_interval, already_trained_on, use_progress, identifier, extension,
                          tasks_list_with_char, mixed_precision, save_csv, del_log, use_vit, vit_type, version, split_gpu, transfer_heads,
-                         ViT_task_specific_ln)
+                         ViT_task_specific_ln, do_LSA, do_SPT)
         
         # -- Define a variable that specifies the hyperparameters for this trainer --> this is used for the parameter search method -- #
         self.hyperparams = {'rw_alpha': float, 'rw_lambda': float, 'fisher_update_after': int}
@@ -71,7 +71,7 @@ class nnUNetTrainerRW(nnUNetTrainerMultiHead):
         self.init_args = (split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
                           deterministic, fp16, save_interval, already_trained_on, use_progress, identifier, extension, fisher_update_after,
                           rw_alpha, rw_lambda, tasks_list_with_char, mixed_precision, save_csv, del_log, use_vit, self.vit_type,
-                          version, split_gpu, transfer_heads, ViT_task_specific_ln)
+                          version, split_gpu, transfer_heads, ViT_task_specific_ln, do_LSA, do_SPT)
         
         # -- Initialize dicts that hold the fisher and param values -- #
         if self.already_trained_on[str(self.fold)]['fisher_at'] is None\
@@ -90,11 +90,12 @@ class nnUNetTrainerRW(nnUNetTrainerMultiHead):
     def initialize(self, training=True, force_load_plans=False, num_epochs=500, prev_trainer_path=None, call_for_eval=False):
         r"""Overwrite the initialize function so the correct Loss function for the RW method can be set.
         """
-        # -- Asert if self.fisher_update_after > than nr of epochs to train on -- #
-        assert self.fisher_update_after < num_epochs,\
-            "How should the fisher values and importance scores be calculated if update_after is greater than the number of epochs to train.."
         # -- Perform initialization of parent class -- #
         super().initialize(training, force_load_plans, num_epochs, prev_trainer_path, call_for_eval)
+        
+        # -- Asert if self.fisher_update_after > than nr of epochs to train on -- #
+        assert self.fisher_update_after < self.num_batches_per_epoch,\
+            "How should the fisher values and importance scores be calculated if update_after is greater than the number of iterations per epochs.."
         
         # -- If this trainer has already trained on other tasks, then extract the fisher and params -- #
         if prev_trainer_path is not None and self.already_trained_on[str(self.fold)]['fisher_at'] is not None\
@@ -155,7 +156,6 @@ class nnUNetTrainerRW(nnUNetTrainerMultiHead):
             "The number of tasks in the fisher/param values are not as expected --> should be the same as in the Multi Head network."
 
         # -- Define the fisher and params before the training -- #
-        # self.fisher[task], self.params[task], self.scores[task] = dict(), dict(), dict()
         self.params[task] = dict()
 
         # -- Set all fisher values to zero --> default to simply add the values easily -- #
@@ -213,15 +213,15 @@ class nnUNetTrainerRW(nnUNetTrainerMultiHead):
         # -- Return the result -- #
         return res
 
-    def run_iteration(self, data_generator, do_backprop=True, run_online_evaluation=False, detach=True):
+    def run_iteration(self, data_generator, do_backprop=True, run_online_evaluation=False, detach=True, no_loss=False):
         r"""Run the iteration and then update the fisher and score values.
         """
         # -- Run the iteration but do not detach the loss -- #
-        loss = super().run_iteration(data_generator, do_backprop, run_online_evaluation, detach=False)
+        loss = super().run_iteration(data_generator, do_backprop, run_online_evaluation, False, no_loss)
         # -- Update the values -- #
         self._update_f_s_values()
         # -- Now detach and return the loss if desired -- #
-        if detach:
+        if detach and loss is not None: # --> Loss is None when using Evaluator, so we need to prevent this or an error gets thrown
             loss = loss.detach().cpu().numpy()
         return loss
 

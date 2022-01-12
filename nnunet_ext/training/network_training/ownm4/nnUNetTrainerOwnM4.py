@@ -1,4 +1,5 @@
-# EWC only on ViT, MiB KD loss; POD only on heads if desired
+# EWC only on ViT network, KD every 23rd batch; POD only on heads if desired
+# Calculate T1 and T2 dynamically and only use alpha as hyperparam
 
 #########################################################################################################
 #--------------------This class represents the nnUNet trainer for our own training.---------------------#
@@ -12,26 +13,26 @@ from nnunet_ext.paths import default_plans_identifier
 from nnunet.utilities.to_torch import maybe_to_torch, to_cuda
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet.training.loss_functions.dice_loss import DC_and_CE_loss
-from nnunet_ext.training.network_training.ewc.nnUNetTrainerEWC import nnUNetTrainerEWC
-from nnunet_ext.training.loss_functions.deep_supervision import MultipleOutputLossOwn1 as OwnLoss
+from nnunet_ext.training.network_training.ownm1.nnUNetTrainerOwnM1 import nnUNetTrainerOwnM1
+from nnunet_ext.training.loss_functions.deep_supervision import MultipleOutputLossOwn2 as OwnLoss
 from nnunet_ext.training.network_training.multihead.nnUNetTrainerMultiHead import nnUNetTrainerMultiHead
 
 
-class nnUNetTrainerOwnM1(nnUNetTrainerMultiHead):
+class nnUNetTrainerOwnM4(nnUNetTrainerMultiHead):
     def __init__(self, split, task, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
-                 identifier=default_plans_identifier, extension='ownm1', ewc_lambda=0.4, mib_alpha=1., lkd=10, pod_lambda=1e-2,
-                 scales=3, tasks_list_with_char=None, mixed_precision=True, save_csv=True, del_log=False, use_vit=True,
+                 identifier=default_plans_identifier, extension='ownm4', ewc_lambda=0.4, pseudo_alpha=3, pod_lambda=1e-2,
+                 scales=3, tasks_list_with_char=None, mixed_precision=True, save_csv=True, del_log=False, use_vit=False,
                  vit_type='base', version=1, split_gpu=False, transfer_heads=True, ViT_task_specific_ln=False, do_pod=True,
                  do_LSA=False, do_SPT=False):
-        r"""Constructor of our own trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
+        r"""Constructor of MiB trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
         """
         # -- Initialize using parent class -- #
         super().__init__(split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic,
                          fp16, save_interval, already_trained_on, use_progress, identifier, extension, tasks_list_with_char,
                          mixed_precision, save_csv, del_log, use_vit, vit_type, version, split_gpu, transfer_heads, ViT_task_specific_ln,
                          do_LSA, do_SPT)
-
+        
         # -- Remove the old directory -- #
         try:
             # -- Only remove if empty -- #
@@ -52,15 +53,14 @@ class nnUNetTrainerOwnM1(nnUNetTrainerMultiHead):
         maybe_mkdir_p(self.trained_on_path)
 
         # -- Define a variable that specifies the hyperparameters for this trainer --> this is used for the parameter search method -- #
-        self.hyperparams = {'mib_alpha': float, 'lkd': float, 'pod_lambda': float, 'scales': int, 'ewc_lambda': float}
+        self.hyperparams = {'pseudo_alpha': float, 'pod_lambda': float, 'scales': int, 'ewc_lambda': float}
         
         # -- Set the parameters used for Loss calculation during training -- #
         self.ewc_lambda = ewc_lambda
         self.pod_lambda = pod_lambda
+        self.alpha = pseudo_alpha
         self.do_pod = do_pod
-        self.alpha = mib_alpha
         self.scales = scales
-        self.lkd = lkd
 
         # -- Add flags in trained on file for restoring to be able to ensure that seed can not be changed during training -- #
         if already_trained_on is not None:
@@ -69,7 +69,6 @@ class nnUNetTrainerOwnM1(nnUNetTrainerMultiHead):
                 # -- Add the parameter and checkpoint settings -- #
                 self.already_trained_on[str(self.fold)]['fisher_at'] = None
                 self.already_trained_on[str(self.fold)]['params_at'] = None
-                self.already_trained_on[str(self.fold)]['used_lkd'] = self.lkd
                 self.already_trained_on[str(self.fold)]['used_alpha'] = self.alpha
                 self.already_trained_on[str(self.fold)]['used_scales'] = self.scales
                 self.already_trained_on[str(self.fold)]['used_pod_lambda'] = self.pod_lambda
@@ -77,14 +76,13 @@ class nnUNetTrainerOwnM1(nnUNetTrainerMultiHead):
                 self.already_trained_on[str(self.fold)]['used_ewc_lambda'] = self.ewc_lambda
             else: # It exists, then check if everything is in it
                 # -- Define a list of all expected keys that should be in the already_trained_on dict for the current fold -- #
-                keys = ['fisher_at', 'params_at', 'used_alpha', 'used_lkd', 'used_pod_lambda', 'used_scales', 'used_batch_size', 'used_ewc_lambda']
+                keys = ['fisher_at', 'params_at', 'used_alpha', 'used_pod_lambda', 'used_scales', 'used_batch_size', 'used_ewc_lambda']
                 assert all(key in self.already_trained_on[str(self.fold)] for key in keys),\
                     "The provided already_trained_on dictionary does not contain all necessary elements"
         else:
             # -- Update settings in trained on file for restoring to be able to ensure that scales can not be changed during training -- #
             self.already_trained_on[str(self.fold)]['fisher_at'] = None
             self.already_trained_on[str(self.fold)]['params_at'] = None
-            self.already_trained_on[str(self.fold)]['used_lkd'] = self.lkd
             self.already_trained_on[str(self.fold)]['used_alpha'] = self.alpha
             self.already_trained_on[str(self.fold)]['used_scales'] = self.scales
             self.already_trained_on[str(self.fold)]['used_pod_lambda'] = self.pod_lambda
@@ -94,7 +92,7 @@ class nnUNetTrainerOwnM1(nnUNetTrainerMultiHead):
         # -- Update self.init_tasks so the storing works properly -- #
         self.init_args = (split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
                           deterministic, fp16, save_interval, self.already_trained_on, use_progress, identifier, extension,
-                          ewc_lambda, mib_alpha, lkd, pod_lambda, scales, tasks_list_with_char, mixed_precision, save_csv,
+                          ewc_lambda, pseudo_alpha, pod_lambda, scales, tasks_list_with_char, mixed_precision, save_csv,
                           del_log, use_vit, self.vit_type, version, split_gpu, transfer_heads, ViT_task_specific_ln, do_pod,
                           do_LSA, do_SPT)
 
@@ -115,7 +113,7 @@ class nnUNetTrainerOwnM1(nnUNetTrainerMultiHead):
                     to_cuda(self.params[task][key])
 
         # -- Define the path where the fisher and param values should be stored/restored -- #
-        self.ewc_data_path = join(self.trained_on_path, 'ewc_data_ownm1')
+        self.ewc_data_path = join(self.trained_on_path, 'ewc_data_ownm4')
 
         if self.do_pod:
             # -- Define the place holders for our results from the previous model on the current data -- #
@@ -126,13 +124,15 @@ class nnUNetTrainerOwnM1(nnUNetTrainerMultiHead):
 
         # -- Define a flag to indicate if the loss is switched or not -- #
         self.switched = False
+        self.count = 0  # For the batch count
 
     def initialize(self, training=True, force_load_plans=False, num_epochs=500, prev_trainer_path=None, call_for_eval=False):
         r"""Overwrite the initialize function so the correct Loss function for the EWC method can be set.
         """
+        
         # -- Perform initialization of parent class -- #
         super().initialize(training, force_load_plans, num_epochs, prev_trainer_path, call_for_eval)
-        
+
         # -- Update self.trainer_path -- #
         if prev_trainer_path is not None and not call_for_eval:
             if self.do_pod:
@@ -161,7 +161,11 @@ class nnUNetTrainerOwnM1(nnUNetTrainerMultiHead):
             for task in self.params.keys():
                 for key in self.params[task].keys():
                     to_cuda(self.params[task][key])
-        
+
+        # -- Calculate T1 and T2 based on nr epoch -- #
+        self.T1 = num_epochs / 10
+        self.T2 = num_epochs - self.T1
+
         # -- Create a backup loss, so we can switch between original and own loss -- #
         self.loss_orig = copy.deepcopy(self.loss)
 
@@ -171,19 +175,18 @@ class nnUNetTrainerOwnM1(nnUNetTrainerMultiHead):
         # -- Choose the right loss function (Own Method) that will be used during training -- #
         # -- --> Look into the Loss function to see how the approach is implemented -- #
         # -- Update the network paramaters during each iteration -- #
-        self.own_loss = OwnLoss(self.loss, self.ds_loss_weights, self.alpha, self.lkd, self.ewc_lambda,
+        self.own_loss = OwnLoss(self.loss, self.T1, self.T2, self.ds_loss_weights, self.alpha, self.ewc_lambda,
                                 self.fisher, self.params, self.network.named_parameters(), True, ['ViT'],
                                 True, self.pod_lambda, self.scales, self.do_pod)
 
-    def reinitialize(self, task, print_loss_info=True):
+    def reinitialize(self, task):
         r"""This function is used to reinitialize the Multi Head Trainer when a new task is trained for our own Trainer.
         """
         # -- Execute the super function -- # 
-        super().reinitialize(task, print_loss_info)
+        super().reinitialize(task, False)
 
         # -- Print Loss update -- #
-        if print_loss_info:
-            self.print_to_log_file("I am using my own loss now")
+        self.print_to_log_file("I am using my own loss now")
         
         # -- Put data on GPU since the data is moved to CPU before it is stored -- #
         for task in self.fisher.keys():
@@ -198,6 +201,9 @@ class nnUNetTrainerOwnM1(nnUNetTrainerMultiHead):
             self.loss.update_fisher_params(self.fisher, self.params, False)
         else:
             self.own_loss.update_fisher_params(self.fisher, self.params, False)
+
+        # -- Reset the batch count -- #
+        self.count = 0
 
     def run_training(self, task, output_folder):
         r"""Perform training .
@@ -309,13 +315,14 @@ class nnUNetTrainerOwnM1(nnUNetTrainerMultiHead):
                     # -- Extract the old results using the old network -- #
                     if self.split_gpu and not self.use_vit:
                         data = to_cuda(data, gpu_id=1)
-                    output_o = self.network_old(data)#.detach() # --> self.old_interm_results is filled with intermediate result now!
+                    output_o = self.network_old(data).detach() # --> self.old_interm_results is filled with intermediate result now!
                     del data
                     if not no_loss:
                         if self.do_pod:
                             # -- Update the loss with the data -- #
                             self.loss.update_plop_params(self.old_interm_results, self.interm_results)
-                        loss = self.loss(output, output_o, target)
+                        # -- Every 23rd iteration do pseudo labeling -- #
+                        loss = self.loss(output, output_o, target, pseudo=(self.count % 13 == 0), epoch=self.epoch)
 
                 if do_backprop:
                     self.amp_grad_scaler.scale(loss).backward()
@@ -327,13 +334,14 @@ class nnUNetTrainerOwnM1(nnUNetTrainerMultiHead):
                 output = self.network(data)
                 if self.split_gpu and not self.use_vit:
                     data = to_cuda(data, gpu_id=1)
-                output_o = self.network_old(data)#.detach()
+                output_o = self.network_old(data).detach()
                 del data
                 if not no_loss:
                     if self.do_pod:
                         # -- Update the loss with the data -- #
                         self.loss.update_plop_params(self.old_interm_results, self.interm_results)
-                    loss = self.loss(output, output_o, target)
+                    # -- Every 23rd iteration do pseudo labeling -- #
+                    loss = self.loss(output, output_o, target, pseudo=(self.count % 13 == 0), epoch=self.epoch)
 
                 if do_backprop:
                     loss.backward()
@@ -364,6 +372,9 @@ class nnUNetTrainerOwnM1(nnUNetTrainerMultiHead):
             # --       does not need them, since they are only necessary for the Fisher values that are calculated once the -- #
             # --       training is done performing an epoch with no optimizer steps --> see after_train() for that -- #
             self.loss.update_network_params(self.network.named_parameters())
+
+            # -- Update the batch count -- #
+            self.count += 1
         
         # -- Return the loss -- #
         if not no_loss:
@@ -374,22 +385,8 @@ class nnUNetTrainerOwnM1(nnUNetTrainerMultiHead):
             The function will use the same data to generate the gradients again and setting the
             models parameters.
         """
-        # -- Execute the function from EWC Trainer -- #
-        nnUNetTrainerEWC.after_train(self)
-
-        # -- Only keep the ones with the matching case in it to save time and space -- #
-        for task in list(self.fisher.keys()):
-            for key in list(self.fisher[task].keys()):
-                if 'ViT' not in key:
-                    # -- Remove the entry -- #
-                    del self.fisher[task][key]
-        for task in list(self.params.keys()):
-            for key in list(self.params[task].keys()):
-                if 'ViT' not in key:
-                    # -- Remove the entry -- #
-                    del self.params[task][key]
-
-        # -- Storing and putting everything on CPU before is done in super class after this function is called -- #
+        # -- Use the same method as from our own method -- #
+        nnUNetTrainerOwnM1.after_train(self)
 
     def register_forward_hooks(self, old=False):
         r"""This function sets the forward hooks for every convolutional layer in the network.

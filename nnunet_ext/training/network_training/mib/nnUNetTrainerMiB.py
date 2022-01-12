@@ -18,13 +18,14 @@ class nnUNetTrainerMiB(nnUNetTrainerMultiHead):
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
                  identifier=default_plans_identifier, extension='mib', mib_alpha=1., lkd=10, tasks_list_with_char=None,
                  mixed_precision=True, save_csv=True, del_log=False, use_vit=False, vit_type='base', version=1, split_gpu=False,
-                 transfer_heads=True, ViT_task_specific_ln=False):
+                 transfer_heads=True, ViT_task_specific_ln=False, do_LSA=False, do_SPT=False):
         r"""Constructor of MiB trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
         """
         # -- Initialize using parent class -- #
         super().__init__(split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic,
                          fp16, save_interval, already_trained_on, use_progress, identifier, extension, tasks_list_with_char,
-                         mixed_precision, save_csv, del_log, use_vit, vit_type, version, split_gpu, transfer_heads, ViT_task_specific_ln)
+                         mixed_precision, save_csv, del_log, use_vit, vit_type, version, split_gpu, transfer_heads, ViT_task_specific_ln,
+                         do_LSA, do_SPT)
         
         # -- Define a variable that specifies the hyperparameters for this trainer --> this is used for the parameter search method -- #
         self.hyperparams = {'mib_alpha': float, 'lkd': float}
@@ -54,7 +55,7 @@ class nnUNetTrainerMiB(nnUNetTrainerMultiHead):
         self.init_args = (split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
                           deterministic, fp16, save_interval, already_trained_on, use_progress, identifier, extension,
                           mib_alpha, lkd, tasks_list_with_char, mixed_precision, save_csv, del_log, use_vit, self.vit_type,
-                          version, split_gpu, transfer_heads, ViT_task_specific_ln)
+                          version, split_gpu, transfer_heads, ViT_task_specific_ln, do_LSA, do_SPT)
 
     def initialize(self, training=True, force_load_plans=False, num_epochs=500, prev_trainer_path=None, call_for_eval=False):
         r"""Overwrite the initialize function so the correct Loss function for the MiB method can be set.
@@ -99,7 +100,7 @@ class nnUNetTrainerMiB(nnUNetTrainerMultiHead):
         # -- Return the result -- #
         return ret
 
-    def run_iteration(self, data_generator, do_backprop=True, run_online_evaluation=False, detach=True):
+    def run_iteration(self, data_generator, do_backprop=True, run_online_evaluation=False, detach=True, no_loss=False):
         r"""This function needs to be changed for the MiB method, since the old modekls predictions
             will be used as proposed in the paper.
         """
@@ -108,7 +109,7 @@ class nnUNetTrainerMiB(nnUNetTrainerMultiHead):
             # -- Use the original loss for this -- #
             self.loss = self.loss_orig
             # -- Run iteration as usual using parent class -- #
-            loss = super().run_iteration(data_generator, do_backprop, run_online_evaluation)
+            loss = super().run_iteration(data_generator, do_backprop, run_online_evaluation, detach, no_loss)
             # -- NOTE: If this is called during _perform_validation, run_online_evaluation is true --> Does not matter -- #
             # --       which loss is used, since we only calculate Dice and IoU and do not keep track of the loss -- #
         else:   # --> More than one head, ie. trained on more than one task  --> use PLOP
@@ -136,8 +137,9 @@ class nnUNetTrainerMiB(nnUNetTrainerMultiHead):
                     if self.split_gpu and not self.use_vit:
                         data = to_cuda(data, gpu_id=1)
                     output_o = self.network_old(data) # --> self.old_interm_results is filled with intermediate result now!
-                    del data
-                    loss = self.loss(output, output_o, target)
+                    (x.detach for x in output_o)
+                    if not no_loss:
+                        loss = self.loss(output, output_o, target)
 
                 if do_backprop:
                     self.amp_grad_scaler.scale(loss).backward()
@@ -150,8 +152,10 @@ class nnUNetTrainerMiB(nnUNetTrainerMultiHead):
                 if self.split_gpu and not self.use_vit:
                     data = to_cuda(data, gpu_id=1)
                 output_o = self.network_old(data)
+                (x.detach for x in output_o)
                 del data
-                loss = self.loss(output, output_o, target)
+                if not no_loss:
+                    loss = self.loss(output, output_o, target)
 
                 if do_backprop:
                     loss.backward()
@@ -169,8 +173,9 @@ class nnUNetTrainerMiB(nnUNetTrainerMultiHead):
                 self.mh_network.update_after_iteration()
 
             # -- Detach the loss -- #
-            if detach:
+            if not no_loss and detach:
                 loss = loss.detach().cpu().numpy()
 
         # -- Return the loss -- #
-        return loss
+        if not no_loss:
+            return loss

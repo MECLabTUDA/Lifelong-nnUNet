@@ -17,13 +17,13 @@ class nnUNetTrainerRehearsal(nnUNetTrainerMultiHead):
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
                  identifier=default_plans_identifier, extension='rehearsal', tasks_list_with_char=None, samples_per_ds=0.25,
                  seed=3299, mixed_precision=True, save_csv=True, del_log=False, use_vit=False, vit_type='base', version=1,
-                 split_gpu=False, transfer_heads=False, ViT_task_specific_ln=False):
+                 split_gpu=False, transfer_heads=False, ViT_task_specific_ln=False, do_LSA=False, do_SPT=False):
         r"""Constructor of Rehearsal trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
         """
         # -- Initialize using parent class -- #
         super().__init__(split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic,
                          fp16, save_interval, already_trained_on, use_progress, identifier, extension, tasks_list_with_char, mixed_precision,
-                         save_csv, del_log, use_vit, vit_type, version, split_gpu, transfer_heads, ViT_task_specific_ln)
+                         save_csv, del_log, use_vit, vit_type, version, split_gpu, transfer_heads, ViT_task_specific_ln, do_LSA, do_SPT)
 
         # -- Define a variable that specifies the hyperparameters for this trainer --> this is used for the parameter search method -- #
         self.hyperparams = {'samples_per_ds': float}
@@ -58,7 +58,7 @@ class nnUNetTrainerRehearsal(nnUNetTrainerMultiHead):
         self.init_args = (split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
                           deterministic, fp16, save_interval, self.already_trained_on, use_progress, identifier, extension,
                           tasks_list_with_char, samples_per_ds, seed, mixed_precision, save_csv, del_log, use_vit, self.vit_type,
-                          version, split_gpu, transfer_heads, ViT_task_specific_ln)
+                          version, split_gpu, transfer_heads, ViT_task_specific_ln, do_LSA, do_SPT)
 
     #------------------------------------------ Partially copied from original implementation ------------------------------------------#
     def get_basic_generators(self):

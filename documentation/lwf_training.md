@@ -16,7 +16,7 @@ One of the easiest and simplest example is to simply train on a bunch of tasks, 
 ```bash
           ~ $ source ~/.bashrc
           ~ $ source activate <your_anaconda_env>
-(<your_anaconda_env>) $ nnUNet_train_ewc 3d_fullres -t 11 12 13 -f 0 -lwf_temperature 0.75
+(<your_anaconda_env>) $ nnUNet_train_lwf 3d_fullres -t 11 12 13 -f 0 -lwf_temperature 0.75
                              -num_epoch 250 -d <GPU_ID> -save_interval 25 -s seg_outputs --store_csv
                              [--use_vit -v <VERSION> -v_type <TYPE> ...]
 ```
@@ -25,10 +25,10 @@ The following example uses Version 1 (out of 3) of the [Generic_ViT_UNet](https:
 ```bash
           ~ $ source ~/.bashrc
           ~ $ source activate <your_anaconda_env>
-(<your_anaconda_env>) $ nnUNet_train_ewc 3d_fullres -t 11 12 13 -f 0
+(<your_anaconda_env>) $ nnUNet_train_lwf 3d_fullres -t 11 12 13 -f 0
                              -num_epoch 250 -d <GPU_ID> -save_interval 25 -s seg_outputs --store_csv
                              --use_vit -v 1 -v_type base [--lwf_temperature <VALUE> --use_mult_gpus ...]
                              
 ```
 
-Note that the `--transfer_heads` flag can be used with this Trainer. If it is set, the previous head will be used as an initialization of the new head. If it is not set *-- as in all use cases above --*, the head from the initial split from Multi-Head Module is used as initialization of the new head.
+Note that the `--no_transfer_heads` flag can be used with this Trainer. If it is set, the previous head will not be used as an initialization of the new head, ie. the head from the initial split from Multi-Head Module is used as initialization of the new head. If it is not set *-- as in all use cases above --*, the previously trained head will be used as an initialization of the new head.

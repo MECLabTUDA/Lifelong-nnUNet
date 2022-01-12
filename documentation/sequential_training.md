@@ -27,4 +27,4 @@ The following example uses Version 1 (out of 3) of the [Generic_ViT_UNet](https:
                              
 ```
 
-Note that the `--transfer_heads` flag makes no sense to use in combination with the Sequential Trainer, because this flag will be overwritten internally anyway, since training Sequential, ie. transfer learning requires `--transfer_heads` to be set and the user moght forget it. However, during evaluation, the user has to set this flag whenever transfer learning, ie. `--transfer_heads` has been used.
+Note that the `--no_transfer_heads` flag makes no sense to use in combination with the Sequential Trainer, because this flag will be overwritten internally anyway, since training Sequential, ie. transfer learning requires to not set `--no_transfer_heads` and the user might forget it. However, during evaluation, the user has to set this flag whenever `--no_transfer_heads` has been used for training.

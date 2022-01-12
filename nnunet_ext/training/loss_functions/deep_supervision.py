@@ -5,8 +5,9 @@
 import torch, copy
 import torch.nn as nn
 import torch.nn.functional as F
+from nnunet_ext.training.loss_functions.embeddings import *
 from nnunet_ext.training.loss_functions.crossentropy import *
-from nnunet_ext.training.loss_functions.embedding_losses import *
+from nnunet_ext.training.loss_functions.knowledge_distillation import *
 from nnunet.training.loss_functions.deep_supervision import MultipleOutputLoss2
 
 # -- Loss function for the Elastic Weight Consolidation approach -- #
@@ -268,7 +269,7 @@ class MultipleOutputLossPLOP(nn.Module):
 
     def _pseudo_label_loss(self, x, x_o, y, idx):
         r"""This function calculates the pseudo label loss using entropy dealing with the background shift.
-            x_o should be the old models prediction and idx the index of the current selected output.
+            x_o should be the old models prediction and idx the index of the current selected output --> do not forget to detach x_o!
         """
         # -- Define the background mask --> everything that is 0 -- #
         labels = copy.deepcopy(y)
@@ -377,11 +378,12 @@ class MultipleOutputLossMiB(MultipleOutputLoss2):
         self.lkd_loss = UnbiasedKnowledgeDistillationLoss(alpha = self.alpha)
 
     def forward(self, x, x_o, y):
+        r"""Do not forget to detach x_o!
+        """
         assert isinstance(x_o, (tuple, list)), "x_o must be either tuple or list"
 
         # -- Calculate the loss first using the parent class -- #
         loss = super(MultipleOutputLossMiB, self).forward(x, y)
-        # loss = loss.mean()
 
         # -- Knowledge Distillation on every head -- #
         for i in range(len(x)):
@@ -429,13 +431,6 @@ class MultipleOutputLossOwn1(MultipleOutputLossEWC):
             # -- Extract the number of tasks -- #
             self.tasks = list(self.fisher.keys())
 
-    # def update_old_plop_params(self, old_interm_results):
-    #     r"""This function should be executed only once before the training starts. --> the old intermediate
-    #         results should not be updated during the training.
-    #     """
-    #     # -- Update the convolutional outputs -- #
-    #     self.old_interm_results = old_interm_results    # Structure: {layer_name: embedding, ...}
-
     def update_plop_params(self, interm_results, old_interm_results):
         r"""The interm_results should be updated before calculating the loss (every batch).
         """
@@ -445,6 +440,8 @@ class MultipleOutputLossOwn1(MultipleOutputLossEWC):
         self.num_layers = len(self.interm_results.keys())
 
     def forward(self, x, x_o, y):
+        r"""Do not forget to detach x_o!
+        """
         # -- Calculate the loss first using the parent class with regularization --> considering the matches as well -- #
         # -- Should only match ViT related parts -- #
         loss = super().forward(x, y, reg=True)
@@ -530,7 +527,7 @@ class MultipleOutputLossOwn2(MultipleOutputLossEWC):
     def forward(self, x, x_o, y, pseudo, epoch):
         r"""
             :param x: current models output
-            :param x_o: previous models output
+            :param x_o: previous models output --> do not forget to detach x_o!
             :param y: current label
             :param pseudo: bool specifying if pseudo or not
             :param epoch: current epoch we are in
@@ -565,10 +562,11 @@ class MultipleOutputLossOwn2(MultipleOutputLossEWC):
                         
                 # -- Calculate pseudo-loss adapted from https://towardsdatascience.com/pseudo-labeling-to-deal-with-small-datasets-what-why-how-fd6f903213af -- #
                 # -- Use old models output as GT -- #
-                loss_pseudo = weights[0] * self.mse(x[0], x_o[0]) #self.loss(x[0], x_o[0])
+                
+                loss_pseudo = weights[0] * self.mse(x[0], x_o[0])
                 for i in range(1, len(x)):
                     if weights[i] != 0:
-                        loss_pseudo += weights[i] * self.mse(x[i], x_o[i]) #self.loss(x[i], x_o[i])
+                        loss_pseudo += weights[i] * self.mse(x[i], x_o[i])
                 loss += weight * loss_pseudo
 
             else:   # --> Use normal loss calculation since we can not perform pseudo-labeling just yet -- #

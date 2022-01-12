@@ -9,6 +9,7 @@ from nnunet.utilities.nd_softmax import softmax_helper
 from nnunet.network_architecture.initialization import InitWeights_He
 from nnunet.training.network_training.nnUNetTrainerV2 import nnUNetTrainerV2
 from nnunet_ext.network_architecture.generic_ViT_UNet import Generic_ViT_UNet
+from nnunet_ext.utilities.helpful_functions import get_ViT_LSA_SPT_folder_name
 
 # -- Add this since default option file_descriptor has a limitation on the number of open files. -- #
 # -- Default config might cause the runtime error: RuntimeError: received 0 items of ancdata -- #
@@ -17,7 +18,8 @@ torch.multiprocessing.set_sharing_strategy('file_system')
 class nnViTUNetTrainer(nnUNetTrainerV2): # Inherit default trainer class for 2D, 3D low resolution and 3D full resolution U-Net 
     def __init__(self, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, use_progress=True, version=1,
-                 vit_type='base', split_gpu=False, ViT_task_specific_ln=False, first_task_name=None):
+                 vit_type='base', split_gpu=False, ViT_task_specific_ln=False, first_task_name=None, do_LSA=False,
+                 do_SPT=False):
         r"""Constructor of ViT_U-Net Trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
         """
         # -- Set ViT task specific flags -- #
@@ -29,6 +31,9 @@ class nnViTUNetTrainer(nnUNetTrainerV2): # Inherit default trainer class for 2D,
 
         # -- Create the variable indicating which ViT Architecture to use, base, large or huge -- #
         self.vit_type = vit_type.lower()
+
+        # -- LSA and SPT flags -- #
+        self.LSA, self.SPT = do_LSA, do_SPT
 
         # -- Update the output_folder accordingly -- #
         if self.version not in output_folder:
@@ -46,6 +51,12 @@ class nnViTUNetTrainer(nnUNetTrainerV2): # Inherit default trainer class for 2D,
             if 'not_task_specific'!= output_folder.split(os.path.sep)[-1] and 'not_task_specific' not in output_folder:
                 output_folder = os.path.join(output_folder, 'not_task_specific')
 
+        # -- Add the LSA and SPT before the fold -- #
+        folder_n = get_ViT_LSA_SPT_folder_name(self.LSA, self.SPT)
+        # -- Add to the path -- #
+        if folder_n != output_folder.split(os.path.sep)[-1] and folder_n not in output_folder:
+            output_folder = os.path.join(output_folder, folder_n)
+
         # -- Initialize using parent class -- #
         super().__init__(plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic, fp16)
 
@@ -62,7 +73,8 @@ class nnViTUNetTrainer(nnUNetTrainerV2): # Inherit default trainer class for 2D,
 
         # -- Update self.init_tasks so the storing works properly -- #
         self.init_args = (plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
-                          deterministic, fp16, save_interval, use_progress, version, self.vit_type, split_gpu)
+                          deterministic, fp16, save_interval, use_progress, version, self.vit_type, split_gpu,
+                          ViT_task_specific_ln, first_task_name, do_LSA, do_SPT)
 
     def process_plans(self, plans):
         r"""Modify the original function. This just reduces the batch_size by half.
@@ -109,10 +121,12 @@ class nnViTUNetTrainer(nnUNetTrainerV2): # Inherit default trainer class for 2D,
                                     net_nonlin, net_nonlin_kwargs, True, False, lambda x: x, InitWeights_He(1e-2),
                                     self.net_num_pool_op_kernel_sizes, self.net_conv_kernel_sizes, False, True, True,
                                     vit_version=self.version, vit_type=self.vit_type, split_gpu=self.split_gpu,
-                                    ViT_task_specific_ln=self.ViT_task_specific_ln, first_task_name=self.first_task_name)
+                                    ViT_task_specific_ln=self.ViT_task_specific_ln, first_task_name=self.first_task_name,
+                                    do_LSA=self.LSA, do_SPT=self.SPT)
         
         # -- Set the task to use --> user can not register new task here since this is a simple one time Trainer, not a Sequential one or so -- #
-        self.network.ViT.use_task(self.first_task_name)
+        if self.ViT_task_specific_ln:
+            self.network.ViT.use_task(self.first_task_name)
         
         #------------------------------------------ Modified from original implementation ------------------------------------------#
         if torch.cuda.is_available():

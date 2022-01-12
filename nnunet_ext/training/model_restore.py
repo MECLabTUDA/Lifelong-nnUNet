@@ -67,6 +67,20 @@ def restore_model(pkl_file, checkpoint=None, train=False, fp16=True, use_extensi
     # -------------------- From nnUNet implementation (modifed, but same output) -------------------- #
 
     # -- Set the trainer -- #
+    # -- For old models that were trained before moving the models to another location -- #
+    if '/gris/gris-f/homestud/' in init[2]:
+        init = list(init)
+        init[2] = init[2].replace('/gris/gris-f/homestud/', '/local/scratch/')
+        init[4] = init[4].replace('/gris/gris-f/homestud/', '/local/scratch/')
+        init[5] = init[5].replace('/gris/gris-f/homestud/', '/local/scratch/')
+        if isinstance(init[12], dict):
+            for i in init[12].keys():
+                try:
+                    init[12][i]['fisher_at'] = init[12][i]['fisher_at'].replace('/gris/gris-f/homestud/', '/local/scratch/')
+                    init[12][i]['params_at'] = init[12][i]['params_at'].replace('/gris/gris-f/homestud/', '/local/scratch/')
+                except:
+                    pass
+
     trainer = tr(*init)
     trainer.del_log = del_log
     trainer.initialize(train)
@@ -90,6 +104,7 @@ def restore_model(pkl_file, checkpoint=None, train=False, fp16=True, use_extensi
     trainer.patch_size = patch_size
     
     if checkpoint is not None:
+        # -- Note, when restoring we don't need the old network --> this is only called once training is finished -- #
         trainer.load_checkpoint(checkpoint, train)
 
     return trainer

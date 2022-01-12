@@ -4,11 +4,10 @@
 #########################################################################################################
 
 import os, argparse
-from nnunet_ext.paths import evaluation_output_dir
 from nnunet_ext.evaluation.evaluator import Evaluator
-from nnunet_ext.paths import default_plans_identifier
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet_ext.utilities.helpful_functions import join_texts_with_char
+from nnunet_ext.paths import evaluation_output_dir, default_plans_identifier
 from nnunet.utilities.task_name_id_conversion import convert_id_to_task_name
 
 def run_evaluation():
@@ -39,7 +38,7 @@ def run_evaluation():
                              "Each of these ids must, have a matching folder 'TaskXXX_' in the raw "
                              "data folder", required=True)
     parser.add_argument('-use_head', action='store', type=str, nargs=1, required=False, default=None,
-                        help='Specify which head to use for the evaluation. When using a non nn-UNet extension, that' +
+                        help='Specify which head to use for the evaluation of tasks the network is not trained on. When using a non nn-UNet extension, that' +
                               'is not necessary. If this is not set, always the latest trained head will be used.')
     parser.add_argument("--fp32_used", required=False, default=False, action="store_true",
                         help="Specify if mixed precision has been used during training or not")
@@ -54,11 +53,11 @@ def run_evaluation():
     parser.add_argument('--store_csv', required=False, default=False, action="store_true",
                         help='Set this flag if the validation data and any other data if applicable should be stored'
                             ' as a .csv file as well. Default: .csv are not created.')
-    parser.add_argument("-v", "--version", action='store', type=int, nargs=1, default=[1],
+    parser.add_argument("-v", "--version", action='store', type=int, nargs=1, default=[1], choices=[1, 2, 3, 4],
                         help='Select the ViT input building version. Currently there are only four'+
                             ' possibilities: 1, 2, 3 or 4.'+
                             ' Default: version one will be used. For more references wrt, to the versions, see the docs.')
-    parser.add_argument("-v_type", "--vit_type", action='store', type=str, nargs=1, default='base',
+    parser.add_argument("-v_type", "--vit_type", action='store', type=str, nargs=1, default='base', choices=['base', 'large', 'huge'],
                         help='Specify the ViT architecture. Currently there are only three'+
                             ' possibilities: base, large or huge.'+
                             ' Default: The smallest ViT architecture, i.e. base will be used.')
@@ -67,9 +66,10 @@ def run_evaluation():
                              'Note that then the flags -v, -v_type and --use_mult_gpus should be set accordingly.')
     parser.add_argument('--task_specific_ln', action='store_true', default=False,
                         help='If this is set, the Generic_ViT_UNet will have task specific Layer Norms.')
-    parser.add_argument('--transfer_heads', required=False, default=False, action="store_true",
-                        help='Set this flag if a new head will be initialized using the last head'
-                            ' during training. Default: The very first head from the initialization of the class is used.')
+    parser.add_argument('--no_transfer_heads', required=False, default=False, action="store_true",
+                        help='Set this flag if a new head should not be initialized using the last head'
+                            ' during training, ie. the very first head from the initialization of the class is used.'
+                            ' Default: The previously trained head is used as initialization of the new head.')
     parser.add_argument('--use_mult_gpus', action='store_true', default=False,
                         help='If this is set, the ViT model will be placed onto a second GPU. '+
                              'When this is set, more than one GPU needs to be provided when using -d.')
@@ -77,6 +77,13 @@ def run_evaluation():
                         help='If this is set, during the evaluation, always the last head will be used, '+
                              'for every dataset the evaluation is performed on. When an extension network was trained with '+
                              'the -transfer_heads flag then this should be set, i.e. nnUNetTrainerSequential or nnUNetTrainerFreezedViT.')
+    parser.add_argument('--no_pod', action='store_true', default=False,
+                        help='This will only be considered if our own trainers are used. If set, this flag indicates that the POD '+
+                             'embedding has not been used.')
+    parser.add_argument('--do_LSA', action='store_true', default=False,
+                        help='Set this flag if Locality Self-Attention should be used for the ViT.')
+    parser.add_argument('--do_SPT', action='store_true', default=False,
+                        help='Set this flag if Shifted Patch Tokenization should be used for the ViT.')
 
     # -- Build mapping for network_trainer to corresponding extension name -- #
     ext_map = {'nnViTUNetTrainer': None, 'nnViTUNetTrainerCascadeFullRes': None,
@@ -86,6 +93,7 @@ def run_evaluation():
                'nnUNetTrainerFreezedUNet': 'freezed_unet', 'nnUNetTrainerEWCUNet': 'ewc_unet',
                'nnUNetTrainerMiB': 'mib', 'nnUNetTrainerPLOP': 'plop', 'nnUNetTrainerV2': 'standard',
                'nnUNetTrainerOwnM1': 'ownm1', 'nnUNetTrainerOwnM2': 'ownm2', 'nnUNetTrainerPOD': 'pod',
+               'nnUNetTrainerOwnM3': 'ownm3', 'nnUNetTrainerOwnM4': 'ownm4', 'nnUNetTrainerRW': 'rw',
                'nnUNetTrainerRehearsal': 'rehearsal', 'nnUNetTrainerEWC': 'ewc', 'nnUNetTrainerLWF': 'lwf'}
 
 
@@ -112,7 +120,8 @@ def run_evaluation():
     fold = args.folds
     cuda = args.device
     mixed_precision = not args.fp32_used
-    transfer_heads = args.transfer_heads
+    transfer_heads = not args.no_transfer_heads
+    do_pod = not args.no_pod
 
     # -- Extract ViT specific flags to as well -- #
     use_vit = args.use_vit
@@ -122,8 +131,12 @@ def run_evaluation():
     vit_type = args.vit_type
     if isinstance(vit_type, list):    # When the vit_type gets returned as a list, extract the type to avoid later appearing errors
         vit_type = vit_type[0].lower()
-    assert vit_type in ['base', 'large', 'huge'], 'Please provide one of the following three existing ViT types: base, large or huge..'
+    # assert vit_type in ['base', 'large', 'huge'], 'Please provide one of the following three existing ViT types: base, large or huge..'
 
+    # -- LSA and SPT flags -- #
+    do_LSA = args.do_LSA
+    do_SPT = args.do_SPT
+    
     # -- Assert if device value is ot of predefined range and create string to set cuda devices -- #
     for idx, c in enumerate(cuda):
         assert c > -1 and c < 8, 'GPU device ID out of range (0, ..., 7).'
@@ -143,7 +156,7 @@ def run_evaluation():
     version = args.version
     if isinstance(version, list):    # When the version gets returned as a list, extract the number to avoid later appearing errors
         version = version[0]
-    assert version in range(1, 5), 'We only provide three versions, namely 1, 2, 3 or 4, but not {}..'.format(version)
+    # assert version in range(1, 5), 'We only provide three versions, namely 1, 2, 3 or 4, but not {}..'.format(version)
     
     
     # -------------------------------
@@ -186,11 +199,6 @@ def run_evaluation():
         # -- Add corresponding task in dictoinary -- #
         evaluate_on_tasks.append(t)
 
-
-    # ----------------------------------------------
-    # Define dict with arguments for function calls
-    # ----------------------------------------------
-    # -- Join all task names together with a '_' in between them -- #
     char_to_join_tasks = '_'
     
     
@@ -199,9 +207,12 @@ def run_evaluation():
     # ---------------------------------------------
     evaluator = Evaluator(network, network_trainer, (tasks_for_folder, char_to_join_tasks), (use_model_w_tasks, char_to_join_tasks), 
                           version, vit_type, plans_identifier, mixed_precision, ext_map[network_trainer], save_csv, transfer_heads,
-                          use_vit, ViT_task_specific_ln)
-    evaluator.evaluate_on(fold, evaluate_on_tasks, use_head, always_use_last_head)
+                          use_vit, ViT_task_specific_ln, do_LSA, do_SPT)
+    evaluator.evaluate_on(fold, evaluate_on_tasks, use_head, always_use_last_head, do_pod)
 
+# -- Main function for setup execution -- #
+def main():
+    run_evaluation()
 
 if __name__ == "__main__":
     run_evaluation()
