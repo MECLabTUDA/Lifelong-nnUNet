@@ -106,7 +106,7 @@ For instance, the general command for changing the labels in a mask of multiple 
 (<your_anaconda_env>) $ nnUNet_dataset_label_mapping -t_in <path_1> <path_2> ... <path_n> 
 						     -t_out <ID_1> <ID_2> ... <ID_n> 
 						     -m <mapping_1> <mapping_2> ... <mapping_n> 
-						    [-ln <name(s)> -c <number(s)> -p <number(s)> --no_pp]
+						     [-ln <name(s)> -c <number(s)> -p <number(s)> --no_pp]
 ```
 
 Let's assume the dataset has 5 channels and only the first and last channel would be of interest, than the command would look like the following:
@@ -118,7 +118,7 @@ Let's assume the dataset has 5 channels and only the first and last channel woul
 						     -t_out <ID_1> <ID_2> ... <ID_n> 
 						     -m <mapping_1> <mapping_2> ... <mapping_n> 
 							 -c 0 4
-						    [-ln <name(s)> -p <number(s)> --no_pp]
+						     [-ln <name(s)> -p <number(s)> --no_pp]
 ```
 
 Note that the channel indices are 0 based and that the channel selection will be performed for each task from `-t_in`.
@@ -132,7 +132,7 @@ Last but not least, let's assume the dataset has 5 channels and only the first a
 						     -t_out <ID_1> <ID_2> ... <ID_n> 
 						     -m joined_labels <mapping_2> ... <mapping_9>
 							 -c 0 3 -ln PZ_TZ LL_RL
-						    [-ln <name(s)> -p <number(s)> --no_pp]
+						     [-ln <name(s)> -p <number(s)> --no_pp]
 ```
 
 If `--no_pp` or `--disable_plan_preprocess_task` is not set, the function will run the nnU-Nets pipeline configuration and preprocessing using the 
