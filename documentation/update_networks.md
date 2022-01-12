@@ -73,7 +73,7 @@ Let's assume the user wants to modify the checkpoint of a single model. For this
                     ~ $ source ~/.bashrc
                     ~ $ source activate <your_anaconda_env>
 (<your_anaconda_env>) $ nnUNet_update_checkpoints 3d_fullres nnUNetTrainerMiB -trained_on 11 12 13 -use 11 12
-                                                  -rm -f 2 4 -rw /home/user/admin/ /home/test_env/user/user_xyz/
+                                                  -f 2 4 -rw /home/user/admin/ /home/test_env/user/user_xyz/
                                                   [--use_vit -v <VERSION> -v_type <TYPE> ...]
 ```
 All the so far provided examples use the [Generic_UNet](https://github.com/MIC-DKFZ/nnUNet/blob/master/nnunet/network_architecture/generic_UNet.py#L167) architecture as foundation, however as proposed in the Command Line Arguments, one can use our proposed [Generic_ViT_UNet](https://github.com/camgbus/Lifelong-nnUNet/blob/continual_learning/nnunet_ext/network_architecture/generic_ViT_UNet.py#L14) from the [ViT_U-Net branch](https://github.com/camgbus/Lifelong-nnUNet/tree/ViT_U-Net) instead. The following example uses Version 2 (out of 4) of the [Generic_ViT_UNet](https://github.com/camgbus/Lifelong-nnUNet/blob/continual_learning/nnunet_ext/network_architecture/generic_ViT_UNet.py#L14) specifying the Vision Transformer itself as a huge Transformer, ie. the biggest one (out of 3 types). Further, Shifted Patch Tokenization (SPT) but not Locality Self-Attention (LSA) *-- as proposed [here](https://arxiv.org/pdf/2112.13492v1.pdf) --* has been used. More informations with regard to the ViT_U-Net architecture can be found [here](https://github.com/camgbus/Lifelong-nnUNet/blob/ViT_U-Net/documentation/ViT_U-Net.md):
@@ -81,7 +81,7 @@ All the so far provided examples use the [Generic_UNet](https://github.com/MIC-D
                     ~ $ source ~/.bashrc
                     ~ $ source activate <your_anaconda_env>
 (<your_anaconda_env>) $ nnUNet_update_checkpoints 3d_fullres nnUNetTrainerMiB -trained_on 11 12 13 -use 11 12
-                                                  -rm -f 2 4 -rw /home/user/admin/ /home/test_env/user/user_xyz/
+                                                  -f 2 4 -rw /home/user/admin/ /home/test_env/user/user_xyz/
                                                   --use_vit -v 2 -v_type huge --do_SPT
                                                   [--do_LSA --no_transfer_heads ...]
 ```
