@@ -3,10 +3,10 @@
 ##########################################################################################################
 
 import pandas as pd
-import copy, math, torch
 from types import ModuleType
-import sys, os, shutil, importlib
+from datetime import datetime
 from torch.cuda.amp import autocast
+import copy, torch, time, sys, os, shutil, importlib
 from nnunet.utilities.to_torch import maybe_to_torch, to_cuda
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet_ext.paths import nnUNet_raw_data, nnUNet_cropped_data, preprocessing_output_dir
@@ -325,8 +325,8 @@ def get_model_size(model):
     return size_all_mb
 
 #-------------------------- Copied from nnU-Net implementation but changed -----------------------------------#
-def print_to_log_file(log_file, output_folder, prefix_name, *args):
-    r"""This function is used to log information into a txt file."""
+def print_to_log_file(log_file, output_folder=None, prefix_name='', *args):
+    r"""This function can be used to log information into a txt file."""
     # -- Get the current timestamp -- #
     timestamp = time()
     dt_object = datetime.fromtimestamp(timestamp)
@@ -336,14 +336,14 @@ def print_to_log_file(log_file, output_folder, prefix_name, *args):
 
     # -- Create the log file if it does not exist -- #
     if log_file is None:
+        assert output_folder is not None and len(prefix_name) > 0,\
+            'When no log_file path is provided, then set the output_folder and prefix_name so we can create one..'
         maybe_mkdir_p(output_folder)
         timestamp = datetime.now()
         log_file = join(output_folder, prefix_name+"_%d_%d_%d_%02.0d_%02.0d_%02.0d.txt" %
-                                (timestamp.year, timestamp.month, timestamp.day, timestamp.hour, timestamp.minute,
-                                timestamp.second))
-        with open(log_file, 'w') as f:
-            f.write("Start with testing... \n\n")
-
+                       (timestamp.year, timestamp.month, timestamp.day, timestamp.hour, timestamp.minute,
+                        timestamp.second))
+                        
     # -- Write everything form args into the log file -- #
     with open(log_file, 'a+') as f:
         for a in args:

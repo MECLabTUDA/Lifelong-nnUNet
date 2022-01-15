@@ -3,13 +3,34 @@
 #----------inspired by original implementation (--> model_restore), copied code is marked as such.------#
 #########################################################################################################
 
-import nnunet, nnunet_ext
+import importlib, pkgutil, nnunet, nnunet_ext
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet.training.model_restore import recursive_find_python_class
 from nnunet.training.network_training.nnUNetTrainer import nnUNetTrainer
 from nnunet_ext.training.network_training.nnViTUNetTrainer import nnViTUNetTrainer
 
-def restore_model(pkl_file, checkpoint=None, train=False, fp16=True, use_extension=False, extension_type='multihead', del_log=False):
+def recursive_find_python_class_file(folder, trainer_name, current_module):
+    r"""This returns the file to import, but not the actual class within this file.
+        Modified implementation of https://github.com/MIC-DKFZ/nnUNet/blob/master/nnunet/training/model_restore.py
+    """
+    tr = None
+    for _, modname, ispkg in pkgutil.iter_modules(folder):
+        if not ispkg:
+            mod = importlib.import_module(current_module + "." + modname)
+            if hasattr(mod, trainer_name):
+                break
+
+    if tr is None:
+        for _, modname, ispkg in pkgutil.iter_modules(folder):
+            if ispkg:
+                next_current_module = current_module + "." + modname
+                tr = recursive_find_python_class([join(folder[0], modname)], trainer_name, current_module=next_current_module)
+            if tr is not None:
+                break
+
+    return mod
+
+def restore_model(pkl_file, checkpoint=None, train=False, fp16=True, use_extension=False, extension_type='multihead', del_log=False, param_search=False):
     """ This function is modified to work for the nnU-Net extension as well and ensures a correct loading of trainers
         for both (conventional and extension). Use del_log when using this for evaluation to remove the then created log_file
         during intialization.
@@ -83,6 +104,7 @@ def restore_model(pkl_file, checkpoint=None, train=False, fp16=True, use_extensi
 
     trainer = tr(*init)
     trainer.del_log = del_log
+    trainer.param_split = param_search
     trainer.initialize(train)
 
     # -------------------- From nnUNet implementation (modifed, but same output) -------------------- #

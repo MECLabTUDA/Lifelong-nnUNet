@@ -29,32 +29,34 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
     """
     def __init__(self, network, network_trainer, tasks_list_with_char, model_list_with_char, version=1, vit_type='base',
                  plans_identifier=default_plans_identifier, mixed_precision=True, extension='multihead', save_csv=True,
-                 transfer_heads=False, use_vit=False, ViT_task_specific_ln=False, do_LSA=False, do_SPT=False):
+                 transfer_heads=False, use_vit=False, use_param_split=False, ViT_task_specific_ln=False, do_LSA=False, do_SPT=False):
         r"""Constructor for evaluator.
         """
         # -- Set all the relevant attributes -- #
         self.network = network
+        self.save_csv = save_csv
+        self.extension = extension
+        self.param_split = use_param_split
+        self.transfer_heads = transfer_heads
         self.network_trainer = network_trainer
+        self.mixed_precision = mixed_precision
+        self.plans_identifier = plans_identifier
         self.tasks_list_with_char = tasks_list_with_char
         self.model_list_with_char = model_list_with_char
         self.model_joined_name = join_texts_with_char(self.model_list_with_char[0], self.model_list_with_char[1])
-        self.plans_identifier = plans_identifier
-        self.mixed_precision = mixed_precision
-        self.extension = extension
-        self.save_csv = save_csv
-        self.transfer_heads = transfer_heads
         # -- Set tasks_joined_name for validation dataset building -- #
         self.tasks_joined_name = join_texts_with_char(self.tasks_list_with_char[0], self.tasks_list_with_char[1])
+        
         # -- If ViT trainer, build the version correctly for finding the correct checkpoint later in restoring -- #
         # -- Set the desired network version -- #
         self.version = 'V' + str(version)
         
         # -- Create the variable indicating which ViT Architecture to use, base, large or huge and if to use it -- #
-        self.ViT_task_specific_ln = ViT_task_specific_ln
-        self.vit_type = vit_type.lower()
-        self.use_vit = use_vit
         self.LSA = do_LSA
         self.SPT = do_SPT
+        self.use_vit = use_vit
+        self.vit_type = vit_type.lower()
+        self.ViT_task_specific_ln = ViT_task_specific_ln
 
     def reinitialize(self, network, network_trainer, tasks_list_with_char, model_list_with_char,
                      plans_identifier=default_plans_identifier, mixed_precision=True, extension='multihead', save_csv=True):
@@ -64,55 +66,61 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
         self.__init__(network, network_trainer, tasks_list_with_char, model_list_with_char, plans_identifier,
                       mixed_precision, extension, save_csv)
 
-    def evaluate_on(self, folds, tasks, use_head=None, always_use_last_head=False, do_pod=True):
+    def evaluate_on(self, folds, tasks, use_head=None, always_use_last_head=False, do_pod=True, eval_mode_for_lns='last_lns',
+                    trainer_path=None, output_path=None):
         r"""This function performs the actual evaluation given the transmitted tasks.
             :param folds: List of integer values specifying the folds on which the evaluation should be performed.
             :param tasks: List with tasks following the Task_XXX structure/name for direct loading.
             :param use_head: A task specifying which head to use --> if it is set to None, the last trained head will be used if necessary.
             :param always_use_last_head: Specifies if only the last head is used for the evaluation.
             :param do_pod: Specifies the POD embedding is used or not --> Only works for our own methods.
+            :param eval_mode_for_lns: Specifies how the evaluation is performed when using task specific LNs wrt to the LNs (last_lns or corr_lns).
+            :param trainer_path: Specifies part to the trainer network including the fold_X being the last folder of the path (only used for parameter search method).
+            :param output_path: Specifies part where the eval results are stored excluding the fold_X (only used for parameter search method).
+
         """
         # ---------------------------------------------
         # Evaluate for each task and all provided folds
         # ---------------------------------------------
         # -- Loop through folds so each fold will be trained in full before the next one will be started -- #
         for t_fold in folds:
+            # -- Build the paths if they are not provided --> Only provide the paths if you know what you're doing .. -- #
+            if trainer_path is None or output_path is None:
+                # -- Extract the folder name in case we have a ViT -- #
+                folder_n = get_ViT_LSA_SPT_folder_name(self.LSA, self.SPT)
 
-            # -- Extract the folder name in case we have a ViT -- #
-            folder_n = get_ViT_LSA_SPT_folder_name(self.LSA, self.SPT)
+                # -- Build the trainer_path first -- #
+                if 'nnUNetTrainerV2' in self.network_trainer:   # always_last_head makes no sense here, there is only one head
+                    trainer_path = join(network_training_output_dir_orig, self.network, self.tasks_joined_name, self.network_trainer+'__'+self.plans_identifier, 'fold_'+str(t_fold))
+                    output_path = join(evaluation_output_dir, self.network, self.tasks_joined_name, self.network_trainer+'__'+self.plans_identifier)
+                    output_path = output_path.replace('nnUNet_ext', 'nnUNet')
+                elif nnViTUNetTrainer.__name__ in self.network_trainer: # always_last_head makes no sense here, there is only one head
+                    trainer_path = join(network_training_output_dir, self.network, self.tasks_joined_name, self.network_trainer+'__'+self.plans_identifier, self.vit_type,\
+                                        'task_specific' if self.ViT_task_specific_ln else 'not_task_specific', folder_n, 'fold_'+str(t_fold))
+                    output_path = join(evaluation_output_dir, self.network, self.tasks_joined_name, self.network_trainer+'__'+self.plans_identifier, self.vit_type,\
+                                    'task_specific' if self.ViT_task_specific_ln else 'not_task_specific', folder_n)
+                    trainer_path = trainer_path.replace(nnViTUNetTrainer.__name__, nnViTUNetTrainer.__name__+self.version)
+                    output_path = output_path.replace(nnViTUNetTrainer.__name__, nnViTUNetTrainer.__name__+self.version)
+                else:   # Any other extension like CL extension for example (using MH Architecture)
+                    if self.use_vit:
+                        trainer_path = join(network_training_output_dir, self.network, self.tasks_joined_name, self.model_joined_name,\
+                                            self.network_trainer+'__'+self.plans_identifier, Generic_ViT_UNet.__name__+self.version, self.vit_type,\
+                                            'task_specific' if self.ViT_task_specific_ln else 'not_task_specific', folder_n, 'SEQ' if self.transfer_heads else 'MH', 'fold_'+str(t_fold))
+                        output_path = join(evaluation_output_dir, self.network, self.tasks_joined_name, self.model_joined_name,\
+                                            self.network_trainer+'__'+self.plans_identifier, Generic_ViT_UNet.__name__+self.version, self.vit_type,\
+                                            'task_specific' if self.ViT_task_specific_ln else 'not_task_specific', folder_n, 'SEQ' if self.transfer_heads else 'MH',\
+                                            'last_head' if always_use_last_head else 'corresponding_head')
+                    else:
+                        trainer_path = join(network_training_output_dir, self.network, self.tasks_joined_name, self.model_joined_name,\
+                                            self.network_trainer+'__'+self.plans_identifier, Generic_UNet.__name__, 'SEQ' if self.transfer_heads else 'MH', 'fold_'+str(t_fold))
+                        output_path = join(evaluation_output_dir, self.network, self.tasks_joined_name, self.model_joined_name,\
+                                            self.network_trainer+'__'+self.plans_identifier, Generic_UNet.__name__, 'SEQ' if self.transfer_heads else 'MH',\
+                                            'last_head' if always_use_last_head else 'corresponding_head')
 
-            # -- Build the trainer_path first -- #
-            if 'nnUNetTrainerV2' in self.network_trainer:   # always_last_head makes no sense here, there is only one head
-                trainer_path = join(network_training_output_dir_orig, self.network, self.tasks_joined_name, self.network_trainer+'__'+self.plans_identifier, 'fold_'+str(t_fold))
-                output_path = join(evaluation_output_dir, self.network, self.tasks_joined_name, self.network_trainer+'__'+self.plans_identifier)
-                output_path = output_path.replace('nnUNet_ext', 'nnUNet')
-            elif nnViTUNetTrainer.__name__ in self.network_trainer: # always_last_head makes no sense here, there is only one head
-                trainer_path = join(network_training_output_dir, self.network, self.tasks_joined_name, self.network_trainer+'__'+self.plans_identifier, self.vit_type,\
-                                    'task_specific' if self.ViT_task_specific_ln else 'not_task_specific', folder_n, 'fold_'+str(t_fold))
-                output_path = join(evaluation_output_dir, self.network, self.tasks_joined_name, self.network_trainer+'__'+self.plans_identifier, self.vit_type,\
-                                   'task_specific' if self.ViT_task_specific_ln else 'not_task_specific', folder_n)
-                trainer_path = trainer_path.replace(nnViTUNetTrainer.__name__, nnViTUNetTrainer.__name__+self.version)
-                output_path = output_path.replace(nnViTUNetTrainer.__name__, nnViTUNetTrainer.__name__+self.version)
-            else:   # Any other extension like CL extension for example (using MH Architecture)
-                if self.use_vit:
-                    trainer_path = join(network_training_output_dir, self.network, self.tasks_joined_name, self.model_joined_name,\
-                                        self.network_trainer+'__'+self.plans_identifier, Generic_ViT_UNet.__name__+self.version, self.vit_type,\
-                                        'task_specific' if self.ViT_task_specific_ln else 'not_task_specific', folder_n, 'SEQ' if self.transfer_heads else 'MH', 'fold_'+str(t_fold))
-                    output_path = join(evaluation_output_dir, self.network, self.tasks_joined_name, self.model_joined_name,\
-                                        self.network_trainer+'__'+self.plans_identifier, Generic_ViT_UNet.__name__+self.version, self.vit_type,\
-                                        'task_specific' if self.ViT_task_specific_ln else 'not_task_specific', folder_n, 'SEQ' if self.transfer_heads else 'MH',\
-                                        'last_head' if always_use_last_head else 'corresponding_head')
-                else:
-                    trainer_path = join(network_training_output_dir, self.network, self.tasks_joined_name, self.model_joined_name,\
-                                        self.network_trainer+'__'+self.plans_identifier, Generic_UNet.__name__, 'SEQ' if self.transfer_heads else 'MH', 'fold_'+str(t_fold))
-                    output_path = join(evaluation_output_dir, self.network, self.tasks_joined_name, self.model_joined_name,\
-                                        self.network_trainer+'__'+self.plans_identifier, Generic_UNet.__name__, 'SEQ' if self.transfer_heads else 'MH',\
-                                        'last_head' if always_use_last_head else 'corresponding_head')
-
-            # -- Re-Modify trainer path for own methods if necessary -- #
-            if 'OwnM' in self.network_trainer:
-                trainer_path = join(os.path.sep, *trainer_path.split(os.path.sep)[:-1], 'pod' if do_pod else 'no_pod', 'fold_'+str(t_fold))
-                output_path = join(os.path.sep, *output_path.split(os.path.sep)[:-1], 'pod' if do_pod else 'no_pod', 'last_head' if always_use_last_head else 'corresponding_head')
+                # -- Re-Modify trainer path for own methods if necessary -- #
+                if 'OwnM' in self.network_trainer:
+                    trainer_path = join(os.path.sep, *trainer_path.split(os.path.sep)[:-1], 'pod' if do_pod else 'no_pod', 'fold_'+str(t_fold))
+                    output_path = join(os.path.sep, *output_path.split(os.path.sep)[:-1], 'pod' if do_pod else 'no_pod', 'last_head' if always_use_last_head else 'corresponding_head')
 
             # -- Create the directory if it does not exist -- #
             maybe_mkdir_p(output_path)
@@ -124,12 +132,13 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
             pkl_file = checkpoint + ".pkl"
             use_extension = not 'nnUNetTrainerV2' in trainer_path
             trainer = restore_model(pkl_file, checkpoint, train=False, fp16=self.mixed_precision,\
-                                    use_extension=use_extension, extension_type=self.extension, del_log=True)
-            trainer.initialize(False)
+                                    use_extension=use_extension, extension_type=self.extension, del_log=True,\
+                                    param_search=self.param_split)
+            # trainer.initialize(False)
             
             # -- Delete the created log_file from the training folder and set it to None -- #
-            os.remove(trainer.log_file)
-            trainer.log_file = None
+            # os.remove(trainer.log_file)
+            # trainer.log_file = None
 
             # -- If this is a conventional nn-Unet Trainer, then make a MultiHead Trainer out of it, so we can use the _perform_validation function -- #
             if not use_extension or nnViTUNetTrainer.__name__ in trainer_path:
@@ -157,7 +166,7 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
                 # -- Build a simple MultiHead Trainer so we can use the perform validation function without re-coding it -- #
                 trainer = nnUNetTrainerMultiHead('seg_outputs', self.tasks_list_with_char[0][0], plans_file, t_fold, output_folder=output_path,\
                                                  dataset_directory=dataset_directory, tasks_list_with_char=(self.tasks_list_with_char[0], self.tasks_list_with_char[1]),\
-                                                 batch_dice=batch_dice, stage=stage, already_trained_on=None)
+                                                 batch_dice=batch_dice, stage=stage, already_trained_on=None, use_param_split=self.param_split)
                 trainer.initialize(False, num_epochs=0, prev_trainer_path=prev_trainer_path, call_for_eval=True)
                 # -- Reset the epoch -- #
                 trainer.epoch = epoch

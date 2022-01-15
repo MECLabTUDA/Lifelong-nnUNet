@@ -16,21 +16,23 @@ from nnunet_ext.training.network_training.ewc.nnUNetTrainerEWC import nnUNetTrai
 from nnunet_ext.training.loss_functions.deep_supervision import MultipleOutputLossOwn1 as OwnLoss
 from nnunet_ext.training.network_training.multihead.nnUNetTrainerMultiHead import nnUNetTrainerMultiHead
 
+# -- Define globally the Hyperparameters for this trainer along with their type -- #
+HYPERPARAMS = {'mib_alpha': float, 'lkd': float, 'pod_lambda': float, 'scales': int, 'ewc_lambda': float}
 
 class nnUNetTrainerOwnM1(nnUNetTrainerMultiHead):
     def __init__(self, split, task, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
                  identifier=default_plans_identifier, extension='ownm1', ewc_lambda=0.4, mib_alpha=1., lkd=10, pod_lambda=1e-2,
                  scales=3, tasks_list_with_char=None, mixed_precision=True, save_csv=True, del_log=False, use_vit=True,
-                 vit_type='base', version=1, split_gpu=False, transfer_heads=True, ViT_task_specific_ln=False, do_pod=True,
+                 vit_type='base', version=1, split_gpu=False, transfer_heads=True, use_param_split=False, ViT_task_specific_ln=False, do_pod=True,
                  do_LSA=False, do_SPT=False):
         r"""Constructor of our own trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
         """
         # -- Initialize using parent class -- #
         super().__init__(split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic,
                          fp16, save_interval, already_trained_on, use_progress, identifier, extension, tasks_list_with_char,
-                         mixed_precision, save_csv, del_log, use_vit, vit_type, version, split_gpu, transfer_heads, ViT_task_specific_ln,
-                         do_LSA, do_SPT)
+                         mixed_precision, save_csv, del_log, use_vit, vit_type, version, split_gpu, transfer_heads, use_param_split,
+                         ViT_task_specific_ln, do_LSA, do_SPT)
 
         # -- Remove the old directory -- #
         try:
@@ -50,9 +52,6 @@ class nnUNetTrainerOwnM1(nnUNetTrainerMultiHead):
 
         # -- Create the folder if necessary -- #
         maybe_mkdir_p(self.trained_on_path)
-
-        # -- Define a variable that specifies the hyperparameters for this trainer --> this is used for the parameter search method -- #
-        self.hyperparams = {'mib_alpha': float, 'lkd': float, 'pod_lambda': float, 'scales': int, 'ewc_lambda': float}
         
         # -- Set the parameters used for Loss calculation during training -- #
         self.ewc_lambda = ewc_lambda

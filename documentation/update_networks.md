@@ -34,7 +34,7 @@ Note that we did specifically created the `-rw/--replace_with` flag for the user
 
 It is also important to note that this method if used in the wrong way might damage the checkpoint pickle file thus leading to a checkpoint that can not be used, so this method should be applied in an appropriate manner. Another important thing about the substrings is that they *-- in this case we use this method for replacing paths --* should be long enough without creating conflicts with any other parts of the checkpoint that should not be replaced, eg. replacing the string `init` with `/new_path/` would change the dictionaries key of the checkpoint pickle file and thus result in an error during the restoring process of the network using this very checkpoint. Rather specify a longer string, like `'init/data/user/...` to be replaced with `/new_path/user/...` to ensure the replacement at the correct and intended places. Also ensure that the sub-paths provided with the `-rw/--replace_with` flag start and end with the path seperator `/` to avoid any other complications. One might want to replace the sub-path `/test/user/admin` with `/new/user/user_xyz`, however a path like `/test/user/admin_root/` will be replaced resulting in the updated path `/new/user/user_xyz_root/` which surely is not intended. Providing the arguments like `/test/user/admin/` and `/new/user/user_xyz/` would solve the issue. 
 
-To use this functionality, the user needs to extract some informations on his/her own to know which parts should be replaced using this function. The following code snippet prints the arguments that were used for the initialization of the specific model corresponding to the checkpoint. 
+To use this functionality, the user needs to extract some informations on his/her own to know which parts should be replaced using this function. The following code snippet prints the arguments that were used for the initialization of the specific model corresponding to the checkpoint. The checkpoints pickle files (`model_final_checkpoint.model.pkl` or `model_best.model.pkl`) are usually located under `$RESULTS_FOLDER/.../TaskXXX_task/.../fold_X`
 
 ```python
 from batchgenerators.utilities.file_and_folder_operations import load_pickle
@@ -85,3 +85,12 @@ All the so far provided examples use the [Generic_UNet](https://github.com/MIC-D
                                                   --use_vit -v 2 -v_type huge --do_SPT
                                                   [--do_LSA --no_transfer_heads ...]
 ```
+
+Last but not least, this method also works with the traditional nnUNetTrainerV2, ie. not a provided extension. Let's assume the user wants to modify the checkpoints from the network trained on `Task04_Hippocampus`, then it can be performed using the following command:
+```bash
+                    ~ $ source ~/.bashrc
+                    ~ $ source activate <your_anaconda_env>
+(<your_anaconda_env>) $ nnUNet_update_checkpoints 3d_fullres nnUNetTrainerV2 -trained_on 4 -use 4
+                                                  -f 0 -rw /home/user/admin/ /home/test_env/user/user_xyz/
+```
+Obviously, additional flags like `--use_vit` make no sense in this case and would lead to an error because the built path would not exist using the traditional trainer, so be aware of that.

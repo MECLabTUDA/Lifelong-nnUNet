@@ -7,7 +7,6 @@ import numpy as np
 import os, sys, copy
 from time import time
 import time as time_mod
-from datetime import datetime
 from nnunet.configuration import default_num_threads
 from nnunet_ext.utilities.helpful_functions import *
 from nnunet_ext.paths import nnUNet_raw_data as old_nnUNet_raw_data # Do this otherwise reassignment does not work

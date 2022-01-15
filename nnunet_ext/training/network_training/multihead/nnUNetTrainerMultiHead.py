@@ -8,6 +8,8 @@ import os, copy, torch
 from itertools import tee
 from torch.cuda.amp import autocast
 from collections import OrderedDict
+from sklearn.model_selection import KFold
+from sklearn.model_selection import train_test_split
 from nnunet_ext.utilities.helpful_functions import *
 from nnunet.utilities.nd_softmax import softmax_helper
 from nnunet.utilities.tensor_utilities import sum_tensor
@@ -30,12 +32,15 @@ from nnunet_ext.paths import default_plans_identifier, evaluation_output_dir, pr
 # -- Default config might cause the runtime error: RuntimeError: received 0 items of ancdata -- #
 torch.multiprocessing.set_sharing_strategy('file_system')
 
+# -- Define globally the Hyperparameters for this trainer along with their type -- #
+HYPERPARAMS = {}
+
 class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class for 2D, 3D low resolution and 3D full resolution U-Net 
     def __init__(self, split, task, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
                  identifier=default_plans_identifier, extension='multihead', tasks_list_with_char=None, mixed_precision=True,
                  save_csv=True, del_log=False, use_vit=False, vit_type='base', version=1, split_gpu=False, transfer_heads=False,
-                 ViT_task_specific_ln=False, do_LSA=False, do_SPT=False):
+                 use_param_split=False, ViT_task_specific_ln=False, do_LSA=False, do_SPT=False):
         r"""Constructor of Multi Head Trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
             The transfer_heads flag is used when adding a new head, if True, the state_dict from the last head will be used
             instead of the one from the initialization. This is the basic transfer learning (difference between MH and SEQ folder structure).
@@ -182,11 +187,105 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # -- Define flag for evaluation (per batch or per subject) -- #
         self.eval_batch = True
 
+        # -- Set the flag if the param_split should be used instead of the general split -- #
+        # -- Only set this to True if the parameter search method is used -- #
+        self.param_split = use_param_split
+
         # -- Update self.init_tasks so the storing works properly -- #
         self.init_args = (split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
                           deterministic, fp16, save_interval, self.already_trained_on, use_progress, identifier, extension,
                           tasks_list_with_char, mixed_precision, save_csv, del_log, use_vit, self.vit_type, version, split_gpu,
                           transfer_heads, ViT_task_specific_ln, do_LSA, do_SPT)
+
+    def do_split(self):
+        r"""Modify the original function. This enables the loading of the split
+            for the parameter search method if the flag is set.
+            When using the parameter search method, the split will be modified in such a way, that the
+            training set of the original split will be split by 80:20. The original val_set will not be used
+            during training or validation, ie. never when doing parameter search. However the split contains
+            those under the test_set flag.
+        """
+        # -- Copied from original implementation and modified -- #
+        if self.fold == "all":
+            tr_keys = val_keys = list(self.dataset.keys())
+        else:
+            # -- Set the splits file path -- #
+            p_splits_file = join(self.dataset_directory, "splits_param_search.pkl")
+            splits_file = join(self.dataset_directory, "splits_final.pkl")
+
+            # if the split file does not exist we need to create it
+            if not isfile(splits_file):
+                self.print_to_log_file("Creating new 5-fold cross-validation split...")
+                splits = []
+                all_keys_sorted = np.sort(list(self.dataset.keys()))
+                kfold = KFold(n_splits=5, shuffle=True, random_state=12345)
+                for i, (train_idx, test_idx) in enumerate(kfold.split(all_keys_sorted)):
+                    train_keys = np.array(all_keys_sorted)[train_idx]
+                    test_keys = np.array(all_keys_sorted)[test_idx]
+                    splits.append(OrderedDict())
+                    splits[-1]['train'] = train_keys
+                    splits[-1]['val'] = test_keys
+                save_pickle(splits, splits_file)
+
+            else:
+                self.print_to_log_file("Using splits from existing split file:", splits_file)
+                splits = load_pickle(splits_file)
+                self.print_to_log_file("The split file contains %d splits." % len(splits))
+
+            if not isfile(p_splits_file):
+                self.print_to_log_file("Creating new 5-fold cross-validation split for parameter searching based on already existing split file {}...".format(splits_file))
+                # -- Define new split list -- #
+                new_splits = list()
+                # -- Go through all defined folds and resplit the train set into 80:20 data split -- #
+                for split in splits:
+                    # -- Extract the names of the files in the train split -- #
+                    train = split['train']
+                    # -- Split the train randomly in train and val and add it to the new_splits -- #
+                    train_, val_ = train_test_split(train, random_state=3299, test_size=0.2)
+                    new_splits.append(OrderedDict())
+                    new_splits[-1]['train'] = train_
+                    new_splits[-1]['val'] = val_
+                    new_splits[-1]['test'] = split['val']   # --> Only for storing, should be never used
+                # -- Save the new splits file -- #
+                save_pickle(new_splits, p_splits_file)
+
+            if self.param_split:
+                splits = load_pickle(p_splits_file)
+
+            self.print_to_log_file("Desired fold for training: %d" % self.fold)
+            if self.fold < len(splits):
+                tr_keys = splits[self.fold]['train']
+                val_keys = splits[self.fold]['val']
+                self.print_to_log_file("This split has %d training and %d validation cases."
+                                    % (len(tr_keys), len(val_keys)))
+            else:
+                self.print_to_log_file("INFO: You requested fold %d for training but splits "
+                                       "contain only %d folds. I am now creating a "
+                                       "random (but seeded) 80:20/64:16:20 split!" % (self.fold, len(splits)))
+                # if we request a fold that is not in the split file, create a random 80:20 split
+                rnd = np.random.RandomState(seed=12345 + self.fold)
+                keys = np.sort(list(self.dataset.keys()))
+                idx_tr = rnd.choice(len(keys), int(len(keys) * 0.8), replace=False)
+                idx_val = [i for i in range(len(keys)) if i not in idx_tr]
+                tr_keys = [keys[i] for i in idx_tr]
+                val_keys = [keys[i] for i in idx_val]
+
+                # -- Split the train randomly in train and val again if self.param_split is desired -- #
+                if self.param_split:
+                    tr_keys, val_keys = train_test_split(tr_keys, random_state=3299, test_size=0.2)
+                # else:
+                self.print_to_log_file("This random 80:20 split has %d training and %d validation cases."
+                                    % (len(tr_keys), len(val_keys)))
+
+        tr_keys.sort()
+        val_keys.sort()
+        self.dataset_tr = OrderedDict()
+        for i in tr_keys:
+            self.dataset_tr[i] = self.dataset[i]
+        self.dataset_val = OrderedDict()
+        for i in val_keys:
+            self.dataset_val[i] = self.dataset[i]
+        # -- Copied from original implementation and modified -- #
 
     def process_plans(self, plans):
         r"""Modify the original function. This just reduces the batch_size by half and manages the correct initialization of the network.
@@ -293,12 +392,14 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         pkl_file = checkpoint + ".pkl"
         use_extension = not 'nnUNetTrainerV2' in self.trainer_path
         self.trainer_model = restore_model(pkl_file, checkpoint, train=False, fp16=self.mixed_precision,\
-                                           use_extension=use_extension, extension_type=self.extension)
+                                           use_extension=use_extension, extension_type=self.extension,\
+                                           param_search=self.param_split)
         self.trainer_model.initialize(True)
+
         # -- Delete the created log_file from the restored model and set it to None since we don't need it (eg. during eval) -- #
-        if self.del_log:
-            os.remove(self.trainer_model.log_file)
-            self.trainer_model.log_file = None
+        # if self.del_log:
+        #     os.remove(self.trainer_model.log_file)
+        #     self.trainer_model.log_file = None
 
         # -- Update the loss so there will be no error during forward function -- #
         self._update_loss_after_plans_change(self.trainer_model.net_num_pool_op_kernel_sizes, self.trainer_model.patch_size)

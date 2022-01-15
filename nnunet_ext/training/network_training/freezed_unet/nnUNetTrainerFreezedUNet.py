@@ -6,18 +6,21 @@ from nnunet_ext.paths import default_plans_identifier
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet_ext.training.network_training.multihead.nnUNetTrainerMultiHead import nnUNetTrainerMultiHead
 
+# -- Define globally the Hyperparameters for this trainer along with their type -- #
+HYPERPARAMS = {}
+
 class nnUNetTrainerFreezedUNet(nnUNetTrainerMultiHead):
     def __init__(self, split, task, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
                  identifier=default_plans_identifier, extension='multihead', tasks_list_with_char=None, mixed_precision=True,
                  save_csv=True, del_log=False, use_vit=True, vit_type='base', version=1, split_gpu=False, transfer_heads=True,
-                 ViT_task_specific_ln=False, do_LSA=False, do_SPT=False):
+                 use_param_split=False, ViT_task_specific_ln=False, do_LSA=False, do_SPT=False):
         r"""Constructor of freezed ViT trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
         """
         # -- Initialize using parent class -- #
         super().__init__(split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic,
                          fp16, save_interval, already_trained_on, use_progress, identifier, extension, tasks_list_with_char, mixed_precision,
-                         save_csv, del_log, use_vit, vit_type, version, split_gpu, True, ViT_task_specific_ln, do_LSA, do_SPT)
+                         save_csv, del_log, use_vit, vit_type, version, split_gpu, True, use_param_split, ViT_task_specific_ln, do_LSA, do_SPT)
 
         # -- Define a freezed argument indicating if the ViT module is already freezed or not -- #
         self.freezed = False

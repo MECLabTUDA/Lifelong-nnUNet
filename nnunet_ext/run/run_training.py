@@ -520,7 +520,7 @@ def run_training(extension='multihead'):
     basic_vit =  {'vit_type': vit_type, 'version': version, 'split_gpu': split_gpu, 'do_LSA': do_LSA, 'do_SPT': do_SPT,
                   **basic_args}
     basic_exts = {'save_interval': save_interval, 'identifier': init_identifier, 'extension': extension,
-                  'tasks_list_with_char': copy.deepcopy(tasks_list_with_char), 'save_csv': save_csv,
+                  'tasks_list_with_char': copy.deepcopy(tasks_list_with_char), 'save_csv': save_csv, 'use_param_split': False,
                   'mixed_precision': run_mixed_precision, 'use_vit': use_vit, 'vit_type': vit_type, 'version': version,
                   'split_gpu': split_gpu, 'transfer_heads': transfer_heads, 'ViT_task_specific_ln': ViT_task_specific_ln,
                   'do_LSA': do_LSA, 'do_SPT': do_SPT, **basic_args}

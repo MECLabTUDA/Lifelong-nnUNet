@@ -207,7 +207,7 @@ def run_evaluation():
     # ---------------------------------------------
     evaluator = Evaluator(network, network_trainer, (tasks_for_folder, char_to_join_tasks), (use_model_w_tasks, char_to_join_tasks), 
                           version, vit_type, plans_identifier, mixed_precision, ext_map[network_trainer], save_csv, transfer_heads,
-                          use_vit, ViT_task_specific_ln, do_LSA, do_SPT)
+                          use_vit, False, ViT_task_specific_ln, do_LSA, do_SPT)
     evaluator.evaluate_on(fold, evaluate_on_tasks, use_head, always_use_last_head, do_pod)
 
 # -- Main function for setup execution -- #

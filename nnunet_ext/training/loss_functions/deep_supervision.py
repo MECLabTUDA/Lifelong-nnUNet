@@ -259,7 +259,7 @@ class MultipleOutputLossPLOP(nn.Module):
             # --       since we always have the same classes resulting in a weighting of 1 -- #
             
             # -- Update the loss a final time -- #
-            # dist_loss /= self.num_layers # Divide by the number of layers we looped through
+            dist_loss /= self.num_layers # Divide by the number of layers we looped through
         
         # -- Empty the variable that hold the data -- #
         self.thresholds, self.max_entropy, self.interm_results, self.old_interm_results
@@ -295,7 +295,7 @@ class MultipleOutputLossPLOP(nn.Module):
         
         # -- NOT Pseudo Loss -- #
         # -- Calculate the unbiased CE for the non pseudo labels --> Now use the actual output of current model -- #
-        mask=mask_background & mask_valid_pseudo
+        mask = mask_background & mask_valid_pseudo
         lab = copy.deepcopy(y)
         if mask is not None:
             lab[mask] = 255
@@ -344,8 +344,10 @@ class MultipleOutputLossPOD(MultipleOutputLoss2):
     def forward(self, x, y):
         # -- Calculate the loss first using the parent class -- #
         loss = super(MultipleOutputLossPOD, self).forward(x, y)
+        
         # -- Update the loss as proposed in the paper and return this loss to the calling function instead -- #
         dist_loss = 0
+
         for name, h_old in self.old_interm_results.items(): # --> Loop over every Layer
             # -- Add the local POD loss as distillation loss ontop of the original loss value -- #
             dist_loss += self.pod_lambda * local_POD(self.interm_results[name], h_old, self.scales)
@@ -386,8 +388,10 @@ class MultipleOutputLossMiB(MultipleOutputLoss2):
         loss = super(MultipleOutputLossMiB, self).forward(x, y)
 
         # -- Knowledge Distillation on every head -- #
+        weights = self.weight_factors if self.weight_factors is not None else [1] * len(x)
+        loss += weights[0] * self.lkd_loss(x[0], y[0])
         for i in range(len(x)):
-            loss += self.lkd * self.lkd_loss(x[i], x_o[i])
+            loss += weights[i] * self.lkd * self.lkd_loss(x[i], x_o[i])
 
         # -- Return the updated loss value -- #
         return loss
@@ -448,8 +452,11 @@ class MultipleOutputLossOwn1(MultipleOutputLossEWC):
 
         # -- Update the loss using MiBs KD approach -- #
         # -- Knowledge Distillation on every head -- #
+        # -- Knowledge Distillation on every head -- #
+        weights = self.weight_factors if self.weight_factors is not None else [1] * len(x)
+        loss += weights[0] * self.lkd_loss(x[0], y[0])
         for i in range(len(x)):
-            loss += self.lkd * self.lkd_loss(x[i], x_o[i])
+            loss += weights[i] * self.lkd * self.lkd_loss(x[i], x_o[i])
 
         # -- Update the loss as well using the POD loss as well --> calling function has to specify which parts -- #
         # -- are included in the forward hook leading to the intermediate results. NOTE: This should only contain -- #
