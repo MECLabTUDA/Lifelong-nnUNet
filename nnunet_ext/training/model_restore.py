@@ -102,7 +102,7 @@ def restore_model(pkl_file, checkpoint=None, train=False, fp16=True, use_extensi
                 except:
                     pass
 
-    trainer = tr(*init)
+    trainer = tr(*init, param_call=param_search)
     trainer.del_log = del_log
     trainer.param_split = param_search
     trainer.initialize(train)

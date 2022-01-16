@@ -25,14 +25,14 @@ class nnUNetTrainerOwnM1(nnUNetTrainerMultiHead):
                  identifier=default_plans_identifier, extension='ownm1', ewc_lambda=0.4, mib_alpha=1., lkd=10, pod_lambda=1e-2,
                  scales=3, tasks_list_with_char=None, mixed_precision=True, save_csv=True, del_log=False, use_vit=True,
                  vit_type='base', version=1, split_gpu=False, transfer_heads=True, use_param_split=False, ViT_task_specific_ln=False, do_pod=True,
-                 do_LSA=False, do_SPT=False):
+                 do_LSA=False, do_SPT=False, param_call=False):
         r"""Constructor of our own trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
         """
         # -- Initialize using parent class -- #
         super().__init__(split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic,
                          fp16, save_interval, already_trained_on, use_progress, identifier, extension, tasks_list_with_char,
                          mixed_precision, save_csv, del_log, use_vit, vit_type, version, split_gpu, transfer_heads, use_param_split,
-                         ViT_task_specific_ln, do_LSA, do_SPT)
+                         ViT_task_specific_ln, do_LSA, do_SPT, param_call)
 
         # -- Remove the old directory -- #
         try:
@@ -177,7 +177,7 @@ class nnUNetTrainerOwnM1(nnUNetTrainerMultiHead):
     def reinitialize(self, task, print_loss_info=True):
         r"""This function is used to reinitialize the Multi Head Trainer when a new task is trained for our own Trainer.
         """
-        # -- Execute the super function -- # 
+        # -- Execute the super function -- #
         super().reinitialize(task, print_loss_info)
 
         # -- Print Loss update -- #

@@ -25,14 +25,14 @@ class nnUNetTrainerEWC(nnUNetTrainerMultiHead):
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
                  identifier=default_plans_identifier, extension='ewc', ewc_lambda=0.4, tasks_list_with_char=None, mixed_precision=True,
                  save_csv=True, del_log=False, use_vit=False, vit_type='base', version=1, split_gpu=False, transfer_heads=False,
-                 use_param_split=False, ViT_task_specific_ln=False, do_LSA=False, do_SPT=False):
+                 use_param_split=False, ViT_task_specific_ln=False, do_LSA=False, do_SPT=False, param_call=False):
         r"""Constructor of EWC trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
         """
         # -- Initialize using parent class -- #
         super().__init__(split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic,
                          fp16, save_interval, already_trained_on, use_progress, identifier, extension, tasks_list_with_char, mixed_precision,
                          save_csv, del_log, use_vit, vit_type, version, split_gpu, transfer_heads, use_param_split, 
-                         ViT_task_specific_ln, do_LSA, do_SPT)
+                         ViT_task_specific_ln, do_LSA, do_SPT, param_call)
 
         # -- Set the importance variable for the EWC Loss calculation during training -- #
         self.ewc_lambda = ewc_lambda
@@ -120,11 +120,14 @@ class nnUNetTrainerEWC(nnUNetTrainerMultiHead):
             The most important thing here is that it sets the fisher and param values accordingly in the loss.
             This should only be called when a new task is used --> by that time the new loss applies..
         """
-        # -- Execute the super function -- # 
-        super().reinitialize(task, False)
+        # -- Execute the super function -- #
+        if len(self.mh_network.heads) == 1 and task in self.mh_network.heads:
+            super().reinitialize(task, True)
+        else:
+            super().reinitialize(task, False)
 
-        # -- Print Loss update -- #
-        self.print_to_log_file("I am using EWC loss now")
+            # -- Print Loss update -- #
+            self.print_to_log_file("I am using EWC loss now")
         
         # -- Put data on GPU since the data is moved to CPU before it is stored -- #
         for task in self.fisher.keys():

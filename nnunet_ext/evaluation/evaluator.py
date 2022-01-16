@@ -5,9 +5,8 @@
 
 import numpy as np
 import pandas as pd
-import os, itertools
-from time import time
 import torch.nn as nn
+import os, itertools, time
 from collections import OrderedDict
 from nnunet_ext.utilities.helpful_functions import *
 from nnunet_ext.paths import default_plans_identifier
@@ -58,13 +57,15 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
         self.vit_type = vit_type.lower()
         self.ViT_task_specific_ln = ViT_task_specific_ln
 
-    def reinitialize(self, network, network_trainer, tasks_list_with_char, model_list_with_char,
-                     plans_identifier=default_plans_identifier, mixed_precision=True, extension='multihead', save_csv=True):
+    def reinitialize(self, network, network_trainer, tasks_list_with_char, model_list_with_char, version=1, vit_type='base',
+                     plans_identifier=default_plans_identifier, mixed_precision=True, extension='multihead', save_csv=True,
+                     transfer_heads=False, use_vit=False, use_param_split=False, ViT_task_specific_ln=False, do_LSA=False, do_SPT=False):
         r"""This function changes the network and trainer so no new Evaluator needs to be created.
         """
         # -- Just perform initialization again -- #
-        self.__init__(network, network_trainer, tasks_list_with_char, model_list_with_char, plans_identifier,
-                      mixed_precision, extension, save_csv)
+        self.__init__(network, network_trainer, tasks_list_with_char, model_list_with_char, version, vit_type, plans_identifier,
+                      mixed_precision, extension, save_csv, transfer_heads, use_vit, use_param_split, ViT_task_specific_ln,
+                      do_LSA, do_SPT)
 
     def evaluate_on(self, folds, tasks, use_head=None, always_use_last_head=False, do_pod=True, eval_mode_for_lns='last_lns',
                     trainer_path=None, output_path=None):
@@ -134,11 +135,6 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
             trainer = restore_model(pkl_file, checkpoint, train=False, fp16=self.mixed_precision,\
                                     use_extension=use_extension, extension_type=self.extension, del_log=True,\
                                     param_search=self.param_split)
-            # trainer.initialize(False)
-            
-            # -- Delete the created log_file from the training folder and set it to None -- #
-            # os.remove(trainer.log_file)
-            # trainer.log_file = None
 
             # -- If this is a conventional nn-Unet Trainer, then make a MultiHead Trainer out of it, so we can use the _perform_validation function -- #
             if not use_extension or nnViTUNetTrainer.__name__ in trainer_path:
@@ -210,10 +206,11 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
             row_series = pd.Series(list(row.values()), index = model_sum.columns)
             model_sum = model_sum.append(row_series, ignore_index=True)
             
-            # -- Set trainer output path to evaluation folder and set csv attribute as desired -- #
-            if join(*evaluation_output_dir.split(os.path.sep)[:-1]) not in trainer.output_folder:
+            # -- Set trainer output path and set csv attribute as desired -- #
+            if output_path not in trainer.output_folder:
                 trainer.output_folder = join(output_path, 'fold_'+str(t_fold))
             trainer.csv = self.save_csv
+            os.makedirs(trainer.output_folder, exist_ok=True)
                 
             # -- Adapt the already_trained_on with only the prev_trainer part since this is necessary for the validation part -- #
             trainer.already_trained_on[str(t_fold)]['prev_trainer'] = [nnUNetTrainerMultiHead.__name__]*len(tasks)
@@ -226,7 +223,7 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
             trainer.print_to_log_file("The {} model trained on {} will be used for this evaluation with the {} head.".format(self.network_trainer, ', '.join(self.tasks_list_with_char[0]), use_head))
             trainer.print_to_log_file("The used checkpoint can be found at {}.".format(join(trainer_path, "model_final_checkpoint.model")))
             trainer.print_to_log_file("Start performing evaluation on fold {} for the following tasks: {}.\n".format(t_fold, ', '.join(tasks)))
-            start_time = time()
+            start_time = time.time()
 
             # -- Delete all heads except the last one if it is a Sequential Trainer, since then always the last head should be used -- #
             if always_use_last_head:
@@ -237,7 +234,7 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
                 trainer.mh_network.heads[last_name] = last_head
 
             # -- Run validation of the trainer while updating the head of the model based on the task/use_head -- #
-            trainer._perform_validation(use_tasks=tasks, use_head=use_head, call_for_eval=True)
+            trainer._perform_validation(use_tasks=tasks, use_head=use_head, call_for_eval=True, param_search=self.param_split)
 
             # -- Update the log file -- #
             trainer.print_to_log_file("Finished with the evaluation on fold {}. The results can be found at: {} or {}.\n".format(t_fold, join(trainer.output_folder, 'val_metrics_eval.csv'), join(trainer.output_folder, 'val_metrics_eval.json')))
@@ -300,4 +297,4 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
 
             # -- Update the log file -- #
             trainer.print_to_log_file("The summarized results of the evaluation on fold {} can be found at: {} or {}.\n\n".format(t_fold, output_file, join(trainer.output_folder, 'summarized_val_metrics.csv')))
-            trainer.print_to_log_file("The Evaluation took %.2f seconds." % (time() - start_time))
+            trainer.print_to_log_file("The Evaluation took %.2f seconds." % (time.time() - start_time))

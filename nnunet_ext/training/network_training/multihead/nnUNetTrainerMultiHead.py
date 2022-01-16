@@ -40,7 +40,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
                  identifier=default_plans_identifier, extension='multihead', tasks_list_with_char=None, mixed_precision=True,
                  save_csv=True, del_log=False, use_vit=False, vit_type='base', version=1, split_gpu=False, transfer_heads=False,
-                 use_param_split=False, ViT_task_specific_ln=False, do_LSA=False, do_SPT=False):
+                 use_param_split=False, ViT_task_specific_ln=False, do_LSA=False, do_SPT=False, param_call=False):
         r"""Constructor of Multi Head Trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
             The transfer_heads flag is used when adding a new head, if True, the state_dict from the last head will be used
             instead of the one from the initialization. This is the basic transfer learning (difference between MH and SEQ folder structure).
@@ -48,6 +48,8 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                   initialization of the class. This new head is saved under task and will then be trained.
             All vit related arguments like vit_type, version and split_gpu are only used if use_vit is True, in such a case,
             the Generic_ViT_UNet is used instead of the Generic_UNet.
+            NOTE: Use param_call only for restore purposes so network_trainer is set correctly. For everything else,
+                  split etc. the use_param_split flag is used. 
         """
         # -- Create a backup of the original output folder that is provided -- #
         self.output_folder_orig = output_folder
@@ -137,7 +139,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # -- For more details on how self.output_folder is built look at get_default_configuration -- #
         help_path = os.path.normpath(self.output_folder)    # Normalize path in order to avoid errors
         help_path = help_path.split(os.sep) # Split the path using '\' seperator
-        if self.use_vit:
+        if self.use_vit or param_call or use_param_split:
             self.network_name = help_path[-10]   # 10th element from back is the name of the used network
         else:
             self.network_name = help_path[-7]    # 7th element from back is the name of the used network
@@ -397,9 +399,9 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         self.trainer_model.initialize(True)
 
         # -- Delete the created log_file from the restored model and set it to None since we don't need it (eg. during eval) -- #
-        # if self.del_log:
-        #     os.remove(self.trainer_model.log_file)
-        #     self.trainer_model.log_file = None
+        if self.del_log:
+            os.remove(self.trainer_model.log_file)
+            self.trainer_model.log_file = None
 
         # -- Update the loss so there will be no error during forward function -- #
         self._update_loss_after_plans_change(self.trainer_model.net_num_pool_op_kernel_sizes, self.trainer_model.patch_size)
@@ -466,6 +468,8 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         while len(self.already_trained_on[str(self.fold)]['prev_trainer']) < len(self.mh_network.heads)+1:
             self.already_trained_on[str(self.fold)]['prev_trainer'].append(self.trainer_class_name)
 
+        # -- Create a new log file as well -- #
+        self.log_file = None
         # -- Update the log file -- #
         self.print_to_log_file("Updating the Dataloaders for new task \'{}\'.".format(task))
 
@@ -666,7 +670,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # -- Return the result from the parent class -- #
         return res
 
-    def _perform_validation(self, use_tasks=None, use_head=None, call_for_eval=False):
+    def _perform_validation(self, use_tasks=None, use_head=None, call_for_eval=False, param_search=False):
         r"""This function performs a full validation on all previous tasks and the current task.
             The Dice and IoU will be calculated and the results will be stored in 'val_metrics.json'.
             use_tasks can be a list of task_ids that should be used for the validation --> can be used when
@@ -683,10 +687,11 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                                   to False, the already_trained_on json file will be reset, so specify this if the function
                                   is used in the context of an evaluation. Further if set to False, the head for validation
                                   will be selected based on the task that the model gets validated on.
+            :param param_search: Boolean indicating if this function is called during the parameter search method.
             NOTE: Have a look at nnunet_ext/run/run_evaluation.py to see how this function can be 'misused' for evaluation purposes.
         """
         # -- Assert if eval but not eval output dir in path -- #
-        if call_for_eval:
+        if call_for_eval and not param_search:
             assert join(*evaluation_output_dir.split(os.path.sep)[:-1]) in self.output_folder, "You want to perform an evaluation but the output folder does not represent the one for Evaluation results.."
         # -- Ensure that evaluation is performed per subject not per batch as usual -- #
         self.eval_batch = False
@@ -1077,7 +1082,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # -- Update self.init_tasks so the storing works properly -- #
         self.update_init_args()
 
-    def save_checkpoint(self, fname, save_optimizer=True):#, old_model=False, fname_old=None):
+    def save_checkpoint(self, fname, save_optimizer=True):
         r"""Overwrite the parent class, since we want to store the body and heads along with the current activated model
             and not only the current network we train on. If the class uses an old_model, we have to store this as well.
             The old model should be stored in self.network_old, always!

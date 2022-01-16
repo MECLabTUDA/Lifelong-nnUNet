@@ -65,7 +65,7 @@ def run_param_search():
     parser.add_argument("-t", "--task_ids", nargs="+", help="Specify a list of task ids to train on (ids or names). Each of these "
                                                             "ids must, have a matching folder 'TaskXXX_' in the raw "
                                                             "data folder", required=True)
-    parser.add_argument("-f", "--fold",  action='store', type=str, nargs=1, choices=['0', '1', '2', '3', '4'],
+    parser.add_argument("-f", "--fold",  action='store', type=int, nargs=1, choices=[0, 1, 2, 3, 4],
                         help="Specify on which fold to perform parameter search on. Use a fold between 0, 1, ..., 4 but not \'all\'", required=True)
     parser.add_argument("-s", "--split_at", action='store', type=str, nargs=1, required=True,
                         help='Specify the path in the network in which the split will be performed. '+
@@ -123,11 +123,11 @@ def run_param_search():
                              "will be the product between all provided values along the hyperparameters.")
     parser.add_argument("-mode",  action='store', type=str, nargs=1, required=True, choices=['grid', 'random'],
                         help="Specify the parameter search method. This can either be \'random\' or \'grid\'.")
-    parser.add_argument("-eval_mode_for_lns", action='store', type=str, nargs=1, default='last_lns', choices=['corr_lns', 'last_lns'],
+    parser.add_argument("--eval_mode_for_lns", action='store', type=str, nargs=1, default='last_lns', choices=['corr_lns', 'last_lns'],
                         help='Specify how to evaluate if task_specific_ln is set. There are 2 ways, ie. '+
                              'using always the last LNs (\'last_lns\') or corresponding to the tasks (\'corr_lns\'). ' +
                              'Default: last_lns')
-    parser.add_argument("-in_parallel", action="store_true", default=False,
+    parser.add_argument("--in_parallel", action="store_true", default=False,
                         help="Use this if you want to perform the experiments in parallel on different GPUs. "+
                              "Note that then multiple GPU IDs have to be provided, otherwise only one GPU will be "+
                              "used and this flag has no relevance. Consider this as well when a network needs "+
@@ -215,7 +215,7 @@ def run_param_search():
     do_SPT = args.do_SPT
 
     # -- Extract the arguments specific for all trainers from argument parser -- #
-    fold = args.fold
+    fold = args.fold[0] if isinstance(args.fold, list) else args.fold
     tasks = args.task_ids
     split = args.split_at           # String that specifies the path to the layer where the split needs to be done
     use_head = args.use_head        # One task specifying which head should be used
@@ -299,7 +299,7 @@ def run_param_search():
 
     # -- Do some sanity checks before proceeding -- #
     if run_in_parallel and len(args.device) == 1:
-        print("The user wanted to perform the searching using multiple GPUs in parallel but does not provide more than one GPU..")
+        print("The user wanted to perform the searching using multiple GPUs in parallel but only provides one GPU..")
     if search_mode == 'random':
         assert rand_range is not None and rand_pick is not None,\
             "The user selected a random search method but does not provide the value ranges (and/or) nr of allowed value picks for the search.."
@@ -310,14 +310,8 @@ def run_param_search():
     # -------------------------------
     # Transform tasks to task names
     # -------------------------------
-    # -- Transform fold to list if it is set to 'all'
-    if fold[0] == 'all':
-        fold = list(range(5))
-    else: # change each fold type from str to int
-        fold = list(map(int, fold))
-
-    # -- Assert if fold is not a number or a list as desired, meaning anything else, like Tuple or whatever -- #
-    assert isinstance(fold, (int, list)), "To Evaluate multiple tasks with {} trainer, only one or multiple folds specified as integers are allowed..".format(network_trainer)
+    # -- Assert if fold is not a number as desired, meaning anything else, like Tuple or whatever -- #
+    assert isinstance(fold, int), "To Evaluate multiple tasks with {} trainer, only one or multiple folds specified as integers are allowed..".format(network_trainer)
 
     # -- Build all necessary task lists -- #
     tasks_for_folder = list()

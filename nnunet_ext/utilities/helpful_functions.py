@@ -6,6 +6,7 @@ import pandas as pd
 from types import ModuleType
 from datetime import datetime
 from torch.cuda.amp import autocast
+from contextlib import contextmanager
 import copy, torch, time, sys, os, shutil, importlib
 from nnunet.utilities.to_torch import maybe_to_torch, to_cuda
 from batchgenerators.utilities.file_and_folder_operations import *
@@ -328,7 +329,7 @@ def get_model_size(model):
 def print_to_log_file(log_file, output_folder=None, prefix_name='', *args):
     r"""This function can be used to log information into a txt file."""
     # -- Get the current timestamp -- #
-    timestamp = time()
+    timestamp = time.time()
     dt_object = datetime.fromtimestamp(timestamp)
 
     # -- Extract the arguments -- #
@@ -354,3 +355,16 @@ def print_to_log_file(log_file, output_folder=None, prefix_name='', *args):
     # -- Return the log file since we do not use global variables and then the file will be overwritten over and over again since log_file is always None -- #
     return log_file
 #-------------------------- Copied from nnU-Net implementation but changed -----------------------------------#
+
+@contextmanager
+def suppress_stdout():
+    r"""This can be used to surpress the output when executing a function.
+        Extracted from: https://thesmithfam.org/blog/2012/10/25/temporarily-suppress-console-output-in-python/
+    """
+    with open(os.devnull, "w") as devnull:
+        old_stdout = sys.stdout
+        sys.stdout = devnull
+        try:  
+            yield
+        finally:
+            sys.stdout = old_stdout
