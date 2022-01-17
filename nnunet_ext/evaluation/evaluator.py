@@ -134,7 +134,7 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
             use_extension = not 'nnUNetTrainerV2' in trainer_path
             trainer = restore_model(pkl_file, checkpoint, train=False, fp16=self.mixed_precision,\
                                     use_extension=use_extension, extension_type=self.extension, del_log=True,\
-                                    param_search=self.param_split)
+                                    param_search=self.param_split, network=self.network)
 
             # -- If this is a conventional nn-Unet Trainer, then make a MultiHead Trainer out of it, so we can use the _perform_validation function -- #
             if not use_extension or nnViTUNetTrainer.__name__ in trainer_path:
@@ -162,7 +162,7 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
                 # -- Build a simple MultiHead Trainer so we can use the perform validation function without re-coding it -- #
                 trainer = nnUNetTrainerMultiHead('seg_outputs', self.tasks_list_with_char[0][0], plans_file, t_fold, output_folder=output_path,\
                                                  dataset_directory=dataset_directory, tasks_list_with_char=(self.tasks_list_with_char[0], self.tasks_list_with_char[1]),\
-                                                 batch_dice=batch_dice, stage=stage, already_trained_on=None, use_param_split=self.param_split)
+                                                 batch_dice=batch_dice, stage=stage, already_trained_on=None, use_param_split=self.param_split, network=self.network)
                 trainer.initialize(False, num_epochs=0, prev_trainer_path=prev_trainer_path, call_for_eval=True)
                 # -- Reset the epoch -- #
                 trainer.epoch = epoch

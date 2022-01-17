@@ -594,9 +594,17 @@ def run_training(extension='multihead'):
             else:
                 base_path = join(network_training_output_dir, network, tasks_joined_name, 'metadata', Generic_UNet.__name__)
             if transfer_heads:
-                already_trained_on = load_json(join(base_path, 'SEQ', extension+"_trained_on.json"))
+                # -- Load the pickle file, older versions use json file so keep this in here -- #
+                if os.path.isfile(join(base_path, 'SEQ', extension+"_trained_on.pkl")):
+                    already_trained_on = load_pickle(join(base_path, 'SEQ', extension+"_trained_on.pkl"))
+                else:
+                    already_trained_on = load_json(join(base_path, 'SEQ', extension+"_trained_on.json"))
             else:
-                already_trained_on = load_json(join(base_path, 'MH', extension+"_trained_on.json"))
+                # -- Load the pickle file, older versions use json file so keep this in here -- #
+                if os.path.isfile(join(base_path, 'MH', extension+"_trained_on.pkl")):
+                    already_trained_on = load_pickle(join(base_path, 'MH', extension+"_trained_on.pkl"))
+                else:
+                    already_trained_on = load_json(join(base_path, 'MH', extension+"_trained_on.json"))
             
             # -- Initialize began_with and running_task_list for continuing training -- #
             began_with = -1
@@ -815,7 +823,7 @@ def run_training(extension='multihead'):
                 # -- During training the tasks will be updated, so this should cause no problems -- #
                 # -- Set the trainer with corresponding arguments --> can only be an extension from here on -- #
                 trainer = trainer_class(split, all_tasks[0], plans_file, t_fold, output_folder=output_folder_name, dataset_directory=dataset_directory,\
-                                        batch_dice=batch_dice, stage=stage,\
+                                        batch_dice=batch_dice, stage=stage, network=network,
                                         already_trained_on=already_trained_on, **(args_f[trainer_class.__name__]))
                 trainer.initialize(not validation_only, num_epochs=num_epochs, prev_trainer_path=prev_trainer_path)
 

@@ -25,14 +25,14 @@ class nnUNetTrainerOwnM1(nnUNetTrainerMultiHead):
                  identifier=default_plans_identifier, extension='ownm1', ewc_lambda=0.4, mib_alpha=1., lkd=10, pod_lambda=1e-2,
                  scales=3, tasks_list_with_char=None, mixed_precision=True, save_csv=True, del_log=False, use_vit=True,
                  vit_type='base', version=1, split_gpu=False, transfer_heads=True, use_param_split=False, ViT_task_specific_ln=False, do_pod=True,
-                 do_LSA=False, do_SPT=False, param_call=False):
+                 do_LSA=False, do_SPT=False, network=None):
         r"""Constructor of our own trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
         """
         # -- Initialize using parent class -- #
         super().__init__(split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic,
                          fp16, save_interval, already_trained_on, use_progress, identifier, extension, tasks_list_with_char,
                          mixed_precision, save_csv, del_log, use_vit, vit_type, version, split_gpu, transfer_heads, use_param_split,
-                         ViT_task_specific_ln, do_LSA, do_SPT, param_call)
+                         ViT_task_specific_ln, do_LSA, do_SPT, network)
 
         # -- Remove the old directory -- #
         try:
@@ -43,11 +43,13 @@ class nnUNetTrainerOwnM1(nnUNetTrainerMultiHead):
 
         # -- Update the folder names including indicating if POD is used or not -- #
         fold_n = self.output_folder.split(os.path.sep)[-1]
-        if do_pod:
+        if do_pod and 'pod' not in self.output_folder:
             self.output_folder = join(os.path.sep, *self.output_folder.split(os.path.sep)[:-1], 'pod', fold_n)
+        if do_pod and 'pod' not in self.trained_on_path:
             self.trained_on_path = join(self.trained_on_path, 'pod')
-        else:
+        if not do_pod and 'no_pod' not in self.output_folder:
             self.output_folder = join(os.path.sep, *self.output_folder.split(os.path.sep)[:-1], 'no_pod', fold_n)
+        if not do_pod and 'no_pod' not in self.trained_on_path:
             self.trained_on_path = join(self.trained_on_path, 'no_pod')
 
         # -- Create the folder if necessary -- #

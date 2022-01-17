@@ -42,7 +42,7 @@ def get_default_configuration(network, task, running_task, network_trainer, task
         
     # -- Update possible network list -- #
     assert network in ['2d', '3d_lowres', '3d_fullres'], \
-        "The network for the nnU-Net CL extension can only be one of the following: \'2d\', \'3d_lowres\', \'3d_fullres\'"
+        "The network for the nnU-Net CL extension can only be one of the following: \'2d\', \'3d_lowres\', \'3d_fullres\', not \'{}\'".format(network)
     dataset_directory = join(preprocessing_output_dir, task)
 
     if network == '2d':

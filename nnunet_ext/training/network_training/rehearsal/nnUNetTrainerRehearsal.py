@@ -20,14 +20,14 @@ class nnUNetTrainerRehearsal(nnUNetTrainerMultiHead):
                  identifier=default_plans_identifier, extension='rehearsal', tasks_list_with_char=None, samples_per_ds=0.25,
                  seed=3299, mixed_precision=True, save_csv=True, del_log=False, use_vit=False, vit_type='base', version=1,
                  split_gpu=False, transfer_heads=False, use_param_split=False, ViT_task_specific_ln=False, do_LSA=False, do_SPT=False,
-                 param_call=False):
+                 network=None):
         r"""Constructor of Rehearsal trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
         """
         # -- Initialize using parent class -- #
         super().__init__(split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic,
                          fp16, save_interval, already_trained_on, use_progress, identifier, extension, tasks_list_with_char, mixed_precision,
                          save_csv, del_log, use_vit, vit_type, version, split_gpu, transfer_heads, use_param_split, ViT_task_specific_ln, do_LSA, do_SPT,
-                         param_call)
+                         network)
 
         # -- Set samples based on samples_per_ds -- #
         self.samples = samples_per_ds

@@ -30,7 +30,7 @@ def recursive_find_python_class_file(folder, trainer_name, current_module):
 
     return mod
 
-def restore_model(pkl_file, checkpoint=None, train=False, fp16=True, use_extension=False, extension_type='multihead', del_log=False, param_search=False):
+def restore_model(pkl_file, checkpoint=None, train=False, fp16=True, use_extension=False, extension_type='multihead', del_log=False, param_search=False, network=None):
     """ This function is modified to work for the nnU-Net extension as well and ensures a correct loading of trainers
         for both (conventional and extension). Use del_log when using this for evaluation to remove the then created log_file
         during intialization.
@@ -102,9 +102,13 @@ def restore_model(pkl_file, checkpoint=None, train=False, fp16=True, use_extensi
                 except:
                     pass
 
-    trainer = tr(*init, param_call=param_search)
-    trainer.del_log = del_log
-    trainer.param_split = param_search
+    if use_extension and extension_type is not None:    # Only for extensions, with the exception of ViT_U-Net
+        assert network is not None, "Please provide the network setting that is used.."
+        trainer = tr(*init, network_name=network)
+        trainer.del_log = del_log
+        trainer.param_split = param_search
+    else:
+        trainer = tr(*init)
     trainer.initialize(train)
 
     # -------------------- From nnUNet implementation (modifed, but same output) -------------------- #

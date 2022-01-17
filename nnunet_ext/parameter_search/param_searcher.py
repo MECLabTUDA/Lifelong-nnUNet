@@ -11,6 +11,7 @@ from nnunet_ext.utilities.helpful_functions import *
 from nnunet_ext.experiment.experiment import Experiment
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet_ext.paths import param_search_output_dir, default_plans_identifier
+from nnunet_ext.training.network_training.multihead.nnUNetTrainerMultiHead import nnUNetTrainerMultiHead
 
 class ParamSearcher():
     r"""Class that can be used to perform a parameter search using a specific extension that uses Hyperparameters.
@@ -41,6 +42,7 @@ class ParamSearcher():
         # -- Set all parameter search relevant attributes -- #
         self.summary = None
         self.main_sum = None
+        self.do_pod = do_pod
         self.rand_pick = rand_pick
         self.rand_seed = rand_seed
         self.rand_range = rand_range
@@ -50,22 +52,14 @@ class ParamSearcher():
         self.continue_training = continue_training
         self.fixate_params = fixate_params if fixate_params is not None else dict()
 
-        # -- Set tasks_joined_name for validation dataset building -- #
-        self.tasks_joined_name = join_texts_with_char(tasks_list_with_char[0], tasks_list_with_char[1])
-        # -- Everything is fit for now, start building the output_folder, ie. the root one -- #
-        self.output_base = os.path.join(param_search_output_dir, network, self.tasks_joined_name)
-        # -- Within this base folder, we have a folder for the experiments and one for the evaluation results -- #
-        self.output_exp = os.path.join(self.output_base, 'experiments')
-        self.output_eval = os.path.join(self.output_base, 'evaluation')
-
         # -- Define the experiment arguments -- #
         self.exp_args = {'network': network, 'network_trainer': network_trainer, 'tasks_list_with_char': tasks_list_with_char,
                          'version': version, 'vit_type': vit_type, 'eval_mode_for_lns': eval_mode_for_lns, 'fold': fold, 'plans_identifier': plans_identifier,
                          'mixed_precision': mixed_precision, 'extension': extension, 'save_interval': save_interval, 'val_folder': val_folder,
                          'split_at': split_at, 'transfer_heads': transfer_heads, 'use_vit': use_vit, 'ViT_task_specific_ln': ViT_task_specific_ln,
                          'do_LSA': do_LSA, 'do_SPT': do_SPT, 'do_pod': do_pod, 'always_use_last_head': always_use_last_head, 'npz': npz, 'use_param_split': True,
-                         'output_exp': self.output_exp, 'output_eval': self.output_eval, 'perform_validation': perform_validation, 'show_progress_tr_bar': False,
-                         'unpack_data': unpack_data, 'deterministic': deterministic, 'save_interval': save_interval,
+                         'output_exp': '', 'output_eval': '', 'perform_validation': perform_validation, 'show_progress_tr_bar': False,
+                         'unpack_data': unpack_data, 'deterministic': deterministic, 'save_interval': save_interval, 'param_call': True,
                          'num_epochs': num_epochs, 'fp16': fp16, 'find_lr': find_lr, 'valbest': valbest, 'disable_postprocessing_on_folds': disable_postprocessing_on_folds,
                          'split_gpu': split_gpu, 'val_disable_overwrite': val_disable_overwrite, 'disable_next_stage_pred': disable_next_stage_pred}
 
@@ -73,7 +67,23 @@ class ParamSearcher():
         Experiment.__init__(self, **self.exp_args)
 
         # -- Remove the arguments that are not relevant for the parameter search class -- #
-        del self.trainer_map, self.hyperparams, self.evaluator, self.basic_eval_args, self.param_split, self.use_progress_bar
+        del self.trainer_map, self.hyperparams, self.evaluator, self.basic_eval_args, self.param_split, self.use_progress_bar, self.param_call
+
+        # -- Set tasks_joined_name for validation dataset building -- #
+        self.tasks_joined_name = join_texts_with_char(tasks_list_with_char[0], tasks_list_with_char[1])
+        # -- Everything is fit for now, start building the output_folder, ie. the root one -- #
+        self.output_base = os.path.join(param_search_output_dir, network, self.tasks_joined_name, self.network_trainer + "__" + self.plans_identifier)
+        self.output_base = nnUNetTrainerMultiHead._build_output_path(self, self.output_base, False)
+        
+        # -- Within this base folder, we have a folder for the experiments and one for the evaluation results -- #
+        if 'OwnM' in self.network_trainer:
+            self.output_base = os.path.join(self.output_base, 'pod' if self.do_pod else 'no_pod')
+        self.output_exp = os.path.join(self.output_base, 'experiments')
+        self.output_eval = os.path.join(self.output_base, 'evaluation')
+
+        # -- Update the exp_args -- #
+        self.exp_args['output_exp'] = self.output_exp
+        self.exp_args['output_eval'] = self.output_eval
 
         # -- Define a empty dictionary that is used for backup purposes -- #
         self.backup_information = dict()
@@ -96,6 +106,8 @@ class ParamSearcher():
                 self.e_id_fix = max([int(x.split('_')[-1]) for x in exp_folders]) + 1   # Add 1 since the e_id in loop start with 0
                 self.backup_information = load_pickle(self.backup_file)
                 self.summary = self.backup_information['sum_log']
+                assert 'main_sum_csv' in self.backup_information,\
+                    'Your backup information file at {} is not complete/corrupt, delete the corresponding folder since no experiments were run yet and restart the process..'.format(self.backup_file)
                 # -- Try to load main_sum -- #
                 if os.path.isfile(self.backup_information['main_sum_csv']):
                     self.main_sum = pd.read_csv(self.backup_information['main_sum_csv'], sep='\t', header=0)
@@ -118,11 +130,6 @@ class ParamSearcher():
             # -- Store the path to the summary log file -- #
             self.backup_information['sum_log'] = self.summary
             
-        # TODO: if experiments for T seq. alreayd exist, then do not overwrite them but continue and do not overwrite csv file but load and append...
-        # TODO: If the experiment is already done but user creates a new on, then simply print this experiment exists under path xy (based on backup file !
-        # TODO: In those cases use the old log file, do not create a new one..
-        # --> user might later on train new experiments with new values but on same trainer etc so they land in the same folder again...
-
         # -- Create the parameter combinations for the parameter search -- #
         if self.continue_training:
             self.experiments = self.backup_information['all_experiments']
@@ -202,7 +209,7 @@ class ParamSearcher():
                 for k_, v_ in v.items():
                     exp_sum += str(k_) + ':' + str(v_) + ', '
                 exp_sum = exp_sum[:-2] + '\n'
-            self.summary = print_to_log_file(self.summary, None, '', "There are {} experiments:\n{}".format(len(self.experiments.keys()), exp_sum))
+            self.summary = print_to_log_file(self.summary, None, '', "There is/are {} experiments:\n{}".format(len(self.experiments.keys()), exp_sum))
 
         # -- Paste all experiments into the log file -- #
         if not self.continue_training and self.e_id_fix != 0:
@@ -214,7 +221,7 @@ class ParamSearcher():
                 for k_, v_ in v.items():
                     exp_sum += str(k_) + ':' + str(v_) + ', '
                 exp_sum = exp_sum[:-2] + '\n'
-            self.summary = print_to_log_file(self.summary, None, '', "There are {} new experiments:\n{}".format(len(new_exps.keys()), exp_sum))
+            self.summary = print_to_log_file(self.summary, None, '', "There is/are {} new experiments:\n{}".format(len(new_exps.keys()), exp_sum))
 
         # -- Store the backup file -- #
         self._store_backup_file()
@@ -241,10 +248,10 @@ class ParamSearcher():
             for exp, sets in self.experiments.items():
                 self.summary = print_to_log_file(self.summary, None, '', "Start running the experiment {} using trainer {}.".format(exp, self.network_trainer))
                 # -- Add the experiment to the set of started experiments --> there are no duplicates -- #
-                self.backup_information['started_experiments'].add(exp)
                 # -- Store the backup file -- #
                 self._store_backup_file()
                 cont = exp in self.backup_information['started_experiments']    # Flag if continue with training or from beginning
+                self.backup_information['started_experiments'].add(exp)
                 # -- Run the experiment -- #
                 available_gpus = os.environ["CUDA_VISIBLE_DEVICES"].split(',')
                 e_id, eval_res_pth = exp_.run_experiment(exp_id = exp, settings = sets, settings_in_folder_name = True, gpu_ids = available_gpus, continue_tr = cont)
@@ -351,7 +358,7 @@ class ParamSearcher():
                         p.join()
 
             # -- Update the summary log file -- #
-            self.summary = print_to_log_file(self.summary, None, '', 'Finished with all experiments. \nThe parameter searching is completed.')
+            self.summary = print_to_log_file(self.summary, None, '', 'Finished with all experiments.\nThe parameter searching is completed.\n')
             
 
     def _parallel_exp_execution(self, exp_, **kwargs):
@@ -387,15 +394,15 @@ class ParamSearcher():
         for set, val in self.experiments[e_id].items():
             sets += str(set) + ':' + str(val) + ', '
         res['settings'] = sets[:-2]
-        # -- Append them to out main summary and sort them by there experiment ID -- #
+        # -- Append them to out main summary -- #
         self.main_sum = pd.concat([self.main_sum, res]) if self.main_sum is not None else res
-        self.main_sum.sort_values('experiment')
         # -- Rearrange the dataframe -- #
         eval_col = self.main_sum.columns.values.tolist()
         eval_col.remove("experiment")
         eval_col.remove("settings")
         self.main_sum = self.main_sum[["experiment", "settings", *eval_col]]
-        # -- Dump the self.main_sum dataframe with the summary of all experiments -- #
+        # -- Sort by experiment ID and dump the self.main_sum dataframe with the summary of all experiments -- #
+        self.main_sum.sort_values('experiment')
         dumpDataFrameToCsv(self.main_sum, self.output_base, 'parameter_search_val_summary')
 
         # -- Update the summary log file -- #

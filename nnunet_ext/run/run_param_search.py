@@ -338,7 +338,7 @@ def run_param_search():
                   'plans_identifier': plans_identifier, 'val_folder': val_folder, 'disable_postprocessing_on_folds': disable_postprocessing_on_folds,
                   'val_disable_overwrite': val_disable_overwrite, 'disable_next_stage_pred': disable_next_stage_pred}
     param_args = {'save_interval': save_interval, 'extension': ext_map[network_trainer], 'split_at': split,
-                  'tasks_list_with_char': copy.deepcopy(tasks_list_with_char), 'continue_training': continue_training,
+                  'tasks_list_with_char': copy.deepcopy(tasks_list_with_char), 'continue_training': continue_training, 'do_pod': do_pod,
                   'mixed_precision': mixed_precision, 'use_vit': use_vit, 'vit_type': vit_type, 'version': version, 'num_epochs': num_epochs,
                   'split_gpu': split_gpu, 'transfer_heads': transfer_heads, 'ViT_task_specific_ln': ViT_task_specific_ln, 'fold': fold,
                   'do_LSA': do_LSA, 'do_SPT': do_SPT, 'do_pod': do_pod, 'search_mode': search_mode, 'grid_picks': grid_picks, 'rand_range': rand_range,

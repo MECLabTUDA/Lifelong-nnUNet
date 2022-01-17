@@ -40,7 +40,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
                  identifier=default_plans_identifier, extension='multihead', tasks_list_with_char=None, mixed_precision=True,
                  save_csv=True, del_log=False, use_vit=False, vit_type='base', version=1, split_gpu=False, transfer_heads=False,
-                 use_param_split=False, ViT_task_specific_ln=False, do_LSA=False, do_SPT=False, param_call=False):
+                 use_param_split=False, ViT_task_specific_ln=False, do_LSA=False, do_SPT=False, network=None):
         r"""Constructor of Multi Head Trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
             The transfer_heads flag is used when adding a new head, if True, the state_dict from the last head will be used
             instead of the one from the initialization. This is the basic transfer learning (difference between MH and SEQ folder structure).
@@ -48,8 +48,6 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                   initialization of the class. This new head is saved under task and will then be trained.
             All vit related arguments like vit_type, version and split_gpu are only used if use_vit is True, in such a case,
             the Generic_ViT_UNet is used instead of the Generic_UNet.
-            NOTE: Use param_call only for restore purposes so network_trainer is set correctly. For everything else,
-                  split etc. the use_param_split flag is used. 
         """
         # -- Create a backup of the original output folder that is provided -- #
         self.output_folder_orig = output_folder
@@ -79,7 +77,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # -- Set the name of the head which is referred to as a task name -- #
         self.task = task
 
-        # -- Set identifier to use for building the .json file that is used for restoring states -- #
+        # -- Set identifier to use for building the .pkl file that is used for restoring states -- #
         self.identifier = identifier
 
         # -- Store the fold for tracking and saving in the self.already_trained_on file -- #
@@ -137,17 +135,9 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
 
         # -- Extract network_name that might come in handy at a later stage -- #
         # -- For more details on how self.output_folder is built look at get_default_configuration -- #
-        help_path = os.path.normpath(self.output_folder)    # Normalize path in order to avoid errors
-        help_path = help_path.split(os.sep) # Split the path using '\' seperator
-        if self.use_vit or param_call or use_param_split:
-            self.network_name = help_path[-10]   # 10th element from back is the name of the used network
-        else:
-            self.network_name = help_path[-7]    # 7th element from back is the name of the used network
-
-        # -- Adjust the network_name in case of the nnUNetTrainer -- #
-        if self.network_name not in ['2d', '3d_lowres', '3d_fullres']:   # <-- happens only in case of a conventional nnUNetTrainerV2 since the path is differently built
-            self.network_name = help_path[-6]
-
+        self.network_name = network
+        assert self.network_name is not None, "Please provide the network setting that is used.."
+        
         # -- Set the extension for output file -- #
         self.extension = extension
 
@@ -377,7 +367,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             # -- Add the split to the already_trained_on since it is simplified by now -- #
             self.already_trained_on[str(self.fold)]['used_split'] = self.mh_network.split
             # -- Save the updated dictionary as a json file -- #
-            save_json(self.already_trained_on, join(self.trained_on_path, self.extension+'_trained_on.json'))
+            write_pickle(self.already_trained_on, join(self.trained_on_path, self.extension+'_trained_on.pkl'))
             # -- Update self.init_tasks so the storing works properly -- #
             self.update_init_args()
             return  # Done with initialization
@@ -395,7 +385,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         use_extension = not 'nnUNetTrainerV2' in self.trainer_path
         self.trainer_model = restore_model(pkl_file, checkpoint, train=False, fp16=self.mixed_precision,\
                                            use_extension=use_extension, extension_type=self.extension,\
-                                           param_search=self.param_split)
+                                           param_search=self.param_split, network=self.network_name)
         self.trainer_model.initialize(True)
 
         # -- Delete the created log_file from the restored model and set it to None since we don't need it (eg. during eval) -- #
@@ -429,7 +419,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             self.mh_network = MultiHead_Module(Generic_UNet, self.split, self.tasks_list_with_char[0][0], prev_trainer=self.trainer_model.network,
                                                input_channels=self.num_input_channels, base_num_features=self.base_num_features,\
                                                num_classes=self.num_classes, num_pool=len(self.net_num_pool_op_kernel_sizes))
-        elif self.trainer_model.__class__.__name__ == nnViTUNetTrainer.__name__:   # Important when doing evaluation, since nnUNetTrainerV2 has no mh_network
+        elif self.trainer_model.__class__.__name__ == nnViTUNetTrainer.__name__:   # Important when doing evaluation, since nnViTUNetTrainer has no mh_network
             self.mh_network = MultiHead_Module(Generic_ViT_UNet, self.split, self.tasks_list_with_char[0][0], prev_trainer=self.trainer_model.network,
                                                input_channels=self.num_input_channels, base_num_features=self.base_num_features,\
                                                num_classes=self.num_classes, num_pool=len(self.net_num_pool_op_kernel_sizes),\
@@ -815,7 +805,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             # -- Set to True -- #
             self.already_trained_on[str(self.fold)]['val_metrics_should_exist'] = True
             # -- Save the updated dictionary as a json file -- #
-            save_json(self.already_trained_on, join(self.trained_on_path, self.extension+'_trained_on.json'))
+            write_pickle(self.already_trained_on, join(self.trained_on_path, self.extension+'_trained_on.pkl'))
             # -- Update self.init_tasks so the storing works properly -- #
             self.update_init_args()
         
@@ -838,8 +828,8 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # -- Delete the already_trained_on file if it still exists (only during eval) -- #
         if call_for_eval and 'metadata' not in self.trained_on_path:    # --> somewhere else a new already_trained_on file is created
             try:
-                if os.path.exists(join(self.trained_on_path, self.extension+'_trained_on.json')):
-                    os.remove(join(self.trained_on_path, self.extension+'_trained_on.json'))
+                if os.path.exists(join(self.trained_on_path, self.extension+'_trained_on.pkl')):
+                    os.remove(join(self.trained_on_path, self.extension+'_trained_on.pkl'))
             except OSError:
                 pass
 
@@ -1043,7 +1033,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         self.already_trained_on[str(self.fold)]['finished_validation_on'].append(trained_on[-1])
 
         # -- Save the updated dictionary as a json file -- #
-        save_json(self.already_trained_on, join(self.trained_on_path, self.extension+'_trained_on.json'))
+        write_pickle(self.already_trained_on, join(self.trained_on_path, self.extension+'_trained_on.pkl'))
         # -- Update self.init_tasks so the storing works properly -- #
         self.update_init_args()
         # -- Resave the final model pkl file so the already trained on is updated there as well -- #
@@ -1077,8 +1067,8 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # -- Update the used_identifier -- #
         self.already_trained_on[str(self.fold)]['used_identifier'] = self.identifier
 
-        # -- Save the updated dictionary as a json file -- #
-        save_json(self.already_trained_on, join(self.trained_on_path, self.extension+'_trained_on.json'))
+        # -- Save the updated dictionary as a pkl file -- #
+        write_pickle(self.already_trained_on, join(self.trained_on_path, self.extension+'_trained_on.pkl'))
         # -- Update self.init_tasks so the storing works properly -- #
         self.update_init_args()
 
@@ -1097,7 +1087,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # -- Add the current active task for restoring -- #
         self.already_trained_on[str(self.fold)]['active_task_at_time_of_checkpoint'] = self.mh_network.active_task
         # -- Save the updated dictionary as a json file -- #
-        save_json(self.already_trained_on, join(self.trained_on_path, self.extension+'_trained_on.json'))
+        write_pickle(self.already_trained_on, join(self.trained_on_path, self.extension+'_trained_on.pkl'))
         # -- Update self.init_tasks so the storing works properly -- #
         self.update_init_args()
 
@@ -1238,7 +1228,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # -- First of all remove the fold_ from the path -- #
         if 'fold_' in output_folder.split(os.path.sep)[-1]:
             output_folder = os.path.join(*output_folder.split(os.path.sep)[:-1])
-
+            
         # -- Specify if this is a ViT Architecture or not, since the paths are different -- #
         if self.use_vit:
             # -- Extract the folder name in case we have a ViT -- #

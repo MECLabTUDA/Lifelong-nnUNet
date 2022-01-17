@@ -3,6 +3,7 @@
 #-----------values to train a network with to achieve good results based on the tested params.----------#
 #########################################################################################################
 
+import numpy as np
 import nnunet_ext, glob
 from nnunet_ext.utilities.helpful_functions import *
 from nnunet_ext.evaluation.evaluator import Evaluator
@@ -43,7 +44,7 @@ class Experiment():
     def __init__(self, network, network_trainer, tasks_list_with_char, version=1, vit_type='base', eval_mode_for_lns='last_lns', fold=0,
                  plans_identifier=default_plans_identifier, mixed_precision=True, extension='multihead', save_csv=True, val_folder='validation_raw',
                  split_at=None, transfer_heads=False, use_vit=False, ViT_task_specific_ln=False, do_LSA=False, do_SPT=False, do_pod=False,
-                 always_use_last_head=True, npz=False, output_exp=None, output_eval=None, perform_validation=False,
+                 always_use_last_head=True, npz=False, output_exp=None, output_eval=None, perform_validation=False, param_call=False,
                  unpack_data=True, deterministic=False, save_interval=5, num_epochs=100, fp16=True, find_lr=False, valbest=False, use_param_split=False,
                  disable_postprocessing_on_folds=False, split_gpu=False, val_disable_overwrite=True, disable_next_stage_pred=False, show_progress_tr_bar=True):
         r"""Constructor for Experiment.
@@ -75,6 +76,7 @@ class Experiment():
         self.split_gpu = split_gpu
         self.extension = extension
         self.num_epochs = num_epochs
+        self.param_call = param_call
         self.save_interval = save_interval
         self.param_split = use_param_split
         self.transfer_heads = transfer_heads
@@ -107,7 +109,7 @@ class Experiment():
         basic_args = {'unpack_data': self.unpack_data, 'deterministic': self.deterministic, 'fp16': self.fp16}
         self.basic_exts = {'save_interval': self.save_interval, 'identifier': self.plans_identifier, 'extension': self.extension,
                            'tasks_list_with_char': copy.deepcopy(self.tasks_list_with_char), 'save_csv': self.save_csv, 'use_progress': self.use_progress_bar,
-                           'mixed_precision': self.mixed_precision, 'use_vit': self.use_vit, 'vit_type': self.vit_type, 'version': self.version,
+                           'mixed_precision': self.mixed_precision, 'use_vit': self.use_vit, 'vit_type': self.vit_type, 'version': str(version),
                            'split_gpu': self.split_gpu, 'transfer_heads': self.transfer_heads, 'ViT_task_specific_ln': self.ViT_task_specific_ln,
                            'do_LSA': self.LSA, 'do_SPT': self.SPT, 'use_param_split': use_param_split, **basic_args}
         
@@ -149,10 +151,11 @@ class Experiment():
         r"""This function is used to run a specific experiment based on the settings. This enables multiprocessing.
             settings should be a dictionary if structure: {param: value, param:value, ...}
         """
-        # TODO: Do restoring etc.
-
         # -- Create empty sumary file object -- #
         self.summary = None
+        # -- Deepcopy the tasks since in case of -c they are changed which might cause trouble in restoring -- #
+        all_tasks = copy.deepcopy(self.tasks_list_with_char[0]) # --> Will never be modified
+        tasks = copy.deepcopy(self.tasks_list_with_char[0]) # --> Will be modified during -c process
             
         # -- Check that settings are of dict type -- #
         assert isinstance(settings, dict), 'The settings should be a dictionary looking like {{param: value, param:value, ...}}..'
@@ -178,12 +181,107 @@ class Experiment():
         else:
             experiment_folder = os.path.join(self.output_exp, exp_id)
 
-        if continue_tr:
-            # TODO: If -c load the existing summary --> Check if the matching case works!!
-            self.summary = glob.glob(os.path.join(experiment_folder, '{}_summary*.txt'.format(exp_id)))
-            assert len(self.summary) == 1, "There are no or more than one summary file, how can this be when using -c?"
-            self.summary = self.summary[0]
+        # -- Initilize variable that indicates if the trainer has been initialized -- #
+        prev_trainer_path, already_trained_on, re_init, do_train, finished = None, None, False, True, False
 
+        # -- Load the already trained on file etc. -- # 
+        if continue_tr:
+            print("Try to restore a state to continue with the training..")
+            summaries = [x for x in os.listdir(os.path.join(experiment_folder)) if 'exp_{}_summary_'.format(exp_id) in x]
+            if len(summaries) != 1:
+                assert True, "There are no or more than one summary file, how can this be when using -c? Remove -c or delete the additional log files that are not necessary."
+            self.summary = summaries[0]
+            # -- Load the already trained on pickle file -- #
+            # -- NOTE: This was implemented once the already trained on file was changed to a pickle file -- #
+            alr_tr_file = os.path.join(os.path.join(experiment_folder, 'exp_{}'.format(exp_id), self.extension+"_trained_on.pkl"))
+            assert os.path.isfile(alr_tr_file),\
+                'There is no backup file for continuing with the experiment as it is expected: {}.'.format(alr_tr_file)
+            already_trained_on = load_pickle(alr_tr_file)
+            self.summary = print_to_log_file(self.summary, None, '', "Continuing with the experiment.. \n")
+
+            # -- Do the whole restoring part to determine where to continue etc. -- #
+            began_with = -1
+            
+            # -- Get the data regarding the current fold (if it exists, otherwise -1 is returned) -- #
+            trained_on_folds = already_trained_on.get(str(self.fold), -1)
+            if isinstance(trained_on_folds, dict):
+                began_with = trained_on_folds.get('start_training_on', None)
+                running_task_list = already_trained_on[str(self.fold)]['finished_training_on'][:] # Without '[:]' reference will change over time as well !
+            
+            # -- If began_with is None, a specific task training has not started --> start with the next task as -c would not have been set -- #
+            if began_with is None:
+                # -- Check if all tasks have been trained on so far, if so, this fold is finished with training, else it is not -- #
+                run_tasks = running_task_list
+                
+                # -- If the lists are equal, continue with the evaluation, if not, specify the right task in the following steps -- #
+                try:
+                    if np.array(np.array(all_tasks) == np.array(run_tasks)).all()\
+                        and np.array(np.array(all_tasks) == trained_on_folds.get('finished_validation_on', np.array(list()))).all():  # Use numpy because lists return true if at least one match in both lists!
+                        # -- Update the user that the current fold is finished with training -- #
+                        print("Fold {} has been trained on all tasks --> move on to the evaluation of the last task..".format(self.fold))
+                        # -- Set the train flag to false so only the evaluation will be performed -- #
+                        do_train, finished = False, True
+                    # -- In this case the training stopped after a task was finished but not every task is trained -- #
+                    else:
+                        # -- Set began_with to None so it will be catched in the corresponding section to continue training -- #
+                        began_with = None
+                except ValueError: # --> The arrays do not match, ie. not finished on all tasks and validation is missing
+                    # -- Set began_with to None so it will be catched in the corresponding section to continue training -- #
+                    began_with = None
+            
+            # -- If this list is empty, the trainer did not train on any task --> Start directly with the first task as -c would not have been set -- #
+            if began_with != -1: # At this point began_with is either a task or None but not -1
+                if len(running_task_list) != 0:
+                    # -- Substract the tasks from the tasks list --> Only use the tasks that are in tasks but not in finished_with -- #
+                    remove_tasks = tasks[:]
+                    for task in tasks:
+                        # -- If the task has already been trained, remove the entry from the tasks dictionary -- #
+                        if task in running_task_list:
+                            prev_task = task    # Keep track to insert it at the end again
+                            remove_tasks.remove(task)
+                    # -- Reset the tasks so everything is as expected -- #
+                    tasks = remove_tasks
+                    del remove_tasks
+
+                    # -- Insert the previous task to the beginning of the list to ensure that the model will be initialized the right way -- #
+                    tasks.insert(0, prev_task)
+                        
+                    # -- Treat the last task as initialization, so set re_init to True by keeping continue_tr True  -- #
+                    re_init = True
+                    
+                # -- ELSE -- #
+                # -- If running_task_list is empty, the training failed at very first task, -- #
+                # -- so nothing needs to be changed, simply continue with the training -- #
+                # -- Set the prev_trainer and the init_identifier so the trainer will be build correctly -- #
+                prev_trainer = self.trainer_map.get(already_trained_on[str(self.fold)]['prev_trainer'][-1], None)
+                init_identifier = already_trained_on[str(self.fold)]['used_identifier']
+
+
+            # -- began_with == -1 or no tasks to train --> nothing to restore -- #
+            else:   # Start from beginning without continue_tr
+                # -- Set continue_tr to False so there will be no error in the process of building the trainer -- #
+                continue_tr = False
+                
+                # -- Set the prev_trainer and the init_identifier based on previous fold so the trainer will be build correctly -- #
+                if already_trained_on.get(str(self.fold), None) is None:
+                    prev_trainer = None
+                    init_identifier = default_plans_identifier
+                else:
+                    prev_trainer = self.trainer_map.get(already_trained_on[str(self.fold)]['prev_trainer'][-1], None)
+                    init_identifier = already_trained_on[str(self.fold)]['used_identifier']
+                
+
+        # -- Create a summary file for this experiment --> self.summary might be None, so provide all arguments -- #
+        else:
+            self.summary = print_to_log_file(self.summary, experiment_folder, '{}_summary'.format(exp_id), "Starting with the experiment.. \n")
+        
+            # -- Start with a general message describing the experiment -- #
+            msg = ''
+            for k, v in settings.items():
+                msg += str(k) + ':' + str(v) + ', '
+            self.summary = print_to_log_file(self.summary, None, '', 'Using trainer {} with the following settings: {}.'.format(self.network_trainer, msg[:-2]))
+            self.summary = print_to_log_file(self.summary, None, '', 'The Trainer will be trained on the following tasks: {}.'.format(', '.join(self.tasks_list_with_char[0])))
+        
         # -- Extract the trainer_class based on the extension -- #
         trainer_class_ref = recursive_find_python_class([join(nnunet_ext.__path__[0], "training", "network_training", self.extension)],
                                                         self.network_trainer, current_module='nnunet_ext.training.network_training.' + self.extension)
@@ -191,21 +289,8 @@ class Experiment():
         # -- Build the arguments dict for the trainer -- #
         arguments = {**settings, **self.basic_exts}
 
-        # -- Create a summary file for this experiment --> self.summary might be None, so provide all arguments -- #
-        self.summary = print_to_log_file(self.summary, experiment_folder, '{}_summary'.format(exp_id), "Starting with the experiment.. \n")
-        
-        # -- Start with a general message describing the experiment -- #
-        msg = ''
-        for k, v in settings.items():
-            msg += str(k) + ':' + str(v) + ', '
-        self.summary = print_to_log_file(self.summary, None, '', 'Using trainer {} with the following settings: {}.'.format(self.network_trainer, msg[:-2]))
-        self.summary = print_to_log_file(self.summary, None, '', 'The Trainer will be trained on the following tasks: {}.'.format(', '.join(self.tasks_list_with_char[0])))
-        
-        # -- Initilize variable that indicates if the trainer has been initialized -- #
-        already_trained_on = None
-
         # -- Loop through the tasks and train for each task the (finished) model -- #
-        for idx, t in enumerate(self.tasks_list_with_char[0]):
+        for idx, t in enumerate(tasks):
             # -- Update running task list and create running task which are all (trained tasks and current task joined) for output folder name -- #
             if t not in running_task_list:
                 running_task_list.append(t)
@@ -216,10 +301,13 @@ class Experiment():
             # -- NOTE: Perform preprocessing and planning before ! -- #
             plans_file, output_folder_name, dataset_directory, batch_dice, stage, \
             trainer_class = get_default_configuration(self.network, t, running_task, self.network_trainer, self.tasks_joined_name,\
-                                                      self.plans_identifier, extension_type=self.extension)
+                                                        self.plans_identifier, extension_type=self.extension)
             # -- Modify the output_folder_name -- #
-            output_folder_name = os.path.join(experiment_folder, *output_folder_name.split(os.path.sep)[-2:])   # only add running_task, network_trainer + "__" + plans_identifier)
-            
+            if not self.param_call:
+                output_folder_name = os.path.join(experiment_folder, *output_folder_name.split(os.path.sep)[-2:])   # only add running_task, network_trainer + "__" + plans_identifier)
+            else:
+                output_folder_name = os.path.join(experiment_folder, output_folder_name.split(os.path.sep)[-2])     # only use experiment folder and add running_task
+
             if trainer_class is None:
                 raise RuntimeError("Could not find trainer class in nnunet_ext.training.network_training")
 
@@ -239,24 +327,52 @@ class Experiment():
                 " So choose {}"\
                 " as a network_trainer corresponding to the network, or use the convential nnunet command to train.".format(trainer_class_ref, self.extension, trainer_class_ref)
 
+            # -- Load trainer from last task and initialize new trainer if continue_tr is not set -- #
+            if idx == 0 and re_init:
+                # -- Initialize the prev_trainer if it is not None. If it is None, the trainer will be initialized in the parent class -- #
+                # -- Further check that all necessary information is provided, otherwise exit with error message -- #
+                assert isinstance(t, str) and prev_trainer is not None and init_identifier is not None and isinstance(self.fold, int),\
+                    "The informations for building the initial trainer to use for training are not fully provided, check the arguments.."
+                
+                # -- Get default configuration for nnunet/nnunet_ext model (finished training) -- #
+                # -- --> Extension is used, always use the first task as this is the base and other tasks -- #
+                # -- will result in other network structures (structure based on plans_file) -- #
+                # -- Current task t might not be equal to all_tasks[0], since tasks might be changed in the -- #
+                # -- preparation for -c. -- #
+                plans_file, prev_trainer_path, dataset_directory, batch_dice, stage, \
+                trainer_class = get_default_configuration(self.network, all_tasks[0], running_task, prev_trainer, self.tasks_joined_name,\
+                                                          init_identifier, extension_type=self.extension)
+                # -- Modify the prev_trainer_path -- #
+                if not self.param_call:
+                    prev_trainer_path = os.path.join(experiment_folder, *prev_trainer_path.split(os.path.sep)[-2:])   # only add running_task, network_trainer + "__" + plans_identifier)
+                else:
+                    prev_trainer_path = os.path.join(experiment_folder, prev_trainer_path.split(os.path.sep)[-2])     # only use experiment folder and add running_task
+
+                # -- Ensure that trainer_class is not None -- #
+                if trainer_class is None:
+                    raise RuntimeError("Could not find trainer class in nnunet.training.network_training nor nnunet_ext.training.network_training")
+                
+                # -- Continue with next element, since the previous trainer is restored, otherwise it will be trained as well -- #
+                do_train = False
+
             # -- Initialize new trainer -- #
-            if idx == 0:
+            if (idx == 0 and not re_init) or (idx == 1 and re_init):
                 self.summary = print_to_log_file(self.summary, None, '', 'Initializing the Trainer..')
                 # -- To initialize a new trainer, always use the first task since this shapes the network structure. -- #
                 # -- During training the tasks will be updated, so this should cause no problems -- #
                 # -- Set the trainer with corresponding arguments --> can only be an extension from here on -- #
-                trainer = trainer_class(self.split_at, self.tasks_list_with_char[0], plans_file, self.fold, output_folder=output_folder_name,\
+                trainer = trainer_class(self.split_at, all_tasks[0], plans_file, self.fold, output_folder=output_folder_name,\
                                         dataset_directory=dataset_directory, batch_dice=batch_dice, stage=stage,\
-                                        already_trained_on=already_trained_on, **arguments)
-                trainer.initialize(True, num_epochs=self.num_epochs, prev_trainer_path=None)
+                                        already_trained_on=already_trained_on, network=self.network, **arguments)
+                trainer.initialize(True, num_epochs=self.num_epochs, prev_trainer_path=prev_trainer_path)
                 
-            # NOTE: Trainer has only weights and heads of first task at this point
-            # --> Add the heads and load the state_dict from the latest model and not all_tasks[0]
-            #     since this is only used for initialization
+                # NOTE: Trainer has only weights and heads of first task at this point
+                # --> Add the heads and load the state_dict from the latest model and not all_tasks[0]
+                #     since this is only used for initialization
 
             # -- Update trained_on 'manually' if first task is done but finished_training_on is empty --> first task was used for initialization -- #
             if idx == 1 and len(trainer.already_trained_on[str(self.fold)]['finished_training_on']) == 0:
-                trainer.update_save_trained_on_json(self.tasks_list_with_char[0][0], finished=True)
+                trainer.update_save_trained_on_json(all_tasks[0], finished=True)
 
             # -- Find a matchting lr given the provided num_epochs -- #
             if self.find_lr:
@@ -276,29 +392,38 @@ class Experiment():
                     # -- Set continue_training to false for possible upcoming tasks -- #
                     # -- --> otherwise an error might occur because there is no trainer to restore -- #
                     continue_tr = False
-                
-                # -- Start to train the trainer --> if task is not registered, the trainer will do this automatically -- #
-                self.summary = print_to_log_file(self.summary, None, '', 'Start/Continue training on: {}.'.format(t))
-                trainer.run_training(task=t, output_folder=output_folder_name)
-                self.summary = print_to_log_file(self.summary, None, '', 'Finished training on: {}. So far trained on: {}.'.format(t, ', '.join(running_task_list)))
-                
-                # -- Do validation if desired -- #
-                if self.perform_validation:
-                    if self.valbest:
-                        trainer.load_best_checkpoint(train=False)
-                    else:
-                        trainer.load_final_checkpoint(train=False)
-
-                    # -- Evaluate the trainers network -- #
-                    trainer.network.eval()
-
-                    # -- Perform validation using the trainer -- #
-                    self.summary = print_to_log_file(self.summary, None, '', 'Start with validation..')
-                    trainer.validate(save_softmax=self.npz, validation_folder_name=self.val_folder,
-                                     run_postprocessing_on_folds=not self.disable_postprocessing_on_folds,
-                                     overwrite=self.val_disable_overwrite)
-                    self.summary = print_to_log_file(self.summary, None, '', 'Finished with validation..')
                     
+                # -- Start to train the trainer --> if task is not registered, the trainer will do this automatically -- #
+                if do_train:
+                    self.summary = print_to_log_file(self.summary, None, '', 'Start/Continue training on: {}.'.format(t))
+                    trainer.run_training(task=t, output_folder=output_folder_name)
+                    self.summary = print_to_log_file(self.summary, None, '', 'Finished training on: {}. So far trained on: {}.'.format(t, ', '.join(running_task_list)))
+                
+                    # -- Do validation if desired -- #
+                    if self.perform_validation:
+                        if self.valbest:
+                            trainer.load_best_checkpoint(train=False)
+                        else:
+                            trainer.load_final_checkpoint(train=False)
+
+                        # -- Evaluate the trainers network -- #
+                        trainer.network.eval()
+
+                        # -- Perform validation using the trainer -- #
+                        self.summary = print_to_log_file(self.summary, None, '', 'Start with validation..')
+                        trainer.validate(save_softmax=self.npz, validation_folder_name=self.val_folder,
+                                        run_postprocessing_on_folds=not self.disable_postprocessing_on_folds,
+                                        overwrite=self.val_disable_overwrite)
+                        self.summary = print_to_log_file(self.summary, None, '', 'Finished with validation..')
+                else:   # --> Load the checkpoint for eval
+                    trainer.load_latest_checkpoint()
+                    # -- Reset do_train again -- #
+                    if idx == 0 and re_init and finished:   # Only keep not training if we already trained on all tasks but the evaluation is missing
+                        do_train = False
+                    else:
+                        do_train = True
+
+            # -- Always do the evaluation (even if it is already done) since it does not take long and we don't want to create an extra backup file for this -- #      
             # -- Reinitialize the Evaluator first -- #
             model_list_with_char = (running_task_list, self.tasks_list_with_char[1])    # --> Use the current trainer
             self.evaluator.reinitialize(model_list_with_char=model_list_with_char, **self.basic_eval_args)
