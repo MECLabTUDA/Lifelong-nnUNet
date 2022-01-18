@@ -889,9 +889,115 @@ def run_training(extension='multihead'):
 
 #------------------------------------------- Inspired by original implementation -------------------------------------------#
 
-# -- Main function for setup execution -- #
-def main():
-    run_training()
+# -- Add the main function calls for the setup file -- #
+# -- Main function for setup execution of EWC_LN method -- #
+def main_ewc_ln():
+    r"""Run training for Elastic Weight Consolidation Trainer only applied on the LayerNorms component.
+    """
+    run_training(extension='ewc_ln')
 
-if __name__ == "__main__":
-    run_training()
+# -- Main function for setup execution of EWC_UNet method -- #
+def main_ewc_unet():
+    r"""Run training for Elastic Weight Consolidation Trainer only applied on the U-Net component.
+    """
+    run_training(extension='ewc_unet')
+
+# -- Main function for setup execution of EWC_ViT method -- #
+def main_ewc_vit():
+    r"""Run training for Elastic Weight Consolidation Trainer only applied on the ViT module.
+    """
+    run_training(extension='ewc_vit')
+
+# -- Main function for setup execution of EWC method -- #
+def main_ewc():
+    r"""Run training for Elastic Weight Consolidation Trainer.
+    """
+    run_training(extension='ewc')
+
+# -- Main function for setup execution of Freezed non LN method -- #
+def main_freezed_nonln():
+    r"""Run training for Sequential Trainer --> this is an equivalence to a Sequential Trainer, using the ViT Architecture while
+        freezing everythin except the LayerNorms after training on the first task.
+    """
+    run_training(extension='freezed_nonln')
+
+# -- Main function for setup execution of Freezed UNet method -- #
+def main_freezed_unet():
+    r"""Run training for Sequential Trainer --> this is an equivalence to a Sequential Trainer, using the ViT Architecture while
+        freezing the U-Net parts after training on the first task.
+    """
+    run_training(extension='freezed_unet')
+
+# -- Main function for setup execution of Freezed ViT method -- #
+def main_freezed_vit():
+    r"""Run training for Sequential Trainer --> this is an equivalence to a Sequential Trainer, using the ViT Architecture while
+        freezing the ViT module after training on the first task.
+    """
+    run_training(extension='freezed_vit')
+
+# -- Main function for setup execution of LwF method -- #
+def main_lwf():
+    r"""Run training for Learning Without Forgetting Trainer.
+    """
+    run_training(extension='lwf')
+
+# -- Main function for setup execution of MiB method -- #
+def main_mib():
+    r"""Run training for MiB Trainer: https://arxiv.org/pdf/2002.00718.pdf.
+    """
+    run_training(extension='mib')
+
+# -- Main function for setup execution of MultiHead method -- #
+def main_multihead():
+    r"""Run training for Multi Head Trainer --> this is an equivalence to a Sequential Trainer, internally there
+        does not exist a Sequential Trainer.
+    """
+    run_training(extension='multihead')
+
+# -- Main function for setup execution of OwnMethod 1 -- #
+def main_ownm1():
+    r"""Run training for OwnMethod1 Trainer.
+    """
+    run_training(extension='ownm1')
+
+# -- Main function for setup execution of OwnMethod 2 -- #
+def main_ownm2():
+    r"""Run training for OwnMethod2 Trainer.
+    """
+    run_training(extension='ownm2')
+
+# -- Main function for setup execution of OwnMethod 3 -- #
+def main_ownm3():
+    r"""Run training for OwnMethod3 Trainer.
+    """
+    run_training(extension='ownm3')
+
+# -- Main function for setup execution of OwnMethod 4 -- #
+def main_ownm4():
+    r"""Run training for OwnMethod4 Trainer.
+    """
+    run_training(extension='ownm4')
+
+# -- Main function for setup execution of PLOP method -- #
+def main_plop():
+    r"""Run training for PLOP Trainer: https://arxiv.org/pdf/2011.11390.pdf.
+    """
+    run_training(extension='plop')
+
+# -- Main function for setup execution of POD method -- #
+def main_pod():
+    r"""Run training for POD Trainer.
+    """
+    run_training(extension='pod')
+
+# -- Main function for setup execution of Rehearsal method -- #
+def main_rehearsal():
+    r"""Run training for Rehearsal Trainer.
+    """
+    run_training(extension='rehearsal')
+
+# -- Main function for setup execution of RW method -- #
+def main_rw():
+    r"""Run training for RW Trainer --> this is equivalent to transfer learning of n tasks.
+    """
+    run_training(extension='rw')
