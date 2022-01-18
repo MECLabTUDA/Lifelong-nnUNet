@@ -254,7 +254,8 @@ class nnUNetTrainerPLOP(nnUNetTrainerMultiHead):
                     # -- Extract the old results using the old network -- #
                     if self.split_gpu and not self.use_vit:
                         data = to_cuda(data, gpu_id=1)
-                    output_o = self.network_old(data)#.detach() # --> self.old_interm_results is filled with intermediate result now!
+                    output_o = self.network_old(data) # --> self.old_interm_results is filled with intermediate result now!
+                    (x.detach for x in output_o)
                     del data
                     # -- Put old_interm_results on same GPU as interm_results -- #
                     if self.split_gpu and not self.use_vit:
@@ -281,7 +282,8 @@ class nnUNetTrainerPLOP(nnUNetTrainerMultiHead):
                 output = self.network(data)
                 if self.split_gpu and not self.use_vit:
                     data = to_cuda(data, gpu_id=1)
-                output_o = self.network_old(data)#.detach()
+                output_o = self.network_old(data)
+                (x.detach for x in output_o)
                 del data
                 # -- Put old_interm_results on same GPU as interm_results -- #
                 if self.split_gpu and not self.use_vit:

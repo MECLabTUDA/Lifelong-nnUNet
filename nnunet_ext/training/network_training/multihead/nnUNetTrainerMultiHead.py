@@ -1100,7 +1100,6 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                 self.network = self.network_old
                 # -- Use parent class to save checkpoint -- #
                 super().save_checkpoint(join(self.output_folder, "model_old.model"), save_optimizer)
-                print(join(self.output_folder, "model_old.model"))
         except AttributeError:
             # -- Noting to do -- #
             pass

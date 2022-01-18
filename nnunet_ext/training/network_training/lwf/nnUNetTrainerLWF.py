@@ -230,7 +230,7 @@ class nnUNetTrainerLWF(nnUNetTrainerMultiHead):
                 # -- Add the current active task for restoring -- #
                 self.already_trained_on[str(self.fold)]['factive_task_at_time_of_checkpoint'] = self.mh_network.active_task
                 # -- Save the updated dictionary as a json file -- #
-                save_json(self.already_trained_on, join(self.trained_on_path, self.extension+'_trained_on.json'))
+                save_json(self.already_trained_on, join(self.trained_on_path, self.extension+'_trained_on.pkl'))
                 # -- Update self.init_tasks so the storing works properly -- #
                 self.update_init_args()
                 # -- Use grand parent class to save checkpoint for MultiHead_Module model consisting of self.model, self.body and self.heads -- #
@@ -296,7 +296,7 @@ class nnUNetTrainerLWF(nnUNetTrainerMultiHead):
 
         return ret  # Finished with training for the specific task
 
-    def run_iteration(self, data_generator, do_backprop=True, run_online_evaluation=False):
+    def run_iteration(self, data_generator, do_backprop=True, run_online_evaluation=False, *args, **kwargs):
         r"""This function needs to be changed for the LWF method, since all previously trained models will be used
             to predict the same batch as the current model we train on. These results go then into the Loss function
             to compute the Loss as proposed in the paper.
@@ -338,7 +338,9 @@ class nnUNetTrainerLWF(nnUNetTrainerMultiHead):
                     else:
                         output = self.network(x)[0]
                         
+                    # -- Do detach the output so the loss has no effect on the old network during backward step -- #
                     pred_logits = output.detach().cpu()
+
                     del x, output
                     # -- Update the LwF loss -- #
                     self.loss.update_logits(pred_logits, self.target_logits[task][self.batch_idx % 250])  # Use modulo since self.batch_idx is a running number

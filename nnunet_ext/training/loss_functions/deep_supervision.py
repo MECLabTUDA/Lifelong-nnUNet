@@ -165,7 +165,7 @@ class MultipleOutputLossLWF(MultipleOutputLoss2):
 
     def _target_logits_to_cuda(self):
         r"""This function puts the target_logits on the same GPU as the pred_logits."""
-        # -- Extracte the current device of the pred_logits -- #
+        # -- Extract the current device of the pred_logits -- #
         device = self.pred_logits[0].device
 
         # -- Put self.target_logit onto the same device -- #

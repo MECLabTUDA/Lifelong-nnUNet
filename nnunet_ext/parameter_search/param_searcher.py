@@ -67,7 +67,7 @@ class ParamSearcher():
         Experiment.__init__(self, **self.exp_args)
 
         # -- Remove the arguments that are not relevant for the parameter search class -- #
-        del self.trainer_map, self.hyperparams, self.evaluator, self.basic_eval_args, self.param_split, self.use_progress_bar, self.param_call
+        del self.hyperparams, self.evaluator, self.basic_eval_args, self.param_split, self.use_progress_bar, self.param_call
 
         # -- Set tasks_joined_name for validation dataset building -- #
         self.tasks_joined_name = join_texts_with_char(tasks_list_with_char[0], tasks_list_with_char[1])
@@ -115,6 +115,7 @@ class ParamSearcher():
                 new_backup = True
         if not self.continue_training and not os.path.isfile(self.backup_file) or new_backup:   # Fresh experiments
             # -- Assert if continue training is set, since no backup is stored -- #
+            self.backup_information['main_sum_csv'] = os.path.join(self.output_base, 'parameter_search_val_summary.csv')
             self.backup_information['started_experiments'] = set()
             self.backup_information['finished_experiments'] = set()
 
@@ -260,10 +261,6 @@ class ParamSearcher():
                 # -- Join and save the results -- #
                 self._join_save_results(e_id, eval_res_pth)
 
-                # -- Add the path of the main summary csv if it is not stored already -- #
-                if 'main_sum_csv' not in self.backup_information:
-                    self.backup_information['main_sum_csv'] = os.path.join(self.output_base, 'parameter_search_val_summary.csv')
-                
                 # -- Add finished experiment to backup file -- #
                 self.backup_information['finished_experiments'].add(e_id)
                 # -- Remove the experiment from the list of started experiments -- #
@@ -343,10 +340,6 @@ class ParamSearcher():
                         # -- Join and save the results -- #
                         self._join_save_results(e_id, eval_res_pth)
                         
-                        # -- Add the path of the main summary csv if it is not stored already -- #
-                        if 'main_sum_csv' not in self.backup_information:
-                            self.backup_information['main_sum_csv'] = os.path.join(self.output_base, 'parameter_search_val_summary.csv')
-                
                         # -- Add finished experiment to backup file -- #
                         self.backup_information['finished_experiments'].add(e_id)
                         # -- Remove the experiment from the list of started experiments -- #

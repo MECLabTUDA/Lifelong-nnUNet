@@ -292,7 +292,7 @@ class nnUNetTrainerRW(nnUNetTrainerMultiHead):
             self.already_trained_on[str(self.fold)]['scores_at'] = join(self.rw_data_path, 'score_values.pkl')
             
             # -- Save the updated dictionary as a json file -- #
-            save_json(self.already_trained_on, join(self.trained_on_path, self.extension+'_trained_on.json'))
+            save_json(self.already_trained_on, join(self.trained_on_path, self.extension+'_trained_on.pkl'))
             # -- Update self.init_tasks so the storing works properly -- #
             self.update_init_args()
             # -- Resave the final model pkl file so the already trained on is updated there as well -- #

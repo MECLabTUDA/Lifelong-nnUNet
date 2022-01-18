@@ -5,9 +5,10 @@
 
 import copy
 import numpy as np
-import os, argparse
+import os, argparse, nnunet_ext
 from nnunet.network_architecture.generic_UNet import Generic_UNet
 from batchgenerators.utilities.file_and_folder_operations import *
+from nnunet.training.model_restore import recursive_find_python_class
 from nnunet.run.load_pretrained_weights import load_pretrained_weights
 from nnunet_ext.run.default_configuration import get_default_configuration
 from nnunet.utilities.task_name_id_conversion import convert_id_to_task_name
@@ -15,27 +16,28 @@ from nnunet_ext.network_architecture.generic_ViT_UNet import Generic_ViT_UNet
 from nnunet_ext.paths import default_plans_identifier, network_training_output_dir
 from nnunet_ext.utilities.helpful_functions import delete_dir_con, join_texts_with_char, move_dir
 
-# -- Import the trainer classes -- #
-from nnunet_ext.training.network_training.rw.nnUNetTrainerRW import nnUNetTrainerRW # Own implemented class
-from nnunet_ext.training.network_training.ewc.nnUNetTrainerEWC import nnUNetTrainerEWC # Own implemented class
-from nnunet_ext.training.network_training.lwf.nnUNetTrainerLWF import nnUNetTrainerLWF # Own implemented class
-from nnunet_ext.training.network_training.mib.nnUNetTrainerMiB import nnUNetTrainerMiB # Own implemented class
-from nnunet_ext.training.network_training.pod.nnUNetTrainerPOD import nnUNetTrainerPOD # Own implemented class
-from nnunet_ext.training.network_training.plop.nnUNetTrainerPLOP import nnUNetTrainerPLOP # Own implemented class
-from nnunet_ext.training.network_training.ownm1.nnUNetTrainerOwnM1 import nnUNetTrainerOwnM1 # Own implemented class
-from nnunet_ext.training.network_training.ownm2.nnUNetTrainerOwnM2 import nnUNetTrainerOwnM2 # Own implemented class
-from nnunet_ext.training.network_training.ownm3.nnUNetTrainerOwnM3 import nnUNetTrainerOwnM3 # Own implemented class
-from nnunet_ext.training.network_training.ownm4.nnUNetTrainerOwnM4 import nnUNetTrainerOwnM4 # Own implemented class
-from nnunet_ext.training.network_training.ewc_ln.nnUNetTrainerEWCLN import nnUNetTrainerEWCLN # Own implemented class
-from nnunet_ext.training.network_training.ewc_vit.nnUNetTrainerEWCViT import nnUNetTrainerEWCViT # Own implemented class
-from nnunet_ext.training.network_training.ewc_unet.nnUNetTrainerEWCUNet import nnUNetTrainerEWCUNet # Own implemented class
-from nnunet_ext.training.network_training.multihead.nnUNetTrainerMultiHead import nnUNetTrainerMultiHead # Own implemented class
-from nnunet_ext.training.network_training.rehearsal.nnUNetTrainerRehearsal import nnUNetTrainerRehearsal # Own implemented class
-from nnunet_ext.training.network_training.sequential.nnUNetTrainerSequential import nnUNetTrainerSequential # Own implemented class
-from nnunet_ext.training.network_training.freezed_vit.nnUNetTrainerFreezedViT import nnUNetTrainerFreezedViT # Own implemented class
-from nnunet_ext.training.network_training.freezed_unet.nnUNetTrainerFreezedUNet import nnUNetTrainerFreezedUNet # Own implemented class
-from nnunet_ext.training.network_training.freezed_nonln.nnUNetTrainerFreezedNonLN import nnUNetTrainerFreezedNonLN # Own implemented class
+# -- Import all extensional trainers in a more generic way -- #
+extension_keys = [x for x in os.listdir(os.path.join(nnunet_ext.__path__[0], "training", "network_training")) if 'py' not in x]
+trainer_keys = list()
+for ext in extension_keys:
+    trainer_name = [x[:-3] for x in os.listdir(os.path.join(nnunet_ext.__path__[0], "training", "network_training", ext)) if '.py' in x]
+    trainer_keys.extend(trainer_name)
+# -- Sort based on the string but do this only on the lower keys  -- #
+extension_keys.sort(key=lambda x: x.lower()), trainer_keys.sort(key=lambda x: x.lower())
+sorted_pairs = zip(extension_keys, trainer_keys)
+# NOTE: sorted_pairs does not include the nnViTUNetTrainer!
 
+# -- Import the trainer classes and keep track of them -- #
+TRAINER_MAP = dict()
+for ext, tr in sorted_pairs:
+    search_in = (nnunet_ext.__path__[0], "training", "network_training", ext)
+    base_module = 'nnunet_ext.training.network_training.' + ext
+    trainer_class = recursive_find_python_class([join(*search_in)], tr, current_module=base_module)
+    # -- Track the classes based on their trainer strings and the extension as well -- #
+    # -- Build mapping for extension to corresponding class -- #
+    TRAINER_MAP[tr] = trainer_class
+    TRAINER_MAP[ext] = trainer_class
+    
 #------------------------------------------- Inspired by original implementation -------------------------------------------#
 def run_training(extension='multihead'):
 
@@ -229,39 +231,13 @@ def run_training(extension='multihead'):
                             help='Set this flag if the POD embedding should not be included in the loss calculation.'
                                 ' Default: POD embedding will be included.')
 
-    # -- Build mapping for extension to corresponding class -- #
-    # TODO: Make this more generic as in default_configuration ....
-    # trainer_class = recursive_find_python_class([join(nnunet_ext.__path__[0], "training", "network_training", extension)], network_trainer,
-    #                                                     current_module='nnunet_ext.training.network_training.' + extension)
-            
-    trainer_map = {'rw': nnUNetTrainerRW, 'nnUNetTrainerRW': nnUNetTrainerRW,
-                   'ewc': nnUNetTrainerEWC, 'nnUNetTrainerEWC': nnUNetTrainerEWC,
-                   'lwf': nnUNetTrainerLWF, 'nnUNetTrainerLWF': nnUNetTrainerLWF,
-                   'mib': nnUNetTrainerMiB, 'nnUNetTrainerMiB': nnUNetTrainerMiB,
-                   'pod': nnUNetTrainerPOD, 'nnUNetTrainerPOD': nnUNetTrainerPOD,
-                   'plop': nnUNetTrainerPLOP, 'nnUNetTrainerPLOP': nnUNetTrainerPLOP,
-                   'ownm1': nnUNetTrainerOwnM1, 'nnUNetTrainerOwnM1': nnUNetTrainerOwnM1,
-                   'ownm2': nnUNetTrainerOwnM2, 'nnUNetTrainerOwnM2': nnUNetTrainerOwnM2,
-                   'ownm3': nnUNetTrainerOwnM3, 'nnUNetTrainerOwnM3': nnUNetTrainerOwnM3,
-                   'ownm4': nnUNetTrainerOwnM4, 'nnUNetTrainerOwnM4': nnUNetTrainerOwnM4,
-                   'ewc_ln': nnUNetTrainerEWCLN, 'nnUNetTrainerEWCLN': nnUNetTrainerEWCLN,
-                   'ewc_vit': nnUNetTrainerEWCViT, 'nnUNetTrainerEWCViT': nnUNetTrainerEWCViT,
-                   'ewc_unet': nnUNetTrainerEWCUNet, 'nnUNetTrainerEWCUNet': nnUNetTrainerEWCUNet,
-                   'rehearsal': nnUNetTrainerRehearsal, 'nnUNetTrainerRehearsal': nnUNetTrainerRehearsal,
-                   'multihead': nnUNetTrainerMultiHead, 'nnUNetTrainerMultiHead': nnUNetTrainerMultiHead,
-                   'sequential': nnUNetTrainerSequential, 'nnUNetTrainerSequential': nnUNetTrainerSequential,
-                   'freezed_vit': nnUNetTrainerFreezedViT, 'nnUNetTrainerFreezedViT': nnUNetTrainerFreezedViT,
-                   'freezed_unet': nnUNetTrainerFreezedUNet, 'nnUNetTrainerFreezedUNet': nnUNetTrainerFreezedUNet,
-                   'freezed_nonln': nnUNetTrainerFreezedNonLN, 'nnUNetTrainerFreezedNonLN': nnUNetTrainerFreezedNonLN}
-
-
     # -------------------------------
     # Extract arguments from parser
     # -------------------------------
     # -- Extract parser (nnUNet) arguments -- #
     args = parser.parse_args()
     network = args.network
-    network_trainer = str(trainer_map[extension]).split('.')[-1][:-2]
+    network_trainer = str(TRAINER_MAP[extension]).split('.')[-1][:-2]
     validation_only = args.validation_only
     plans_identifier = args.p
     find_lr = args.find_lr
@@ -390,7 +366,7 @@ def run_training(extension='multihead'):
                   "changed from previous one..")
 
         # -- Ensure that init_seq only works for EWC trainers since no other trainer stores the fisher and param values -- #
-        if init_seq and prev_trainer != str(trainer_map[extension]).split('.')[-1][:-2]:
+        if init_seq and prev_trainer != str(TRAINER_MAP[extension]).split('.')[-1][:-2]:
             assert False, "You can only use a pre-trained EWC model as a base and no other model, since the corresponding"+\
                           " parameters that are necessary for every task are not stored in any other trainer."
 
@@ -416,7 +392,7 @@ def run_training(extension='multihead'):
                   "changed from previous one..")
 
         # -- Ensure that init_seq only works for EWC trainers since no other trainer stores the fisher and param values -- #
-        if init_seq and prev_trainer != str(trainer_map[extension]).split('.')[-1][:-2]:
+        if init_seq and prev_trainer != str(TRAINER_MAP[extension]).split('.')[-1][:-2]:
             assert False, "You can only use a pre-trained RW model as a base and no other model, since the corresponding"+\
                           " parameters that are necessary for every task are not stored in any other trainer."
 
@@ -655,7 +631,7 @@ def run_training(extension='multihead'):
                     began_with = tasks[0]
                     init_seq = True
                     # -- Set the prev_trainer and the init_identifier so the trainer will be build correctly -- #
-                    prev_trainer = trainer_map.get(already_trained_on[str(t_fold)]['prev_trainer'][-1], None)
+                    prev_trainer = TRAINER_MAP.get(already_trained_on[str(t_fold)]['prev_trainer'][-1], None)
                     init_identifier = already_trained_on[str(t_fold)]['used_identifier']
 
                 else:
@@ -683,7 +659,7 @@ def run_training(extension='multihead'):
                     # -- If running_task_list is empty, the training failed at very first task, -- #
                     # -- so nothing needs to be changed, simply continue with the training -- #
                     # -- Set the prev_trainer and the init_identifier so the trainer will be build correctly -- #
-                    prev_trainer = trainer_map.get(already_trained_on[str(t_fold)]['prev_trainer'][-1], None)
+                    prev_trainer = TRAINER_MAP.get(already_trained_on[str(t_fold)]['prev_trainer'][-1], None)
                     init_identifier = already_trained_on[str(t_fold)]['used_identifier']
 
                     # -- Set began_with to first task since at this point it is either a task or it can be None if previous fold was not trained in full -- #
@@ -708,7 +684,7 @@ def run_training(extension='multihead'):
                             "To continue training on the fold {} the same lwf_temperature, ie. \'{}\' needs to be provided, not \'{}\'.".format(t_fold, trained_on_folds['used_lwf_temperature'], lwf_temperature)
                 
                     # -- Ensure that lambda and scales are not changed when using plop or pod method --- #
-                    if extension == 'plop' or 'pod':
+                    if extension == 'plop' or extension == 'pod':
                         assert pod_lambda == float(trained_on_folds['used_pod_lambda']),\
                             "To continue training on the fold {} the same lambda, ie. \'{}\' needs to be provided, not \'{}\'.".format(t_fold, trained_on_folds['used_pod_lambda'], pod_lambda)
                         assert pod_scales == float(trained_on_folds['used_scales']),\
@@ -748,7 +724,7 @@ def run_training(extension='multihead'):
                     prev_trainer = None
                     init_identifier = default_plans_identifier
                 else:
-                    prev_trainer = trainer_map.get(already_trained_on[str(t_fold)]['prev_trainer'][-1], None)
+                    prev_trainer = TRAINER_MAP.get(already_trained_on[str(t_fold)]['prev_trainer'][-1], None)
                     init_identifier = already_trained_on[str(t_fold)]['used_identifier']
                 
                 # -- Set began_with to first task since at this point it is either a task or it can be None if previous fold was not trained in full -- #
@@ -778,7 +754,7 @@ def run_training(extension='multihead'):
             # -- Check that network_trainer is of the right type -- #
             if idx == 0 and not continue_training:
                 # -- At the first task, the base model can be a nnunet model, later, only current extension models are permitted -- #
-                possible_trainers = set(trainer_map.values())   # set to avoid the double values, since every class is represented twice
+                possible_trainers = set(TRAINER_MAP.values())   # set to avoid the double values, since every class is represented twice
                 assert issubclass(trainer_class, tuple(possible_trainers)),\
                     "Network_trainer was found but is not derived from a provided extension nor nnUNetTrainerV2."\
                     " When using this function, it is only permitted to start with an nnUNetTrainerV2 or a provided extensions"\
@@ -786,11 +762,11 @@ def run_training(extension='multihead'):
                     " nnunet command to train."
             else:
                 # -- Now, at a later stage, only trainer based on extension permitted! -- #
-                assert issubclass(trainer_class, trainer_map[extension]),\
+                assert issubclass(trainer_class, TRAINER_MAP[extension]),\
                     "Network_trainer was found but is not derived from {}."\
                     " When using this function, only {} trainers are permitted."\
                     " So choose {}"\
-                    " as a network_trainer corresponding to the network, or use the convential nnunet command to train.".format(trainer_map[extension], extension, trainer_map[extension])
+                    " as a network_trainer corresponding to the network, or use the convential nnunet command to train.".format(TRAINER_MAP[extension], extension, TRAINER_MAP[extension])
             
             # -- Load trainer from last task and initialize new trainer if continue training is not set -- #
             if idx == 0 and init_seq:

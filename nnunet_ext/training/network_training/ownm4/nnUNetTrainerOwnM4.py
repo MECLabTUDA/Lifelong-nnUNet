@@ -265,7 +265,7 @@ class nnUNetTrainerOwnM4(nnUNetTrainerMultiHead):
             self.already_trained_on[str(self.fold)]['params_at'] = join(self.ewc_data_path, 'param_values.pkl')
             
             # -- Save the updated dictionary as a json file -- #
-            save_json(self.already_trained_on, join(self.trained_on_path, self.extension+'_trained_on.json'))
+            save_json(self.already_trained_on, join(self.trained_on_path, self.extension+'_trained_on.pkl'))
             # -- Update self.init_tasks so the storing works properly -- #
             self.update_init_args()
             # -- Resave the final model pkl file so the already trained on is updated there as well -- #
@@ -314,7 +314,8 @@ class nnUNetTrainerOwnM4(nnUNetTrainerMultiHead):
                     # -- Extract the old results using the old network -- #
                     if self.split_gpu and not self.use_vit:
                         data = to_cuda(data, gpu_id=1)
-                    output_o = self.network_old(data).detach() # --> self.old_interm_results is filled with intermediate result now!
+                    output_o = self.network_old(data) # --> self.old_interm_results is filled with intermediate result now!
+                    (x.detach for x in output_o)
                     del data
                     if not no_loss:
                         if self.do_pod:
@@ -333,7 +334,8 @@ class nnUNetTrainerOwnM4(nnUNetTrainerMultiHead):
                 output = self.network(data)
                 if self.split_gpu and not self.use_vit:
                     data = to_cuda(data, gpu_id=1)
-                output_o = self.network_old(data).detach()
+                output_o = self.network_old(data)
+                (x.detach for x in output_o)
                 del data
                 if not no_loss:
                     if self.do_pod:
