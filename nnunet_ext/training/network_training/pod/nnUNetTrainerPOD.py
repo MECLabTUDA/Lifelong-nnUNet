@@ -22,14 +22,14 @@ class nnUNetTrainerPOD(nnUNetTrainerPLOP):
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
                  identifier=default_plans_identifier, extension='pod', pod_lambda=1e-2, scales=3, tasks_list_with_char=None,
                  mixed_precision=True, save_csv=True, del_log=False, use_vit=False, vit_type='base', version=1, split_gpu=False,
-                 transfer_heads=True, use_param_split=False, ViT_task_specific_ln=False, do_LSA=False, do_SPT=False, network=None):
+                 transfer_heads=True, ViT_task_specific_ln=False, do_LSA=False, do_SPT=False, network=None, use_param_split=False):
         r"""Constructor of POD trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
         """
         # -- Initialize using parent class -- #
         super().__init__(split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic,
                          fp16, save_interval, already_trained_on, use_progress, identifier, extension, pod_lambda, scales, tasks_list_with_char,
-                         mixed_precision, save_csv, del_log, use_vit, vit_type, version, split_gpu, transfer_heads, use_param_split,
-                         ViT_task_specific_ln, do_LSA, do_SPT, network)
+                         mixed_precision, save_csv, del_log, use_vit, vit_type, version, split_gpu, transfer_heads,
+                         ViT_task_specific_ln, do_LSA, do_SPT, network, use_param_split)
         
         # -- Remove placeholders from PLOP method that are not used here -- #
         del self.thresholds, self.max_entropy
@@ -68,11 +68,12 @@ class nnUNetTrainerPOD(nnUNetTrainerPLOP):
         """
         # -- Create a deepcopy of the previous, ie. currently set model if we do PLOP training -- #
         if task not in self.mh_network.heads:
-            self.network_old = copy.deepcopy(self.network)
-            # -- Save this network using checkpoint saving for restoring purposes -- #
-            self.save_checkpoint(join(self.output_folder, "model_latest.model"), old_model=True, fname_old=join(self.output_folder, "model_old.model"))
-
             if self.split_gpu and not self.use_vit:
+                self.network.to('cpu')
+            self.network_old = copy.deepcopy(self.network)
+            
+            if self.split_gpu and not self.use_vit:
+                self.network.cuda(0)
                 self.network_old.cuda(1)    # Put on second GPU
             
             # -- Register the hook here as well -- #

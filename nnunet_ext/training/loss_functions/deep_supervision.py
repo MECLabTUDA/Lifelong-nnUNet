@@ -5,6 +5,7 @@
 import torch, copy
 import torch.nn as nn
 import torch.nn.functional as F
+from nnunet.utilities.to_torch import to_cuda
 from nnunet_ext.training.loss_functions.embeddings import *
 from nnunet_ext.training.loss_functions.crossentropy import *
 from nnunet_ext.training.loss_functions.knowledge_distillation import *
@@ -238,6 +239,11 @@ class MultipleOutputLossPLOP(nn.Module):
         assert isinstance(x, (tuple, list)), "x must be either tuple or list"
         assert isinstance(x_o, (tuple, list)), "x_o must be either tuple or list"
         assert isinstance(y, (tuple, list)), "y must be either tuple or list"
+
+        # -- Put x and y on same GPU as the thresholds if that is not already done -- #
+        x = [i.cuda(self.thresholds[0].device) for i in x]
+        x_o = [i.cuda(self.thresholds[0].device) for i in x_o]
+        y = [i.cuda(self.thresholds[0].device) for i in y]
         
         # -- Calculate the modified cross-entropy -- #
         if self.weight_factors is None:
@@ -253,6 +259,7 @@ class MultipleOutputLossPLOP(nn.Module):
         # -- Update the loss as proposed in the paper and return this loss to the calling function instead -- #
         dist_loss = 0
         for name, h_old in self.old_interm_results.items(): # --> Loop over every Layer
+            h_old = to_cuda(h_old, gpu_id=self.interm_results[name].device)
             # -- Add the local POD loss as distillation loss ontop of the original loss value -- #
             dist_loss += self.pod_lambda * local_POD(self.interm_results[name], h_old, self.scales)
             # -- NOTE: The adaptive weighting \sqrt(|C^{1:t}| / |C^{t}|) is not necessary for us -- #
@@ -262,9 +269,10 @@ class MultipleOutputLossPLOP(nn.Module):
             dist_loss /= self.num_layers # Divide by the number of layers we looped through
         
         # -- Empty the variable that hold the data -- #
-        self.thresholds, self.max_entropy, self.interm_results, self.old_interm_results
+        del self.thresholds, self.max_entropy, self.interm_results, self.old_interm_results
 
         # -- Return the updated loss value -- #
+        pseudo_loss = to_cuda(pseudo_loss, gpu_id=dist_loss.device)
         return pseudo_loss + dist_loss
 
     def _pseudo_label_loss(self, x, x_o, y, idx):
@@ -349,6 +357,7 @@ class MultipleOutputLossPOD(MultipleOutputLoss2):
         dist_loss = 0
 
         for name, h_old in self.old_interm_results.items(): # --> Loop over every Layer
+            h_old = to_cuda(h_old, gpu_id=self.interm_results[name].device)
             # -- Add the local POD loss as distillation loss ontop of the original loss value -- #
             dist_loss += self.pod_lambda * local_POD(self.interm_results[name], h_old, self.scales)
             # -- NOTE: The adaptive weighting \sqrt(|C^{1:t}| / |C^{t}|) is not necessary for us -- #

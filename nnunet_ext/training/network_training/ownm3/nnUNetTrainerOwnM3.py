@@ -20,15 +20,15 @@ class nnUNetTrainerOwnM3(nnUNetTrainerOwnM1):
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
                  identifier=default_plans_identifier, extension='ownm3', ewc_lambda=0.4, mib_alpha=1., lkd=10, pod_lambda=1e-2,
                  scales=3, tasks_list_with_char=None, mixed_precision=True, save_csv=True, del_log=False, use_vit=True,
-                 vit_type='base', version=1, split_gpu=False, transfer_heads=True, use_param_split=False,
-                 ViT_task_specific_ln=False, do_pod=True, do_LSA=False, do_SPT=False, network=None):
+                 vit_type='base', version=1, split_gpu=False, transfer_heads=True,
+                 ViT_task_specific_ln=False, do_pod=True, do_LSA=False, do_SPT=False, network=None, use_param_split=False):
         r"""Constructor of our own trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
         """
         # -- Initialize using parent class -- #
         super().__init__(split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic,
                          fp16, save_interval, already_trained_on, use_progress, identifier, extension, ewc_lambda, mib_alpha,
                          lkd, pod_lambda, scales, tasks_list_with_char, mixed_precision, save_csv, del_log, use_vit, vit_type,
-                         version, split_gpu, transfer_heads, use_param_split, ViT_task_specific_ln, do_pod, do_LSA, do_SPT, network)
+                         version, split_gpu, transfer_heads, ViT_task_specific_ln, do_pod, do_LSA, do_SPT, network, use_param_split)
         
         # -- Define the path where the fisher and param values should be stored/restored -- #
         self.ewc_data_path = join(self.trained_on_path, 'ewc_data_ownm3')

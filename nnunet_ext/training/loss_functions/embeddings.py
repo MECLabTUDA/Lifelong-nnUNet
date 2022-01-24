@@ -31,9 +31,9 @@ def local_POD(h_, h_old, scales):
                     # -- Calculate the POD embeddings for the extracted slice based on i and j -- #
                     pod_ = pod_embed(h_[..., i:i+w, j:j+h])
                     pod_old = pod_embed(h_old[..., i:i+w, j:j+h])
-                    # -- In-Place concatenation of the POD embeddings along channels axis -- #
-                    POD_ = pod_ if POD_ is None else torch.cat((POD_, pod_), dim=2)                  # concat over channel axis --> 0 batch 1 channel ?
-                    POD_old = pod_old if POD_old is None else torch.cat((POD_old, pod_old), dim=2)   # concat over channel axis --> 0 batch 1 channel ?
+                    # -- In-Place concatenation of the POD embeddings along channels axis --> use last one sine they are different -- #
+                    POD_ = pod_ if POD_ is None else torch.cat((POD_, pod_), dim=-1)                  # concat over last dim since those might be different
+                    POD_old = pod_old if POD_old is None else torch.cat((POD_old, pod_old), dim=-1)   # concat over last dim since those might be different
 
         # -- Return the L2 distance between the POD embeddings based on their original implementation from here: -- #
         # -- https://github.com/arthurdouillard/CVPR2021_PLOP/blob/0fb13774735961a6cb50ccfee6ca99d0d30b27bc/train.py#L934 -- #

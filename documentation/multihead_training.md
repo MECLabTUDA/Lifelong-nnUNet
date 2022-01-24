@@ -82,13 +82,14 @@ All the so far provided examples use the [Generic_UNet](https://github.com/MIC-D
                                                --use_vit -v 1 -v_type base [--use_mult_gpus ...]
 ```
 
-In a next use case, the same settings as in the previous one apply, except that the LayerNorm layers of the ViT should be task specific:
+In a next use case, the same settings as in the previous one apply, except that the LayerNorm layers of the ViT should be task specific while using the Shifted Path Tokenization and Locality Self-Attention method as proposed [here](https://arxiv.org/pdf/2112.13492v1.pdf):
 ```bash
                     ~ $ source ~/.bashrc
                     ~ $ source activate <your_anaconda_env>
 (<your_anaconda_env>) $ nnUNet_train_multihead 3d_fullres -t 11 12 13 -f 0 --task_specific_ln
                                                -num_epoch 250 -d <GPU_ID> -save_interval 25 -s seg_outputs --store_csv
-                                               --use_vit -v 1 -v_type base [--use_mult_gpus ...]                
+                                               --use_vit -v 1 -v_type base --do_LSA --do_SPT
+                                               [--use_mult_gpus ...]                
 ```
 
 Last but not least, the following example shows how to use a pre-trained nnU-Net as a foundation (trained on `Task011_XYZ` with `nnUNetTrainerV2` Trainer) to continue training on using new tasks (`Task012_XYZ` and `Task013_XYZ`). Note that this has not been used and thus not tested yet:

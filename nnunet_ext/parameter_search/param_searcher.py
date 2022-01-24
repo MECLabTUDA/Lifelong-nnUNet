@@ -246,27 +246,30 @@ class ParamSearcher():
         # -- Create a single experiment if this is not done in paralllel -- #
         if not self.run_in_parallel:
             # -- Run the experiment for all provided settings -- #
-            for exp, sets in self.experiments.items():
-                self.summary = print_to_log_file(self.summary, None, '', "Start running the experiment {} using trainer {}.".format(exp, self.network_trainer))
-                # -- Add the experiment to the set of started experiments --> there are no duplicates -- #
-                # -- Store the backup file -- #
-                self._store_backup_file()
-                cont = exp in self.backup_information['started_experiments']    # Flag if continue with training or from beginning
-                self.backup_information['started_experiments'].add(exp)
-                # -- Run the experiment -- #
-                available_gpus = os.environ["CUDA_VISIBLE_DEVICES"].split(',')
-                e_id, eval_res_pth = exp_.run_experiment(exp_id = exp, settings = sets, settings_in_folder_name = True, gpu_ids = available_gpus, continue_tr = cont)
-                self.summary = print_to_log_file(self.summary, None, '', 'Finished the experiment.')
-                
-                # -- Join and save the results -- #
-                self._join_save_results(e_id, eval_res_pth)
+            with tqdm.tqdm(total = len(self.experiments.keys()), desc = 'Experiments') as pbar:
+                for exp, sets in self.experiments.items():
+                    self.summary = print_to_log_file(self.summary, None, '', "Start running the experiment {} using trainer {}.".format(exp, self.network_trainer))
+                    # -- Add the experiment to the set of started experiments --> there are no duplicates -- #
+                    # -- Store the backup file -- #
+                    self._store_backup_file()
+                    cont = exp in self.backup_information['started_experiments']    # Flag if continue with training or from beginning
+                    self.backup_information['started_experiments'].add(exp)
+                    # -- Run the experiment -- #
+                    available_gpus = os.environ["CUDA_VISIBLE_DEVICES"].split(',')
+                    with suppress_stdout(): # --> Not interested in the output that is printed
+                        e_id, eval_res_pth = exp_.run_experiment(exp_id = exp, settings = sets, settings_in_folder_name = True, gpu_ids = available_gpus, continue_tr = cont)
+                    pbar.update()
+                    self.summary = print_to_log_file(self.summary, None, '', 'Finished the experiment.')
+                    
+                    # -- Join and save the results -- #
+                    self._join_save_results(e_id, eval_res_pth)
 
-                # -- Add finished experiment to backup file -- #
-                self.backup_information['finished_experiments'].add(e_id)
-                # -- Remove the experiment from the list of started experiments -- #
-                self.backup_information['started_experiments'].remove(exp)
-                # -- Store the backup file -- #
-                self._store_backup_file()
+                    # -- Add finished experiment to backup file -- #
+                    self.backup_information['finished_experiments'].add(e_id)
+                    # -- Remove the experiment from the list of started experiments -- #
+                    self.backup_information['started_experiments'].remove(exp)
+                    # -- Store the backup file -- #
+                    self._store_backup_file()
         else:
             # -- Extract the list of GPUs -- #
             gpus = len(os.environ["CUDA_VISIBLE_DEVICES"].split(','))
@@ -293,12 +296,12 @@ class ParamSearcher():
                         args.append(kwargs)
                         idx += 1    # Use this because we go in two steps instead of one
                         # -- If the experiments and step size does not match perfectly there might be an overflow, so catch it -- #
-                        if (run_index + idx) > len(self.experiments.keys())-1:
+                        if (self.e_id_fix + run_index + idx) > len(self.experiments.keys())-1:
                             break
                 else:
                     for gpu_index, gpu_id in enumerate(available_gpus):
                         # -- If the experiments and step size does not match perfectly there might be an overflow, so catch it -- #
-                        if (run_index + gpu_index) > len(self.experiments.keys())-1:
+                        if (self.e_id_fix + run_index + gpu_index) > len(self.experiments.keys())-1:
                             break
                         exp_id = 'exp_{}'.format(self.e_id_fix + run_index + gpu_index)
                         exp_args = self.experiments[exp_id]

@@ -26,14 +26,14 @@ class nnUNetTrainerPLOP(nnUNetTrainerMultiHead):
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
                  identifier=default_plans_identifier, extension='plop', pod_lambda=1e-2, scales=3, tasks_list_with_char=None,
                  mixed_precision=True, save_csv=True, del_log=False, use_vit=False, vit_type='base', version=1, split_gpu=False,
-                 transfer_heads=True, use_param_split=False, ViT_task_specific_ln=False, do_LSA=False, do_SPT=False, network=None):
+                 transfer_heads=True, ViT_task_specific_ln=False, do_LSA=False, do_SPT=False, network=None, use_param_split=False):
         r"""Constructor of PLOP trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
         """
         # -- Initialize using parent class -- #
         super().__init__(split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic,
                          fp16, save_interval, already_trained_on, use_progress, identifier, extension, tasks_list_with_char,
-                         mixed_precision, save_csv, del_log, use_vit, vit_type, version, split_gpu, transfer_heads, use_param_split,
-                         ViT_task_specific_ln, do_LSA, do_SPT, network)
+                         mixed_precision, save_csv, del_log, use_vit, vit_type, version, split_gpu, transfer_heads,
+                         ViT_task_specific_ln, do_LSA, do_SPT, network, use_param_split)
         
         # -- Set the lambda scales variable for the PLOP Loss calculation during training -- #
         self.pod_lambda = pod_lambda
@@ -82,7 +82,7 @@ class nnUNetTrainerPLOP(nnUNetTrainerMultiHead):
 
         # -- Reset the batch size to something that should fit for every network, so something small but not too small. -- #
         # -- Otherwise the sizes for the convolutional outputs (ie. the batch dim) don't match and they have to -- #
-        self.batch_size = 100
+        self.batch_size = 100 if '2d' in self.network_name else 25
         self.already_trained_on[str(self.fold)]['used_batch_size'] = int(self.batch_size)
 
         # -- Create a backup loss, so we can switch between original and PLOP loss -- #
@@ -186,11 +186,12 @@ class nnUNetTrainerPLOP(nnUNetTrainerMultiHead):
         """
         # -- Create a deepcopy of the previous, ie. currently set model if we do PLOP training -- #
         if task not in self.mh_network.heads:
-            self.network_old = copy.deepcopy(self.network)
-            # -- Save this network using checkpoint saving for restoring purposes -- #
-            self.save_checkpoint(join(self.output_folder, "model_latest.model"), old_model=True, fname_old=join(self.output_folder, "model_old.model"))
-
             if self.split_gpu and not self.use_vit:
+                self.network.to('cpu')
+            self.network_old = copy.deepcopy(self.network)
+            
+            if self.split_gpu and not self.use_vit:
+                self.network.cuda(0)
                 self.network_old.cuda(1)    # Put on second GPU
 
             # -- Extract the self.thresholds and self.max_entropy values -- #
@@ -258,9 +259,9 @@ class nnUNetTrainerPLOP(nnUNetTrainerMultiHead):
                     (x.detach for x in output_o)
                     del data
                     # -- Put old_interm_results on same GPU as interm_results -- #
-                    if self.split_gpu and not self.use_vit:
-                        for key in self.old_interm_results:
-                            self.old_interm_results[key] = to_cuda(self.old_interm_results[key], gpu_id=self.interm_results[key].device)
+                    # if self.split_gpu and not self.use_vit:
+                    #     for key in self.old_interm_results:
+                    #         self.old_interm_results[key] = to_cuda(self.old_interm_results[key], gpu_id=self.interm_results[key].device)
 
                     # -- Update the loss with the data -- #
                     if pod:
@@ -286,9 +287,9 @@ class nnUNetTrainerPLOP(nnUNetTrainerMultiHead):
                 (x.detach for x in output_o)
                 del data
                 # -- Put old_interm_results on same GPU as interm_results -- #
-                if self.split_gpu and not self.use_vit:
-                    for key in self.old_interm_results:
-                        self.old_interm_results[key] = to_cuda(self.old_interm_results[key], gpu_id=self.interm_results[key].device)
+                # if self.split_gpu and not self.use_vit:
+                #     for key in self.old_interm_results:
+                #         self.old_interm_results[key] = to_cuda(self.old_interm_results[key], gpu_id=self.interm_results[key].device)
                 # -- Update the loss with the data -- #
                 if pod:
                     self.loss.update_plop_params(self.old_interm_results, self.interm_results)
@@ -348,5 +349,5 @@ class nnUNetTrainerPLOP(nnUNetTrainerMultiHead):
             if old:
                 self.old_interm_results[name]  = output.detach()     # Store the output in the dict at corresponding name
             else:
-                self.interm_results[name] = output.detach()     # Store the output in the dict at corresponding name
+                self.interm_results[name] = output.detach()          # Store the output in the dict at corresponding name
         return hook

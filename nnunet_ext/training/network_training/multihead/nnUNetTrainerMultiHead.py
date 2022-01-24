@@ -40,7 +40,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
                  identifier=default_plans_identifier, extension='multihead', tasks_list_with_char=None, mixed_precision=True,
                  save_csv=True, del_log=False, use_vit=False, vit_type='base', version=1, split_gpu=False, transfer_heads=False,
-                 use_param_split=False, ViT_task_specific_ln=False, do_LSA=False, do_SPT=False, network=None):
+                 ViT_task_specific_ln=False, do_LSA=False, do_SPT=False, network=None, use_param_split=False):
         r"""Constructor of Multi Head Trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
             The transfer_heads flag is used when adding a new head, if True, the state_dict from the last head will be used
             instead of the one from the initialization. This is the basic transfer learning (difference between MH and SEQ folder structure).
@@ -350,7 +350,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                                                    num_classes=self.num_classes, num_pool=len(self.net_num_pool_op_kernel_sizes),\
                                                    patch_size=patch_size.tolist(), vit_version=self.version, vit_type=self.vit_type,\
                                                    split_gpu=self.split_gpu, ViT_task_specific_ln=self.ViT_task_specific_ln,\
-                                                   first_task_name=self.tasks_list_with_char[0][0])
+                                                   first_task_name=self.tasks_list_with_char[0][0], do_LSA=self.LSA, do_SPT=self.SPT)
             else:
                 # -- Initialize from beginning and start training, since no model is provided -- #
                 super().initialize_network() # --> This updates the corresponding variables automatically since we inherit this class
@@ -425,7 +425,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                                                num_classes=self.num_classes, num_pool=len(self.net_num_pool_op_kernel_sizes),\
                                                patch_size=self.patch_size.tolist(), vit_version=self.version, vit_type=self.vit_type,\
                                                split_gpu=self.split_gpu, ViT_task_specific_ln=self.ViT_task_specific_ln,\
-                                               first_task_name=self.tasks_list_with_char[0][0])
+                                               first_task_name=self.tasks_list_with_char[0][0], do_LSA=self.LSA, do_SPT=self.SPT)
         else:
             self.mh_network = self.trainer_model.mh_network
 

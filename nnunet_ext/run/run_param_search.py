@@ -3,11 +3,25 @@
 #-----------                            trainer version.                                    ------------#
 #########################################################################################################
 
-import os, argparse
+import os, argparse, nnunet_ext
 from nnunet_ext.utilities.helpful_functions import *
 from nnunet_ext.parameter_search.param_searcher import ParamSearcher
 from nnunet.utilities.task_name_id_conversion import convert_id_to_task_name
 from nnunet_ext.paths import param_search_output_dir, default_plans_identifier
+
+
+# -- Extract all extensional trainers in a more generic way -- #
+extension_keys = [x for x in os.listdir(os.path.join(nnunet_ext.__path__[0], "training", "network_training")) if 'py' not in x]
+trainer_keys = list()
+for ext in extension_keys:
+    trainer_name = [x[:-3] for x in os.listdir(os.path.join(nnunet_ext.__path__[0], "training", "network_training", ext)) if '.py' in x]
+    trainer_keys.extend(trainer_name)
+# -- Sort based on the string but do this only on the lower keys  -- #
+extension_keys.sort(key=lambda x: x.lower()), trainer_keys.sort(key=lambda x: x.lower())
+# -- Build mapping for network_trainer to corresponding extension name -- #
+EXT_MAP = dict(zip(trainer_keys, extension_keys))
+# NOTE: sorted_pairs does not include the nnViTUNetTrainer!
+
 
 def run_param_search():
     # -- First of all check that evaluation_output_dir is set otherwise we do not perform an evaluation -- #
@@ -158,15 +172,6 @@ def run_param_search():
     parser.add_argument('--do_SPT', action='store_true', default=False,
                         help='Set this flag if Shifted Patch Tokenization should be used for the ViT.')
 
-    # -- Build mapping for network_trainer to corresponding extension name -- #
-    ext_map = {'nnUNetTrainerMiB': 'mib', 'nnUNetTrainerPLOP': 'plop',
-               'nnUNetTrainerFreezedViT': 'freezed_vit', 'nnUNetTrainerEWCViT': 'ewc_vit',
-               'nnUNetTrainerFreezedNonLN': 'freezed_nonln', 'nnUNetTrainerEWCLN': 'ewc_ln',
-               'nnUNetTrainerMultiHead': 'multihead', 'nnUNetTrainerSequential': 'sequential',
-               'nnUNetTrainerFreezedUNet': 'freezed_unet', 'nnUNetTrainerEWCUNet': 'ewc_unet',
-               'nnUNetTrainerOwnM1': 'ownm1', 'nnUNetTrainerOwnM2': 'ownm2', 'nnUNetTrainerPOD': 'pod',
-               'nnUNetTrainerOwnM3': 'ownm3', 'nnUNetTrainerOwnM4': 'ownm4', 'nnUNetTrainerRW': 'rw',
-               'nnUNetTrainerRehearsal': 'rehearsal', 'nnUNetTrainerEWC': 'ewc', 'nnUNetTrainerLWF': 'lwf'}
 
     # -------------------------------
     # Extract arguments from parser
@@ -337,7 +342,7 @@ def run_param_search():
                   'deterministic': deterministic, 'fp16': mixed_precision, 'find_lr': find_lr, 'valbest': valbest,
                   'plans_identifier': plans_identifier, 'val_folder': val_folder, 'disable_postprocessing_on_folds': disable_postprocessing_on_folds,
                   'val_disable_overwrite': val_disable_overwrite, 'disable_next_stage_pred': disable_next_stage_pred}
-    param_args = {'save_interval': save_interval, 'extension': ext_map[network_trainer], 'split_at': split,
+    param_args = {'save_interval': save_interval, 'extension': EXT_MAP[network_trainer], 'split_at': split,
                   'tasks_list_with_char': copy.deepcopy(tasks_list_with_char), 'continue_training': continue_training, 'do_pod': do_pod,
                   'mixed_precision': mixed_precision, 'use_vit': use_vit, 'vit_type': vit_type, 'version': version, 'num_epochs': num_epochs,
                   'split_gpu': split_gpu, 'transfer_heads': transfer_heads, 'ViT_task_specific_ln': ViT_task_specific_ln, 'fold': fold,

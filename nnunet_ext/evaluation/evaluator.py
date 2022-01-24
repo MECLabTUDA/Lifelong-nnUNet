@@ -78,7 +78,6 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
             :param eval_mode_for_lns: Specifies how the evaluation is performed when using task specific LNs wrt to the LNs (last_lns or corr_lns).
             :param trainer_path: Specifies part to the trainer network including the fold_X being the last folder of the path (only used for parameter search method).
             :param output_path: Specifies part where the eval results are stored excluding the fold_X (only used for parameter search method).
-
         """
         # ---------------------------------------------
         # Evaluate for each task and all provided folds
