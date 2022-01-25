@@ -3,6 +3,20 @@
 # implementation, we separate this from model_restore to avoid circular imports.
 #########################################################################################################
 
+import torch
+import torch.nn as nn
+import importlib, pkgutil, nnunet, nnunet_ext
+from batchgenerators.utilities.file_and_folder_operations import *
+from nnunet.training.model_restore import recursive_find_python_class
+from nnunet_ext.run.default_configuration import get_default_configuration
+from nnunet.run.default_configuration import get_default_configuration as get_default_configuration_orig
+
+# -- Import the trainer classes -- #
+from nnunet.training.network_training.nnUNetTrainer import nnUNetTrainer
+from nnunet_ext.training.network_training.nnViTUNetTrainer import nnViTUNetTrainer
+from nnunet_ext.training.network_training.multihead.nnUNetTrainerMultiHead import nnUNetTrainerMultiHead
+
+
 # -------------------- Arguments are different from the original nnUNet -------------------- #
 def load_model_and_checkpoint_files(params, folder, folds=None, mixed_precision=None, checkpoint_name="model_best"):
     """

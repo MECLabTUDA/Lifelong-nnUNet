@@ -3,18 +3,11 @@
 #----------inspired by original implementation (--> model_restore), copied code is marked as such.------#
 #########################################################################################################
 
-import torch
-import torch.nn as nn
 import importlib, pkgutil, nnunet, nnunet_ext
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet.training.model_restore import recursive_find_python_class
-from nnunet_ext.run.default_configuration import get_default_configuration
-from nnunet.run.default_configuration import get_default_configuration as get_default_configuration_orig
-
-# -- Import the trainer classes -- #
 from nnunet.training.network_training.nnUNetTrainer import nnUNetTrainer
 from nnunet_ext.training.network_training.nnViTUNetTrainer import nnViTUNetTrainer
-from nnunet_ext.training.network_training.multihead.nnUNetTrainerMultiHead import nnUNetTrainerMultiHead
 
 def recursive_find_python_class_file(folder, trainer_name, current_module):
     r"""This returns the file to import, but not the actual class within this file.
@@ -142,5 +135,3 @@ def restore_model(pkl_file, checkpoint=None, train=False, fp16=True, use_extensi
 
     return trainer
     # -------------------- From nnUNet implementation (modifed, but same output) -------------------- #
-
-
