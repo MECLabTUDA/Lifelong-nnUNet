@@ -196,6 +196,7 @@ def run_inference():
     # -- Build all necessary task lists -- #
     tasks_for_folder = list()
     use_model_w_tasks = list()
+    evaluate_on_tasks = list()
     if use_head is not None:
         use_head = convert_id_to_task_name(int(use_head)) if not use_head.startswith("Task") else use_head
     for idx, t in enumerate(trained_on):
@@ -212,6 +213,13 @@ def run_inference():
             t = convert_id_to_task_name(task_id)
         # -- Add corresponding task in dictoinary -- #
         use_model_w_tasks.append(t)
+    for idx, t in enumerate(evaluate_on):
+        # -- Convert task ids to names if necessary --> can be then omitted later on by just using the tasks list with all names in it -- #
+        if not t.startswith("Task"):
+            task_id = int(t)
+            t = convert_id_to_task_name(task_id)
+        # -- Add corresponding task in dictoinary -- #
+        evaluate_on_tasks.append(t)
 
     char_to_join_tasks = '_'
     
@@ -292,8 +300,8 @@ def run_inference():
         'tasks': None,
         'use_head': use_head,
         'always_use_last_head': always_use_last_head,
-        'extension': extension,
-        'param_split': use_param_split,
+        'extension': ext_map[network_trainer],
+        'param_split': False,
         'network': network,
         'network_trainer': network_trainer,
         'use_model': use_model,
@@ -302,7 +310,6 @@ def run_inference():
         'vit_type': vit_type,
         'version': version
     }
-
 
     predict_from_folder(params_ext, trainer_path, input_folder, output_folder, fold, save_npz, num_threads_preprocessing,
                         num_threads_nifti_save, lowres_segmentations, part_id, num_parts, not disable_tta,
