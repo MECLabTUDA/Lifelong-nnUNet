@@ -5,17 +5,15 @@
 
 import torch
 import torch.nn as nn
-import importlib, pkgutil, nnunet, nnunet_ext
 from batchgenerators.utilities.file_and_folder_operations import *
-from nnunet.training.model_restore import recursive_find_python_class
 from nnunet_ext.run.default_configuration import get_default_configuration
 from nnunet.run.default_configuration import get_default_configuration as get_default_configuration_orig
+from nnunet_ext.training.model_restore import restore_model
 
 # -- Import the trainer classes -- #
-from nnunet.training.network_training.nnUNetTrainer import nnUNetTrainer
 from nnunet_ext.training.network_training.nnViTUNetTrainer import nnViTUNetTrainer
 from nnunet_ext.training.network_training.multihead.nnUNetTrainerMultiHead import nnUNetTrainerMultiHead
-
+import sys
 
 # -------------------- Arguments are different from the original nnUNet -------------------- #
 def load_model_and_checkpoint_files(params, folder, folds=None, mixed_precision=None, checkpoint_name="model_best"):
@@ -44,7 +42,7 @@ def load_model_and_checkpoint_files(params, folder, folds=None, mixed_precision=
 
     # Restore trainer (extension logic)
     trainer_path = folds[0]
-    checkpoint = join(trainer_path, "%s.model.pkl" % checkpoint_name)
+    checkpoint = join(trainer_path, "%s.model" % checkpoint_name)
     pkl_file = checkpoint + ".pkl"
     use_extension = not 'nnUNetTrainerV2' in trainer_path
     trainer = restore_model(pkl_file, checkpoint, train=False, fp16=mixed_precision,\
@@ -90,28 +88,32 @@ def load_model_and_checkpoint_files(params, folder, folds=None, mixed_precision=
     trainer.output_folder = trainer_path
     os.makedirs(trainer.output_folder, exist_ok=True)
         
-    # -- Adapt the already_trained_on with only the prev_trainer part since this is necessary for the validation part -- #
-    trainer.already_trained_on[str(t_fold)]['prev_trainer'] = [nnUNetTrainerMultiHead.__name__]*len(params['tasks'])
-        
     # -- Set the head based on the users input -- #
+    use_head = params['use_head']
     if params['use_head'] is None:
         use_head = list(trainer.mh_network.heads.keys())[-1]
     
+    trainer.network = trainer.mh_network.assemble_model(use_head)
+    for (k_i, k_j) in zip(trainer.mh_network.heads['Task078_I2CVB'].state_dict().items(), trainer.mh_network.heads['Task076_DecathProst'].state_dict().items()):
+        assert k_i[0] == k_j[0]
+        if not torch.equal(k_i[1], k_j[1]):
+            print('NOT EQUAL')
+            print(k_i[0])
+            break
+    print('EQUAL')
+
+    sys.exit()
+
+    # -- Set the correct task_name for training -- #
+    if trainer.use_vit and trainer.ViT_task_specific_ln:
+        trainer.network.ViT.use_task(use_head)
+
     # -- Create a new log_file in the evaluation folder based on changed output_folder -- #
     trainer.print_to_log_file("The {} model trained on {} will be used for this evaluation with the {} head.".format(params['network_trainer'], ', '.join(params['tasks_list_with_char'][0]), params['use_head']))
     trainer.print_to_log_file("The used checkpoint can be found at {}.".format(join(trainer_path, "model_final_checkpoint.model")))
-    trainer.print_to_log_file("Start performing evaluation on fold {} for the following tasks: {}.\n".format(t_fold, ', '.join(params['tasks'])))
-
-    # -- Delete all heads except the last one if it is a Sequential Trainer, since then always the last head should be used -- #
-    if params['always_use_last_head']:
-        # -- Create new heads dict that only contains the last head -- #
-        last_name = list(trainer.mh_network.heads.keys())[-1]
-        last_head = trainer.mh_network.heads[last_name]
-        trainer.mh_network.heads = nn.ModuleDict()
-        trainer.mh_network.heads[last_name] = last_head
 
     # Additional logic from the original function
     all_best_model_files = [join(i, "%s.model" % checkpoint_name) for i in folds]
     print("using the following model files: ", all_best_model_files)
     all_params = [torch.load(i, map_location=torch.device('cpu')) for i in all_best_model_files]
-    return trainer, all_params
+    return trainer, all_params, all_best_model_files

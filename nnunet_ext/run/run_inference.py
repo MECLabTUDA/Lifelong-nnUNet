@@ -33,7 +33,7 @@ def run_inference():
     parser.add_argument("-i", '--input_folder', help="Must contain all modalities for each patient in the correct"
                                                      " order (same as training). Files must be named "
                                                      "CASENAME_XXXX.nii.gz where XXXX is the modality "
-                                                     "identifier (0000, 0001, etc)", required=True)
+                                                     "identifier (0000, 0001, etc)", required=False)
     parser.add_argument('-o', "--output_folder", required=False, default=None, help="folder for saving predictions")
     parser.add_argument('-chk',
                         help='checkpoint name, model_final_checkpoint' or 'model_best',
@@ -61,6 +61,10 @@ def run_inference():
                               'is not necessary. If this is not set, always the latest trained head will be used.')
     parser.add_argument("--fp32_used", required=False, default=False, action="store_true",
                         help="Specify if mixed precision has been used during training or not")
+    parser.add_argument("-evaluate_on",  action='store', type=str, nargs="+",
+                        help="Specify a list of task ids the network will be evaluated on. "
+                             "Each of these ids must, have a matching folder 'TaskXXX_' in the raw "
+                             "data folder", required=False, default=None)
     parser.add_argument("-d", "--device", action='store', type=int, nargs="+", default=[0],
                         help='Try to train the model on the GPU device with <DEVICE> ID. '+
                             ' Valid IDs: 0, 1, ..., 7. A List of IDs can be provided as well.'+
@@ -130,6 +134,7 @@ def run_inference():
     # -- Extract the arguments specific for all trainers from argument parser -- #
     trained_on = args.trained_on    # List of the tasks that helps to navigate to the correct folder, eg. A B C
     use_model = args.use            # List of the tasks representing the network to use, e. use A B from folder A B C
+    evaluate_on = args.evaluate_on  # List of the tasks that should be used to evaluate the model
     use_head = args.use_head        # One task specifying which head should be used
     if isinstance(use_head, list):
         use_head = use_head[0]
@@ -137,6 +142,8 @@ def run_inference():
     # -- Arguments specific of prediction extraction -- #
     input_folder = args.input_folder
     output_folder = args.output_folder
+    if input_folder is None:
+        assert evaluate_on is not None
 
     # -- Extract further arguments -- #
     fold = args.folds
@@ -294,10 +301,8 @@ def run_inference():
     step_size = 0.5
 
 
-    # tasks ??
     # Additional parameters needed for restoring extension trainers/models
     params_ext = {
-        'tasks': None,
         'use_head': use_head,
         'always_use_last_head': always_use_last_head,
         'extension': ext_map[network_trainer],
@@ -311,12 +316,18 @@ def run_inference():
         'version': version
     }
 
-    predict_from_folder(params_ext, trainer_path, input_folder, output_folder, fold, save_npz, num_threads_preprocessing,
-                        num_threads_nifti_save, lowres_segmentations, part_id, num_parts, not disable_tta,
-                        overwrite_existing=overwrite_existing, mode="normal", overwrite_all_in_gpu=all_in_gpu,
-                        mixed_precision=mixed_precision,
-                        step_size=step_size, checkpoint_name=chk)
-    
+    if input_folder is None:
+        input_folders = [os.path.join(os.environ['nnUNet_raw_data_base'], 'nnUNet_raw_data', task_name, 'imagesTr') for task_name in evaluate_on_tasks]
+
+    else:
+        input_folders = [input_folder]
+
+    for input_folder in input_folders:
+        predict_from_folder(params_ext, trainer_path, input_folder, output_folder, fold, save_npz, num_threads_preprocessing,
+                            num_threads_nifti_save, lowres_segmentations, part_id, num_parts, not disable_tta,
+                            overwrite_existing=overwrite_existing, mode="normal", overwrite_all_in_gpu=all_in_gpu,
+                            mixed_precision=mixed_precision,
+                            step_size=step_size, checkpoint_name=chk)
 
 # -- Main function for setup execution -- #
 def main():

@@ -5,6 +5,7 @@
 
 from copy import deepcopy
 from typing import Tuple, Union, List
+import sys
 
 import numpy as np
 from batchgenerators.augmentations.utils import resize_segmentation
@@ -18,7 +19,7 @@ from multiprocessing import Pool
 from nnunet.postprocessing.connected_components import load_remove_save, load_postprocessing
 from nnunet.training.network_training.nnUNetTrainer import nnUNetTrainer
 from nnunet.utilities.one_hot_encoding import to_one_hot
-from nnunet_ext.training.model_restore import load_model_and_checkpoint_files
+from nnunet_ext.training.model_restore_pred import load_model_and_checkpoint_files
 
 def preprocess_save_to_queue(preprocess_fn, q, list_of_lists, output_files, segs_from_prev_stage, classes,
                              transpose_forward):
@@ -167,7 +168,7 @@ def predict_cases(params_ext, model, list_of_lists, output_filenames, folds, sav
     torch.cuda.empty_cache()
 
     print("loading parameters for folds,", folds)
-    trainer, params = load_model_and_checkpoint_files(params_ext, model, folds, mixed_precision=mixed_precision,
+    trainer, params, all_best_model_files = load_model_and_checkpoint_files(params_ext, model, folds, mixed_precision=mixed_precision,
                                                       checkpoint_name=checkpoint_name)
 
     if segmentation_export_kwargs is None:
@@ -198,14 +199,20 @@ def predict_cases(params_ext, model, list_of_lists, output_filenames, folds, sav
             d = data
 
         print("predicting", output_filename)
-        trainer.load_checkpoint_ram(params[0], False)
+
+        print("trainer", trainer)
+        print("trainer already_trained_on", trainer.already_trained_on)
+
+        #trainer.load_checkpoint(all_best_model_files[0], train=False)
+        #trainer.load_checkpoint_ram(params[0], False)
         softmax = trainer.predict_preprocessed_data_return_seg_and_softmax(
             d, do_mirroring=do_tta, mirror_axes=trainer.data_aug_params['mirror_axes'], use_sliding_window=True,
             step_size=step_size, use_gaussian=True, all_in_gpu=all_in_gpu,
             mixed_precision=mixed_precision)[1]
 
-        for p in params[1:]:
-            trainer.load_checkpoint_ram(p, False)
+        for i, p in enumerate(params[1:]):
+            #trainer.load_checkpoint_ram(p, False)
+            #trainer.load_checkpoint(all_best_model_files[i+1], train=False)
             softmax += trainer.predict_preprocessed_data_return_seg_and_softmax(
                 d, do_mirroring=do_tta, mirror_axes=trainer.data_aug_params['mirror_axes'], use_sliding_window=True,
                 step_size=step_size, use_gaussian=True, all_in_gpu=all_in_gpu,
