@@ -122,9 +122,6 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
                     trainer_path = join(os.path.sep, *trainer_path.split(os.path.sep)[:-1], 'pod' if do_pod else 'no_pod', 'fold_'+str(t_fold))
                     output_path = join(os.path.sep, *output_path.split(os.path.sep)[:-1], 'pod' if do_pod else 'no_pod', 'last_head' if always_use_last_head else 'corresponding_head')
 
-            # -- Create the directory if it does not exist -- #
-            maybe_mkdir_p(output_path)
-
             # -- Load the trainer for evaluation -- #
             print("Loading trainer and setting the network for evaluation")
             # -- Do not add the addition of fold_X to the path -- #
@@ -155,20 +152,31 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
                     # -- Modify prev_trainer_path based on desired version and ViT type -- #
                     if not nnViTUNetTrainer.__name__+'V' in prev_trainer_path:
                         prev_trainer_path = prev_trainer_path.replace(nnViTUNetTrainer.__name__, nnViTUNetTrainer.__name__+self.version)
-                    if self.vit_type != prev_trainer_path.split(os.path.sep)[-1] and self.vit_type not in prev_trainer_path:
-                        prev_trainer_path = os.path.join(prev_trainer_path, self.vit_type)
+                    # -- Add the rest of the arguments to the path -- #
+                    prev_trainer_path = os.path.join(prev_trainer_path, self.vit_type, 'task_specific' if self.ViT_task_specific_ln else 'not_task_specific', folder_n)
 
                 # -- Build a simple MultiHead Trainer so we can use the perform validation function without re-coding it -- #
                 trainer = nnUNetTrainerMultiHead('seg_outputs', self.tasks_list_with_char[0][0], plans_file, t_fold, output_folder=output_path,\
                                                  dataset_directory=dataset_directory, tasks_list_with_char=(self.tasks_list_with_char[0], self.tasks_list_with_char[1]),\
                                                  batch_dice=batch_dice, stage=stage, already_trained_on=None, use_param_split=self.param_split, network=self.network)
-                trainer.initialize(False, num_epochs=0, prev_trainer_path=prev_trainer_path, call_for_eval=True)
-                # -- Reset the epoch -- #
-                trainer.epoch = epoch
+                # -- Remove the trained_on_path if it is empty -- #
+                try:
+                    os.rmdir(trainer.trained_on_path)
+                except:
+                    pass
+                
                 # -- Remove the Generic_UNet/MH part from the ouptput folder -- #
                 if 'nnUNetTrainerV2' in trainer.output_folder:
                     fold_ = trainer.output_folder.split(os.path.sep)[-1]
                     trainer.output_folder = join(os.path.sep, *trainer.output_folder.split(os.path.sep)[:-3], fold_)
+                
+                trainer.initialize(False, num_epochs=0, prev_trainer_path=prev_trainer_path, call_for_eval=True)
+                
+                # -- Reset the epoch -- #
+                trainer.epoch = epoch
+
+            # -- Create the directory if it does not exist -- #
+            maybe_mkdir_p(output_path)
 
             # -- Summarize those informations -- #
             model_sum = pd.DataFrame([], columns = ['network', 'total nr. of parameters', 'trainable parameters', 'model size [in MB]'])
@@ -183,7 +191,7 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
             model_sum = model_sum.append(row_series, ignore_index=True)
 
             # -- For the ViT network -- #
-            if self.use_vit:
+            if self.use_vit or nnViTUNetTrainer.__name__ in trainer_path:
                 row['network'] = 'Vision Transformer (only)'
                 row['total nr. of parameters'], row['trainable parameters'] = get_nr_parameters(trainer.network.ViT)
                 row['model size [in MB]'] = round(get_model_size(trainer.network.ViT), 3)
@@ -213,7 +221,7 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
                 
             # -- Adapt the already_trained_on with only the prev_trainer part since this is necessary for the validation part -- #
             trainer.already_trained_on[str(t_fold)]['prev_trainer'] = [nnUNetTrainerMultiHead.__name__]*len(tasks)
-                
+
             # -- Set the head based on the users input -- #
             if use_head is None:
                 use_head = list(trainer.mh_network.heads.keys())[-1]

@@ -856,12 +856,12 @@ def run_training(extension='multihead'):
                         trainer.load_final_checkpoint(train=False)
 
                 # -- Evaluate the trainers network -- #
-                # trainer.network.eval()
+                trainer.network.eval()
 
-                # # -- Perform validation using the trainer -- #
-                # trainer.validate(save_softmax=args.npz, validation_folder_name=val_folder,
-                #                  run_postprocessing_on_folds=not disable_postprocessing_on_folds,
-                #                  overwrite=args.val_disable_overwrite)
+                # -- Perform validation using the trainer -- #
+                trainer.validate(save_softmax=args.npz, validation_folder_name=val_folder,
+                                 run_postprocessing_on_folds=not disable_postprocessing_on_folds,
+                                 overwrite=args.val_disable_overwrite)
 
             # -- If the models for each sequence should not be stored, delete the last model and only keep the current finished one -- #
             # -- NOTE: If the previous trainer was a nnU-Net, i.e. not an extension, then do not remove it -- #

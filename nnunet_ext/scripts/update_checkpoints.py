@@ -134,15 +134,19 @@ def modify_checkpoints():
     # -- Here, all trainers will be considered in the folders --> This may take a while depending on the amount -- #
     # -- of trained networks -- #
     if recursive:   # use os walk to go through whole directory
-        print("This will modify all checkpoints in the directory: {}.".format(model_base_folder))
+        print("This will modify all checkpoints and plans in the directory: {}.".format(model_base_folder))
         chkpts = [y for x in os.walk(model_base_folder) for y in glob(os.path.join(x[0], '*.model.pkl'))]
+        plans = [y for x in os.walk(model_base_folder) for y in glob(os.path.join(x[0], 'plans.pkl'))]
+        chkpts.extend(plans)
     
     elif recursive_m:
         assert trainer is not None, 'When using the -rm flag please set network_trainer to specify the folder..'
-        print("This will modify all checkpoints in the directory {} belong to network_trainer {}.".format(model_base_folder, trainer))
+        print("This will modify all checkpoints and plans in the directory {} belonging to network_trainer {}.".format(model_base_folder, trainer))
         chkpts = [y for x in os.walk(model_base_folder) for y in glob(os.path.join(x[0], '*.model.pkl')) if trainer in y]
+        plans = [y for x in os.walk(model_base_folder) for y in glob(os.path.join(x[0], 'plans.pkl'))]
+        chkpts.extend(plans)
 
-    else:   # --> User wants a very specific folder, so we obey
+    else:   # --> User wants a very specific folder, so we obey and do not modify the plans file..
         # -- Transform fold to list if it is set to 'all'
         if fold[0] == 'all':
             fold = list(range(5))

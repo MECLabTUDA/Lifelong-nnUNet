@@ -89,11 +89,12 @@ def restore_model(pkl_file, checkpoint=None, train=False, fp16=True, use_extensi
 
     if use_extension and extension_type is not None:    # Only for extensions, with the exception of ViT_U-Net
         assert network is not None, "Please provide the network setting that is used.."
-        trainer = tr(*init, network)
+        trainer = tr(*init, network=network)
         trainer.del_log = del_log
         trainer.param_split = param_search
     else:
         trainer = tr(*init)
+        
     trainer.initialize(train)
 
     # -------------------- From nnUNet implementation (modifed, but same output) -------------------- #

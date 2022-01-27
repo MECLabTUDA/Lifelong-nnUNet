@@ -59,14 +59,14 @@ Let's assume the user wants to modify all checkpoints, ie. the checkpoints of al
 ```
 Note that the user has to provide the network_trainer although it will not be considered, so this can be set to whatever the user wants since it will not be checked any further as long as something is provided. To demonstrate this, we used the wildcart character `_`.
 
-Let's assume the user wants to modify all checkppoints of networks that were trained using the [EWC Trainer](ewc_training.md), without considering if the [Generic_UNet](https://github.com/MIC-DKFZ/nnUNet/blob/master/nnunet/network_architecture/generic_UNet.py#L167) architecture or [Generic_ViT_UNet](https://github.com/camgbus/Lifelong-nnUNet/blob/continual_learning/nnunet_ext/network_architecture/generic_ViT_UNet.py#L14) has been used.
+Let's assume the user wants to modify all checkpoints of networks that were trained using the [EWC Trainer](ewc_training.md), without considering if the [Generic_UNet](https://github.com/MIC-DKFZ/nnUNet/blob/master/nnunet/network_architecture/generic_UNet.py#L167) architecture or [Generic_ViT_UNet](https://github.com/camgbus/Lifelong-nnUNet/blob/continual_learning/nnunet_ext/network_architecture/generic_ViT_UNet.py#L14) has been used.
 ```bash
                     ~ $ source ~/.bashrc
                     ~ $ source activate <your_anaconda_env>
 (<your_anaconda_env>) $ nnUNet_update_checkpoints 3d_fullres nnUNetTrainerEWC -trained_on 11 12 13
                                                   -rm -rw /home/user/admin/ /home/test_env/user/user_xyz/
 ```
-Note that for the first two use cases, all other additional arguments can be set but are irrelevant since they are never used, ie. those two methods will iterate over all folds that the network has been trained on.
+Note that for the first two use cases, all other additional arguments can be set but are irrelevant since they are never used, ie. those two methods will iterate over all folds that the network has been trained on. Further it is important to mention that those flags, ie. `-r` and `-rm` also modify the `plans.pkl` files, whereas the modification of checkpoints of a specific model as shown in the next cases does not modify the `plans.pkl` file.
 
 Let's assume the user wants to modify the checkpoint of a single model. For this we assume the network was again trained on the Tasks `11`, `12`, and `13` and the user only wants to modify the network trained on `11` and `12` using the [MiB Trainer](mib_training.md) on fold 2 and 4.
 ```bash

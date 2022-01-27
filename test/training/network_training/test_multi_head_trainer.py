@@ -2,11 +2,9 @@
 # -- Test suite to test the Multi Head Trainer provided with this extension of the nnUNet -- #
 ##############################################################################################
 
-import torch
 import numpy as np
-import os, sys, copy
-from time import time
 import time as time_mod
+import torch, os, sys, copy, time
 from nnunet.configuration import default_num_threads
 from nnunet_ext.utilities.helpful_functions import *
 from nnunet_ext.paths import nnUNet_raw_data as old_nnUNet_raw_data # Do this otherwise reassignment does not work
@@ -23,7 +21,7 @@ from nnunet.run.default_configuration import get_default_configuration as nn_get
 from nnunet_ext.training.network_training.multihead.nnUNetTrainerMultiHead import nnUNetTrainerMultiHead # Own implemented class
 from batchgenerators.utilities.file_and_folder_operations import maybe_mkdir_p, join, load_json, save_json
 
-def equal_models(model_1, model_2):
+def equal_models(model_1, model_2, two_is_state=False):
     r"""This function is used to compare two PyTorch Modules and return if they are both identical based
         on their state_dicts().
         Based on: https://discuss.pytorch.org/t/check-if-models-have-same-weights/4351/5
@@ -31,9 +29,13 @@ def equal_models(model_1, model_2):
     # -- Set difference counter to 0 -- #
     models_differ = 0
     # -- Loop throught the state_dicts -- #
-    for key_item_1, key_item_2 in zip(model_1.state_dict().items(), model_2.state_dict().items()):
+    if two_is_state:
+        pairs = zip(model_1.state_dict().items(), model_2.items())
+    else:
+        pairs = zip(model_1.state_dict().items(), model_2.state_dict().items())
+    for key_item_1, key_item_2 in pairs:
         # -- When they are identical continue with next loop element -- #
-        if torch.equal(key_item_1[1], key_item_2[1]):
+        if torch.equal(key_item_1[1], key_item_2[1].to(key_item_1[1].device)):
             pass
         # -- If they are not equal -- #
         else:
@@ -56,7 +58,7 @@ def test_multi_head_trainer(ext_map=None, args_f=None):
     # ------ Prepare data for test ------ #
     # ----------------------------------- #
     # -- Get the current timestamp -- #
-    start_time = time()
+    start_time = time.time()
 
     # -- Define the log file and output folder where it will be stored-- #
     log_file = None # Create it in first call
@@ -90,7 +92,7 @@ def test_multi_head_trainer(ext_map=None, args_f=None):
     log_file = print_to_log_file(log_file, output_folder, 'pytest_log', "Take raw data from: {}".format(os.path.dirname(os.path.realpath(old_nnUNet_raw_data))))
     log_file = print_to_log_file(log_file, output_folder, 'pytest_log', "Store raw data with new task names at: {}".format(nnUNet_raw_data))
     log_file = print_to_log_file(log_file, output_folder, 'pytest_log', "Store preprocessed data at: {}".format(preprocessing_output_dir))
-    log_file = print_to_log_file(log_file, output_folder, 'pytest_log', "Store copped data at: {}".format(nnUNet_cropped_data))
+    log_file = print_to_log_file(log_file, output_folder, 'pytest_log', "Store cropped data at: {}".format(nnUNet_cropped_data))
     log_file = print_to_log_file(log_file, output_folder, 'pytest_log', "Store output from training at: {}".format(network_training_output_dir))
     log_file = print_to_log_file(log_file, output_folder, 'pytest_log', "The folder that will be deleted once the training is finished sucessfully: {}".format(base))
 
@@ -127,18 +129,11 @@ def test_multi_head_trainer(ext_map=None, args_f=None):
     p = default_num_threads
     no_pp = False
     # -- Plan and preprocess those datasets
-    dataset_label_mapping(False, tasks_in_path=tasks_in_path, tasks_out_ids=tasks_out_ids, mapping_files_path=mapping_files_path, name=None,
+    dataset_label_mapping(False, tasks_in_path=tasks_in_path, tasks_out_ids=tasks_out_ids, mapping_files_path=mapping_files_path, label_name=[],
                           channels=channels, p=p, no_pp=no_pp)
-
-    # -- Prepare to plan and preprocess the prostate dataset -- #
-    # tasks_in_path = [join(os.path.dirname(os.path.realpath(old_nnUNet_raw_data)), 'Task05_Prostate')]
-    # mapping_files_path = [join(mapping_folder, 'Task05_Prostate.json')]
-    # -- Plan and preprocess the prostate dataset -- #
-    # dataset_label_mapping(False, tasks_in_path=tasks_in_path, tasks_out_ids=[-33], mapping_files_path=mapping_files_path, name=None
-    #                       channels=[0], p=p, no_pp=no_pp)
     
     # -- Update the log file for the last time -- #
-    execution_time = time() - start_time
+    execution_time = time.time() - start_time
     log_file = print_to_log_file(log_file, output_folder, 'pytest_log', \
             "This planning and preprocessing took {:.2f} seconds ({}).\n".format(execution_time, time_mod.strftime('%H:%M:%S', time_mod.gmtime(execution_time))))
 
@@ -149,7 +144,7 @@ def test_multi_head_trainer(ext_map=None, args_f=None):
     fold = 0
     split = 'seg_outputs'
     networks = ['2d', '3d_lowres', '3d_fullres']
-    tasks = ['Task-11_Hippocampus', 'Task-22_Heart']#, 'Task-33_Prostate']
+    tasks = ['Task-11_Hippocampus', 'Task-22_Heart']
 
     # -- Join all task names together with a '_' in between them -- #
     char_to_join_tasks = '_'
@@ -171,7 +166,7 @@ def test_multi_head_trainer(ext_map=None, args_f=None):
 
     # -- Store the trainers for each network and extension to test the training on a pre trained method afterwards -- #
     base_trainers = dict()
-    base_heads = torch.nn.ModuleDict()
+    base_heads = dict()
 
     # -- Start training for every network and trainer every task conventionally, nothing special -- #
     all_tasks = copy.deepcopy(tasks)
@@ -192,7 +187,7 @@ def test_multi_head_trainer(ext_map=None, args_f=None):
                 # -- Perform two iterations, one with direct sequence training and one with a sort of restoring and continuing -- #
                 for i in range(3):
                     # -- Get the current timestamp to claculate the correct runtime -- #
-                    start_train_time = time()
+                    start_train_time = time.time()
 
                     # -- Set the tasks given the loop index, ie. if we use a pre-trained model or not -- #
                     if i == 1:
@@ -251,11 +246,11 @@ def test_multi_head_trainer(ext_map=None, args_f=None):
                         running_task_list = [all_tasks[0]]
                         del trainer
                         # -- Update the log file -- #
-                        execution_time = time() - start_train_time
+                        execution_time = time.time() - start_train_time
                         log_file = print_to_log_file(log_file, output_folder, 'pytest_log', \
                                 "This execution time for training the network \'{}\' with trainer \'{}\' took {:.2f} seconds ({}).\n".format(network, extension, execution_time, time_mod.strftime('%H:%M:%S', time_mod.gmtime(execution_time))))
                         # -- Reset the start_train_time since we do not continue with next element but keep in this loop -- #
-                        start_train_time = time()
+                        start_train_time = time.time()
                     else:
                         # -- Set train_tasks to first n-1 tasks if we do not use the pre-trained models -- #
                         train_tasks = tasks[:-1]
@@ -310,23 +305,18 @@ def test_multi_head_trainer(ext_map=None, args_f=None):
                             # -- Set the trainer with corresponding argument --> can only be an extension from here on -- #
                             trainer = trainer_class(split, all_tasks[0], plans_file, fold, output_folder=output_folder_name, dataset_directory=dataset_directory,\
                                                     batch_dice=batch_dice, stage=stage, extension=extension, mixed_precision=True,\
-                                                    already_trained_on=already_trained_on, **(args_f[trainer_class.__name__]))
+                                                    already_trained_on=already_trained_on, **(args_f[trainer_class.__name__]), network=network)
                             # -- Initialize the trainer with the dataset, task, fold, optimizer, etc. -- #
-                            trainer.initialize(True, num_epochs=1, prev_trainer_path=prev_trainer_path)
+                            trainer.initialize(True, num_epochs=1, prev_trainer_path=None)
 
                             # -- Store the current trained head when trained with conventional nnUNet first -- #
                             # -- During the loop below this only works for extensional network as a base so this overwrites it -- #
                             if i == 2:
-                                base_heads[all_tasks[0]] = copy.deepcopy(trainer.mh_network.heads[all_tasks[0]])
+                                base_heads[all_tasks[0]] = trainer.output_folder
 
                         # -- Create a copy from the model before training to compare if it updated itself -- #
-                        trainer.mh_network.add_new_task(t)  # Add the task before trying to acess it
+                        trainer.mh_network.add_new_task(t, False)  # Add the task before trying to acess it
                         backup_head = copy.deepcopy(trainer.mh_network.heads[t])
-
-                        # -- Check if the building of a trainer using a pre-trained network worked as expected -- #
-                        if i != 0:
-                            assert equal_models(trainer.mh_network.heads[all_tasks[0]], base_heads[all_tasks[0]]),\
-                                "After restoring a trainer that is used as a base, the existing head states should not have changed."
 
                         # -- Train the trainer for the task t -- #
                         trainer.run_training(task=t, output_folder=output_folder_name)
@@ -354,7 +344,7 @@ def test_multi_head_trainer(ext_map=None, args_f=None):
                         # -- Save the trainer head if it is the first task, so we can check that nothing changes after a second train of second head -- #
                         if idx_task == 0 and i == 0:    # Do this only once for each outer loop
                             # -- Store the current trained head if that is the first task for any network -- #
-                            base_heads[all_tasks[0]] = copy.deepcopy(trainer.mh_network.heads[all_tasks[0]])
+                            base_heads[all_tasks[0]] = trainer.output_folder
 
                         # --------------------- #
                         # -- Perform testing -- #
@@ -376,10 +366,10 @@ def test_multi_head_trainer(ext_map=None, args_f=None):
                             "The state_dicts for task \'{}\' and the corresponding activated head are not identical although they should.".format(t)
                         
                         # -- Check that the val_metrics file does exist and is not empty -- #
-                        assert os.path.isfile(join(output_folder_name, 'fold_'+str(fold), 'val_metrics.json')),\
+                        assert os.path.isfile(join(trainer.output_folder, 'val_metrics.json')),\
                             "The val_metrics.json file that should have been generated at \'{}\' does not exist for task \'{}\'.".format(join(output_folder_name, 'val_metrics.json'), t)
                         try:
-                            val = load_json(join(output_folder_name, 'fold_'+str(fold), 'val_metrics.json'))
+                            val = load_json(join(trainer.output_folder, 'val_metrics.json'))
                             assert val is not None and len(val) > 0,\
                                 "The val_metrics.json file is either None or empty for task \'{}\' which it really should not.".format(t)
                             del val
@@ -388,78 +378,46 @@ def test_multi_head_trainer(ext_map=None, args_f=None):
                                 assert False, "An error occured by trying to load the val_metrics.json file for task \'{}\' which is unfortunate.".format(t)
                             raise e
 
-                        # -- Check that the already_trained_on file does exist and is not empty -- #
-                        trained_on_path = os.path.dirname(os.path.dirname(os.path.realpath(output_folder_name)))
-                        assert os.path.isfile(join(trained_on_path, extension+'_trained_on.json')),\
-                            "The {}_trained_on.json file that should have been generated at \'{}\' does not exist for trainer \'{}\'.".format(extension, join(trained_on_path, extension+'_trained_on.json'), trainer_to_use.__name__)
-                        try:
-                            tr_on = load_json(join(trained_on_path, extension+'_trained_on.json'))
-                            assert tr_on is not None and len(tr_on) > 0,\
-                                "The {}_trained_on.json file is either None or empty for trainer \'{}\' which it really should not.".format(join(trained_on_path, extension+'_trained_on.json'), trainer_to_use.__name__)
-                            del tr_on
-                        except Exception as e:
-                            if not isinstance(e, AssertionError):
-                                assert False, "An error occured by trying to load the {}_trained_on.json file for trainer \'{}\' which is unfortunate.".format(join(trained_on_path, extension+'_trained_on.json'), trainer_to_use.__name__)
-                        
                         # -- For the second task, ensure that restoring works --> only necessary for the second -- #
                         # -- task or when using pre-trained model as base -- #
                         if idx_task != 0 and i == 0 or idx_task == len(train_tasks)-1 and i != 0:
-                            # -- Check that after training a the second/nth task, the first task is unchanged -- #
+                            # -- Check that after training the second/nth task, the first task is unchanged -- #
                             # -- For this use backup_head from previous loop and compare the state_dicts -- #
-                            assert equal_models(trainer.mh_network.heads[all_tasks[0]], base_heads[all_tasks[0]]),\
-                                "The state_dicts for the same task \'{}\' after a train of another task are not identical although they should.\n".format(all_tasks[0]) +\
+                            head = {k: v for k, v in torch.load(os.path.join(base_heads[all_tasks[0]], 'model_final_checkpoint.model'))['state_dict'].items() if 'heads.'+str(all_tasks[0]) in k}
+                            
+                            assert equal_models(trainer.mh_network.heads[all_tasks[0]], head, True),\
+                                "The state_dicts for the same task \'{}\' after training another task are not identical although they should.\n".format(all_tasks[0]) +\
                                 "When training on a different task, the previous task weights should not have changed."
 
                             # -- Add a task to the trainer and try to load the checkpoint --> should certainly fail because the structure changed -- #
                             try:
-                                trainer.mh_network.add_new_task('doomed_to_fail')
+                                trainer.mh_network.add_new_task('doomed_to_fail', False)
                                 trainer.load_latest_checkpoint()
-                                raise RuntimeError
-                            except Exception:
-                                if isinstance(Exception, RuntimeError):
-                                    assert False, "The restoring surprisingly worked, although the structure has been changed before loading the checkpoint."
-                            
-                            # -- Remove the task again -- #
-                            del trainer.mh_network.heads['doomed_to_fail']
+                                del trainer.mh_network.heads['doomed_to_fail']  # Should throw KeyError
+                            except Exception as e:
+                                assert isinstance(e, KeyError), "The restoring did not remove the additional head, although the structure has been changed before loading the checkpoint."
 
                             # -- Delete the current task in the head and create a new head with the same name -- #
                             # -- This head has then initialized weights --> restore and check that they are as expected -- #
                             # -- ie. they should be equal to the state_dict before we deleted the head from the network -- #
                             del trainer.mh_network.heads[t]                     # Delete the head
-                            trainer.mh_network.add_new_task(t)                  # Add a new head (different weights)
+                            trainer.mh_network.add_new_task(t, False)           # Add a new head (different weights)
                             trainer.load_latest_checkpoint()                    # Restore the model from latest checkpoint
                             assert equal_models(trainer.mh_network.assemble_model(t), curr_network),\
                                 "The state_dicts for task \'{}\' and the corresponding restored model are not identical although they should.".format(t)
                             del curr_network
 
-                        # -- Do this test at the end, since this will modify the network before an error occurs -- #
-                        # -- and since we catch the error, the trainer_class has the changes present --> would lead -- #
-                        # -- to error if we train after that test with a messed up split/head modules -- #
-                        # -- Test when using pre-trained network that the split can not be changed -- #
-                        if idx_task == len(train_tasks)-1 and i != 0:
-                            # -- Provide a different split as before and expect an error -- #
-                            trainer_fail = trainer_class('tu', all_tasks[0], plans_file, fold, output_folder=output_folder_name, dataset_directory=dataset_directory,\
-                                                        batch_dice=batch_dice, stage=stage, extension=extension, mixed_precision=True,\
-                                                        already_trained_on=already_trained_on, **(args_f[trainer_class.__name__]))
-                            try:
-                                # -- Initialize the trainer with the dataset, task, fold, optimizer and wrong split --> should fail -- #
-                                trainer_fail.initialize(True, num_epochs=1, prev_trainer_path=prev_trainer_path)
-                                raise RuntimeError
-                            except Exception:
-                                if isinstance(Exception, RuntimeError):
-                                    assert False, "When trying to split on a different layer as the checkpoint an error should be thrown."
-                            
                     # -- Check again that in the current models head all tasks are present -- #
                     assert (np.array(list(trainer.mh_network.heads.keys())) == np.array(running_task_list)).all(),\
                             "The tasks the trainer should have been trained on ({}) do not map with the ones in the head ({}).".format(tasks, list(trainer.mh_network.heads.keys()))
                     del trainer
 
                     # -- Remove the trainer but keep a copy for the next test once this loop is done -- #
-                    base_trainers[str(network) + str(extension)] = (copy_trainer.output_folder, copy_trainer.already_trained_on)
+                    base_trainers[str(network) + str(extension)] = (output_folder_name, copy_trainer.already_trained_on)
                     del copy_trainer
 
                     # -- Update the log file -- #
-                    execution_time = time() - start_train_time
+                    execution_time = time.time() - start_train_time
                     log_file = print_to_log_file(log_file, output_folder, 'pytest_log',\
                             "This execution time for training the network \'{}\' with trainer \'{}\' took {:.2f} seconds ({}).\n".format(network, extension, execution_time, time_mod.strftime('%H:%M:%S', time_mod.gmtime(execution_time))))
 
@@ -477,7 +435,7 @@ def test_multi_head_trainer(ext_map=None, args_f=None):
     # -- Clean the mess up -- #
     # ----------------------- #
     # -- Move the preprocessed, cropped and raw data with the new task ids from the original paths to our temporary location -- #
-    tasks = ['Task-11_Hippocampus', 'Task-33_Prostate', 'Task-22_Heart']
+    tasks = ['Task-11_Hippocampus', 'Task-22_Heart']
     # -- Loop through the new tasks and move them from cropped, preprocessed and raw_data to temp folder -- #
     for task in tasks:
         # -- Move from raw_data -- #
@@ -500,27 +458,26 @@ def test_multi_head_trainer(ext_map=None, args_f=None):
     delete_dir_con(base)
     
     # -- Update the log file for the last time -- #
-    execution_time = time() - start_time
+    execution_time = time.time() - start_time
     log_file = print_to_log_file(log_file, output_folder, 'pytest_log',\
             "The execution time for all tests took {:.2f} seconds ({})\n".format(execution_time, time_mod.strftime('%H:%M:%S', time_mod.gmtime(execution_time))))
 
 
 if __name__ == "__main__":
     # -- Block all prints that are done during testing which are no errors but done in calling functions -- #
-    sys.stdout = open(os.devnull, 'w')
-
-    # -- Run the test suite and catch any error, delete the folder and raise this error -- #
-    try:
-        # -- Run the test suite -- #
-        test_multi_head_trainer()
-    except Exception as e:  # Error occured or test failed
-        # -- Delete the generated data -- #
-        delete_specified_task(False, test_data=True, task_ids=list())
-        # -- Enable the prints again -- #
-        sys.stdout = sys.__stdout__
-        # -- Raise the error -- #
-        print("An Error occured or a test failed, for more information see the log file at \'{}\'.".format(old_network_training_output_dir_base))
-        raise e
+    with suppress_stdout():
+        # -- Run the test suite and catch any error, delete the folder and raise this error -- #
+        try:
+            # -- Run the test suite -- #
+            test_multi_head_trainer()
+        except Exception as e:  # Error occured or test failed
+            # -- Delete the generated data -- #
+            delete_specified_task(False, test_data=True, task_ids=list())
+            # -- Enable the prints again -- #
+            sys.stdout = sys.__stdout__
+            # -- Raise the error -- #
+            print("An Error occured or a test failed, for more information see the log file at \'{}\'.".format(old_network_training_output_dir_base))
+            raise e
 
     # -- Ensure that the data is really removed -- #
     delete_specified_task(False, test_data=True, task_ids=list())

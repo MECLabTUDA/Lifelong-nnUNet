@@ -242,7 +242,6 @@ class nnUNetTrainerLWF(nnUNetTrainerMultiHead):
                 # -- Set the correct task_name for training -- #
                 if self.use_vit and self.ViT_task_specific_ln:
                     self.network.ViT.use_task(task)
-
                 # -- Update the log -- #
                 self.print_to_log_file("Calculate the target_logits before training..")
                 start_time = time()

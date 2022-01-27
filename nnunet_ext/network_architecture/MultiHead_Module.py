@@ -116,7 +116,7 @@ class MultiHead_Module(nn.Module):
         # -- Remove the init_module since it is only used for initializing the first task -- #
         del init_module
 
-        # -- Define a flag that indicates if the body weights are freezed or not -- #
+        # -- Define a flag that indicates if the body weights are frozen or not -- #
         self.body_freezed = True
 
         # -- Assemble the model so it can be used for training -- #
@@ -150,9 +150,12 @@ class MultiHead_Module(nn.Module):
 
         # -- Split the model and update body with the corresponding head if desired -- #
         if update_body: # Update body and head both
-            self.body, self.heads[self.active_task], _, _ = self._split_model_recursively_into_body_head(layer_id=0, model=model) # Start from root with full model
+            self.body, head, _, _ = self._split_model_recursively_into_body_head(layer_id=0, model=model) # Start from root with full model
         else:   # Do not update the body, ie. only update the head
-            _, self.heads[self.active_task], _, _ = self._split_model_recursively_into_body_head(layer_id=0, model=model) # Start from root with full model
+            _, head, _, _ = self._split_model_recursively_into_body_head(layer_id=0, model=model) # Start from root with full model
+
+        self.heads[self.active_task] = head
+        self.heads[self.active_task].load_state_dict(head.state_dict())
 
     def _split_model_recursively_into_body_head(self, layer_id, model, body=nn.Module(), head=nn.Module(),
                                                 parent=list(), simplify_split=False):
@@ -260,7 +263,6 @@ class MultiHead_Module(nn.Module):
                         # -- In this step we are in recursion level, so only add the current module, -- #
                         # -- due to loop the rest of the sibling will be added as well and due to recursion -- #
                         # -- all aunts, uncles, etc. will be added as well -- #
-                        #head.add_module(head_part[0][0], head_part[0][1])
                         # -- Define all layers from parent so they can be reached accordingly in the head -- #
                         r_p = []    # --> Running parents to keep track of the path
                         for p in parent:
@@ -316,8 +318,7 @@ class MultiHead_Module(nn.Module):
                     parent.append(name)
                     # -- Continue with children of current model --> use module -- #
                     body, head, layer_id, parent = self._split_model_recursively_into_body_head(layer_id+1, module, body, head, parent)
-        
-        # -- Once it is finished, return body and head -- #
+
         return body, copy.deepcopy(head), layer_id, parent[:-1]
 
     def assemble_model(self, task, freeze_body=False):
@@ -337,7 +338,7 @@ class MultiHead_Module(nn.Module):
             "The provided task \'{}\' is not a known head, so either initialize the task or provide one that already exists: {}.".format(task, list(self.heads.keys()))
 
         # -- Extract the corresponding head based on the task -- #
-        head = self.heads[task]
+        head = copy.deepcopy(self.heads[task])
 
         # -- Assemble the model based on self.body and head to update self.model afterwards -- #
         assembled_model = nn.Module()
@@ -442,7 +443,7 @@ class MultiHead_Module(nn.Module):
         # -- Create a new task in self.heads with the module from the first split -- #
         if model is None:
             # -- Add the latest task -- #
-            self.heads[task] = self.heads[list(self.heads.keys())[-1]]
+            self.heads[task] = copy.deepcopy(self.heads[list(self.heads.keys())[-1]])
             
             if use_init:
                 # -- Load the state_dict from the very first split -- #

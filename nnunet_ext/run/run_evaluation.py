@@ -21,7 +21,10 @@ for ext in extension_keys:
 extension_keys.sort(key=lambda x: x.lower()), trainer_keys.sort(key=lambda x: x.lower())
 # -- Build mapping for network_trainer to corresponding extension name -- #
 EXT_MAP = dict(zip(trainer_keys, extension_keys))
-# NOTE: sorted_pairs does not include the nnViTUNetTrainer!
+# -- Add standard trainers as well -- #
+EXT_MAP['nnViTUNetTrainer'] = None
+EXT_MAP['nnUNetTrainerV2'] = 'standard'
+EXT_MAP['nnViTUNetTrainerCascadeFullRes'] = None
 
 
 def run_evaluation():

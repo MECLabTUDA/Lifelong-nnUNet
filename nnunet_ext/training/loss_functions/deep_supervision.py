@@ -367,6 +367,7 @@ class MultipleOutputLossPOD(MultipleOutputLoss2):
             dist_loss /= self.num_layers # Divide by the number of layers we looped through
 
         # -- Return the updated loss value -- #
+        dist_loss = to_cuda(dist_loss, gpu_id=loss.device)
         return loss + dist_loss
 
 # -- Loss function for the MiB approach -- #

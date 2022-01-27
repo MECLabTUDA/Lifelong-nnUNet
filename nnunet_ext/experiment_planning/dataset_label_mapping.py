@@ -157,9 +157,9 @@ def main(use_parser=True, **kwargs):
                                  "for those single label masks need to be provided as well or the programm will end with an error.",
                             required=True)
         parser.add_argument("-ln", "--label_name", nargs="+", type=str, default=list(),
-                            help="Specify the names of the joined label masks only if -m is set to `join_labels` at at least one path. "+
+                            help="Specify the names of the joined label masks only if -m is set to \'join_labels\' at at least one path. "+
                                  "When setting multiple tasks to \'join_labels\', then the same amount of names needs to be "+
-                                 "provided. If in 2 out of 5 tasks `join_labels` is used, then we expect exactly 2 names in the same "+
+                                 "provided. If in 2 out of 5 tasks \'join_labels\' is used, then we expect exactly 2 names in the same "+
                                  "order as the tasks.",
                             required=False)
         parser.add_argument("-c", "--channels", nargs="+", type=str, help="Specify which channels to extract. Use (possible) indices 0, 1, ... or \'all\'."
