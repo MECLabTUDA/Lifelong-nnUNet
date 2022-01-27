@@ -25,9 +25,9 @@ from nnunet_ext.network_architecture.generic_ViT_UNet import Generic_ViT_UNet
 from nnunet.training.loss_functions.deep_supervision import MultipleOutputLoss2
 from nnunet_ext.training.network_training.nnViTUNetTrainer import nnViTUNetTrainer
 from nnunet.training.dataloading.dataset_loading import load_dataset, unpack_dataset
+from nnunet.training.data_augmentation.data_augmentation_noDA import get_no_augmentation
 from nnunet.training.data_augmentation.data_augmentation_moreDA import get_moreDA_augmentation
 from nnunet_ext.paths import default_plans_identifier, evaluation_output_dir, preprocessing_output_dir, default_plans_identifier
-from nnunet.training.data_augmentation.data_augmentation_noDA import get_no_augmentation
 
 # -- Add this since default option file_descriptor has a limitation on the number of open files. -- #
 # -- Default config might cause the runtime error: RuntimeError: received 0 items of ancdata -- #
@@ -41,7 +41,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
                  identifier=default_plans_identifier, extension='multihead', tasks_list_with_char=None, mixed_precision=True,
                  save_csv=True, del_log=False, use_vit=False, vit_type='base', version=1, split_gpu=False, transfer_heads=False,
-                 use_param_split=False, ViT_task_specific_ln=False, do_LSA=False, do_SPT=False, network=None):
+                 ViT_task_specific_ln=False, do_LSA=False, do_SPT=False, network=None, use_param_split=False):
         r"""Constructor of Multi Head Trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
             The transfer_heads flag is used when adding a new head, if True, the state_dict from the last head will be used
             instead of the one from the initialization. This is the basic transfer learning (difference between MH and SEQ folder structure).
@@ -351,7 +351,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                                                    num_classes=self.num_classes, num_pool=len(self.net_num_pool_op_kernel_sizes),\
                                                    patch_size=patch_size.tolist(), vit_version=self.version, vit_type=self.vit_type,\
                                                    split_gpu=self.split_gpu, ViT_task_specific_ln=self.ViT_task_specific_ln,\
-                                                   first_task_name=self.tasks_list_with_char[0][0])
+                                                   first_task_name=self.tasks_list_with_char[0][0], do_LSA=self.LSA, do_SPT=self.SPT)
             else:
                 # -- Initialize from beginning and start training, since no model is provided -- #
                 super().initialize_network() # --> This updates the corresponding variables automatically since we inherit this class
@@ -426,7 +426,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                                                num_classes=self.num_classes, num_pool=len(self.net_num_pool_op_kernel_sizes),\
                                                patch_size=self.patch_size.tolist(), vit_version=self.version, vit_type=self.vit_type,\
                                                split_gpu=self.split_gpu, ViT_task_specific_ln=self.ViT_task_specific_ln,\
-                                               first_task_name=self.tasks_list_with_char[0][0])
+                                               first_task_name=self.tasks_list_with_char[0][0], do_LSA=self.LSA, do_SPT=self.SPT)
         else:
             self.mh_network = self.trainer_model.mh_network
 
@@ -539,6 +539,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # -- Register the task if it does not exist in one of the heads -- #
         if task not in self.mh_network.heads:
             self.mh_network.add_new_task(task, use_init=not self.transfer_heads)
+            # self._update_optimizer(task)
 
         # -- Register the task in the ViT if task specific ViT is used -- #
         if self.use_vit and self.ViT_task_specific_ln:
@@ -551,6 +552,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
 
         # -- Activate the model based on task --> self.mh_network.active_task is now set to task as well -- #
         self.network = self.mh_network.assemble_model(task)
+        # self._update_optimizer(task)
         
         # -- Delete the trainer_model (used for restoring) -- #
         self.trainer_model = None
@@ -730,7 +732,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                 unpack_dataset(self.folder_with_preprocessed_data)
 
             # -- Extract corresponding self.val_gen --> the used function is extern and does not change any values from self -- #
-            if call_for_eval:   # --> Don’t do any augmentation
+            if call_for_eval:   # --> Don't do any augmentation
                 self.tr_gen, self.val_gen = get_no_augmentation(self.dl_tr, self.dl_val,
                                                                 params=self.data_aug_params,
                                                                 deep_supervision_scales=self.deep_supervision_scales,
@@ -742,6 +744,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                                                                     deep_supervision_scales=self.deep_supervision_scales,
                                                                     pin_memory=self.pin_memory,
                                                                     use_nondetMultiThreadedAugmenter=False)
+
             # -- Update the log -- #
             self.print_to_log_file("Performing validation with validation data from task {}.".format(task))
 
@@ -762,8 +765,9 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             # -- ELSE: nn-UNet is used to perform evaluation, ie. external call, so there are -- #
             # --       no heads except one so omit it --> NOTE: The calling function needs to ensure -- #
             # --       that self.network is assembled correctly ! -- #
-            
             # -- For evaluation, no gradients are necessary so do not use them -- #
+            # self._update_optimizer(task)
+            
             with torch.no_grad():
                 # -- Put current network into evaluation mode -- #
                 self.network.eval()
@@ -1026,8 +1030,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             # -- Set the correct task_name for training -- #
             if self.use_vit and self.ViT_task_specific_ln:
                 self.network.ViT.use_task(task)
-            
-
+            # self._update_optimizer(task)
             # -- Perform individual validations with updated self.gt_niftis_folder -- #
             ret_joined.append(super().validate(do_mirroring=do_mirroring, use_sliding_window=use_sliding_window, step_size=step_size,
                                                save_softmax=save_softmax, use_gaussian=use_gaussian,
@@ -1077,6 +1080,22 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         write_pickle(self.already_trained_on, join(self.trained_on_path, self.extension+'_trained_on.pkl'))
         # -- Update self.init_tasks so the storing works properly -- #
         self.update_init_args()
+
+    def _update_optimizer(self, task):
+        r"""This function updates the optimizer when a new head is selected, so the correct parameters are tuned.
+            Golden answers (Jan '19 from ptrblck): https://discuss.pytorch.org/t/are-there-any-recommended-methods-to-clone-a-model/483/16
+            and https://discuss.pytorch.org/t/how-to-update-optimizer-when-my-network-has-newly-added-parameters/12159
+        """
+        assert task in self.mh_network.heads, "When updating the optimizer, the provided task should be an existing head.."
+
+        # -- Update the optimizers parameters based on transmitted task -- #
+        # self.optimizer.add_param_group({'param':self.mh_network.heads[task].parameters()})
+
+        lr = self.optimizer.param_groups[0]['lr']
+        self.optimizer = torch.optim.SGD(self.network.parameters(), lr, weight_decay=self.weight_decay,
+                                         momentum=0.99, nesterov=True)
+
+        # self.optimizer.param_groups[0]['params'] = list(self.network.parameters())
 
     def save_checkpoint(self, fname, save_optimizer=True):
         r"""Overwrite the parent class, since we want to store the body and heads along with the current activated model
@@ -1208,6 +1227,9 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
 
         # -- Use parent class to save checkpoint for MultiHead_Module model consisting of self.model, self.body and self.heads -- #
         super().load_checkpoint_ram(checkpoint, train)
+
+        self.mh_network = copy.deepcopy(self.network)
+        del self.network
 
         # -- Do the same for the old network if there is one -- #
         if network_old:

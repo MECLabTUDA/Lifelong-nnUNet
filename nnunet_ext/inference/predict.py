@@ -200,9 +200,6 @@ def predict_cases(params_ext, model, list_of_lists, output_filenames, folds, sav
 
         print("predicting", output_filename)
 
-        print("trainer", trainer)
-        print("trainer already_trained_on", trainer.already_trained_on)
-
         #trainer.load_checkpoint(all_best_model_files[0], train=False)
         #trainer.load_checkpoint_ram(params[0], False)
         softmax = trainer.predict_preprocessed_data_return_seg_and_softmax(
