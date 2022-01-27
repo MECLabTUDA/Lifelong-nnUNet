@@ -27,6 +27,7 @@ from nnunet_ext.training.network_training.nnViTUNetTrainer import nnViTUNetTrain
 from nnunet.training.dataloading.dataset_loading import load_dataset, unpack_dataset
 from nnunet.training.data_augmentation.data_augmentation_moreDA import get_moreDA_augmentation
 from nnunet_ext.paths import default_plans_identifier, evaluation_output_dir, preprocessing_output_dir, default_plans_identifier
+from nnunet.training.data_augmentation.data_augmentation_noDA import get_no_augmentation
 
 # -- Add this since default option file_descriptor has a limitation on the number of open files. -- #
 # -- Default config might cause the runtime error: RuntimeError: received 0 items of ancdata -- #
@@ -729,13 +730,18 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                 unpack_dataset(self.folder_with_preprocessed_data)
 
             # -- Extract corresponding self.val_gen --> the used function is extern and does not change any values from self -- #
-            self.tr_gen, self.val_gen = get_moreDA_augmentation(self.dl_tr, self.dl_val,
-                                                                self.data_aug_params['patch_size_for_spatialtransform'],
-                                                                self.data_aug_params,
+            if call_for_eval:   # --> Don’t do any augmentation
+                self.tr_gen, self.val_gen = get_no_augmentation(self.dl_tr, self.dl_val,
+                                                                params=self.data_aug_params,
                                                                 deep_supervision_scales=self.deep_supervision_scales,
-                                                                pin_memory=self.pin_memory,
-                                                                use_nondetMultiThreadedAugmenter=False)
-
+                                                                pin_memory=self.pin_memory)
+            else:
+                self.tr_gen, self.val_gen = get_moreDA_augmentation(self.dl_tr, self.dl_val,
+                                                                    self.data_aug_params['patch_size_for_spatialtransform'],
+                                                                    self.data_aug_params,
+                                                                    deep_supervision_scales=self.deep_supervision_scales,
+                                                                    pin_memory=self.pin_memory,
+                                                                    use_nondetMultiThreadedAugmenter=False)
             # -- Update the log -- #
             self.print_to_log_file("Performing validation with validation data from task {}.".format(task))
 

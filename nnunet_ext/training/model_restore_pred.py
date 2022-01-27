@@ -93,6 +93,7 @@ def load_model_and_checkpoint_files(params, folder, folds=None, mixed_precision=
     if params['use_head'] is None:
         use_head = list(trainer.mh_network.heads.keys())[-1]
     
+    """
     trainer.network = trainer.mh_network.assemble_model(use_head)
     for (k_i, k_j) in zip(trainer.mh_network.heads['Task078_I2CVB'].state_dict().items(), trainer.mh_network.heads['Task076_DecathProst'].state_dict().items()):
         assert k_i[0] == k_j[0]
@@ -103,6 +104,7 @@ def load_model_and_checkpoint_files(params, folder, folds=None, mixed_precision=
     print('EQUAL')
 
     sys.exit()
+    """
 
     # -- Set the correct task_name for training -- #
     if trainer.use_vit and trainer.ViT_task_specific_ln:

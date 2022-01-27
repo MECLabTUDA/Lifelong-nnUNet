@@ -82,25 +82,17 @@ def run_inference():
                              'Note that then the flags -v, -v_type and --use_mult_gpus should be set accordingly.')
     parser.add_argument('--task_specific_ln', action='store_true', default=False,
                         help='If this is set, the Generic_ViT_UNet will have task specific Layer Norms.')
-
-
     parser.add_argument('--no_transfer_heads', required=False, default=False, action="store_true",
                         help='Set this flag if a new head should not be initialized using the last head'
                             ' during training, ie. the very first head from the initialization of the class is used.'
                             ' Default: The previously trained head is used as initialization of the new head.')
-
-
     parser.add_argument('--use_mult_gpus', action='store_true', default=False,
                         help='If this is set, the ViT model will be placed onto a second GPU. '+
                              'When this is set, more than one GPU needs to be provided when using -d.')
-
-
     parser.add_argument('--always_use_last_head', action='store_true', default=False,
                         help='If this is set, during the evaluation, always the last head will be used, '+
                              'for every dataset the evaluation is performed on. When an extension network was trained with '+
                              'the -transfer_heads flag then this should be set, i.e. nnUNetTrainerSequential or nnUNetTrainerFreezedViT.')
-
-
     parser.add_argument('--no_pod', action='store_true', default=False,
                         help='This will only be considered if our own trainers are used. If set, this flag indicates that the POD '+
                              'embedding has not been used.')
@@ -277,7 +269,7 @@ def run_inference():
         trainer_path = join(os.path.sep, *trainer_path.split(os.path.sep)[:-1], 'pod' if do_pod else 'no_pod')
         output_path = join(os.path.sep, *output_path.split(os.path.sep)[:-1], 'pod' if do_pod else 'no_pod', 'last_head' if always_use_last_head else 'corresponding_head')
 
-    output_path = join(output_path, 'predictions')
+    output_path = join(output_path, 'predictions', 'head_{}'.format(use_head))
 
     # Note that unlike the trainer_path from run_evaluation, this does not include the fold because plans.pkl is one level above 
 
