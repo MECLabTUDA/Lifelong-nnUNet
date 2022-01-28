@@ -41,7 +41,7 @@ def run_inference():
                         default='model_final_checkpoint')
     parser.add_argument("--overwrite_existing", required=False, default=False, action="store_true",
                         help="Set this flag if the target folder contains predictions that you would like to overwrite")
-    parser.add_argument("--disable_tta", required=False, default=False, action="store_true",
+    parser.add_argument("--disable_tta", required=False, default=True, action="store_false",
                         help="set this flag to disable test time data augmentation via mirroring. Speeds up inference "
                              "by roughly factor 4 (2D) or 8 (3D)")
     parser.add_argument("-p", help="plans identifier. Only change this if you created a custom experiment planner",
