@@ -7,7 +7,7 @@ import nnunet.experiment_planning.nnUNet_plan_and_preprocess as exp_pp
 arch = '3d_fullres'
 fold = '0'
 device = '0'
-
+"""
 # Prostate
 trained_on = [79, 78, 77, 76]
 use_model = [79, 78, 77, 76]
@@ -22,20 +22,21 @@ use_model = [99, 98, 97]
 use_heads = [97]
 trainers = ["nnUNetTrainerSequential", "nnUNetTrainerEWC", "nnUNetTrainerLWF", "nnUNetTrainerRehearsal", "nnUNetTrainerMiB", "nnUNetTrainerRW"]
 evaluate_on_tasks = [79]
-"""
+
 
 # Adapt checkpoint
 # This is always the same path for the stored models, repeat for the new_checkpoints iterating over env variables
 current_checkpoint_root = '/local/scratch/aranem/Lifelong-nnUNet-storage/'
 old_vars = [os.path.join(current_checkpoint_root, var_name) for var_name in ['nnUNet_raw_data_base', 'nnUNet_preprocessed', 'nnUNet_trained_models', 'nnUNet_models_evaluation']]
 new_vars = [os.environ['nnUNet_raw_data_base'], os.environ['nnUNet_preprocessed'], os.environ['RESULTS_FOLDER'], os.environ['EVALUATION_FOLDER']]
-for current_checkpoint, new_checkpoint in zip(old_vars, new_vars):
-    args = [sys.argv[0], arch, trainer, '-trained_on']
-    args += [str(x) for x in trained_on]
-    args += ['-f', fold, '-r', '-rw', current_checkpoint, new_checkpoint, '-use']
-    args += [str(x) for x in use_model]
-    sys.argv = args
-    modify_checkpoints()
+for trainer in trainers:
+    for current_checkpoint, new_checkpoint in zip(old_vars, new_vars):
+        args = [sys.argv[0], arch, trainer, '-trained_on']
+        args += [str(x) for x in trained_on]
+        args += ['-f', fold, '-r', '-rw', current_checkpoint, new_checkpoint, '-use']
+        args += [str(x) for x in use_model]
+        sys.argv = args
+        modify_checkpoints()
 
 # Preprocess relevant datasets, if needed
 """
