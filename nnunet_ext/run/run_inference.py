@@ -41,13 +41,13 @@ def run_inference():
                         default='model_final_checkpoint')
     parser.add_argument("--overwrite_existing", required=False, default=False, action="store_true",
                         help="Set this flag if the target folder contains predictions that you would like to overwrite")
-    parser.add_argument("--disable_tta", required=False, default=True, action="store_false",
+    parser.add_argument("--enable_tta", required=False, default=False, action="store_true",
                         help="set this flag to disable test time data augmentation via mirroring. Speeds up inference "
                              "by roughly factor 4 (2D) or 8 (3D)")
     parser.add_argument("-p", help="plans identifier. Only change this if you created a custom experiment planner",
                         default=default_plans_identifier, required=False)
-    parser.add_argument("-f", "--folds",  action='store', type=str, nargs="+",
-                        help="Specify on which fold training happened. Use a fold between 0, 1, ..., 4 or \'all\'", required=True)
+    parser.add_argument("-f", "--fold",  action='store', type=int,
+                        help="Specify on which fold training happened. Use a fold between 0, 1, ..., 4 ", required=True)
     parser.add_argument("-trained_on", action='store', type=str, nargs="+",
                         help="Specify a list of task ids the network has trained with to specify the correct path to the networks. "
                              "Each of these ids must, have a matching folder 'TaskXXX_' in the raw "
@@ -61,10 +61,8 @@ def run_inference():
                               'is not necessary. If this is not set, always the latest trained head will be used.')
     parser.add_argument("--fp32_used", required=False, default=False, action="store_true",
                         help="Specify if mixed precision has been used during training or not")
-    parser.add_argument("-evaluate_on",  action='store', type=str, nargs="+",
-                        help="Specify a list of task ids the network will be evaluated on. "
-                             "Each of these ids must, have a matching folder 'TaskXXX_' in the raw "
-                             "data folder", required=False, default=None)
+    parser.add_argument("-evaluate_on",  action='store', type=int, 
+                        help="Specify a task id for which predictions will be extracted. It must have a matching folder 'TaskXXX_' in the raw data folder", required=False, default=None)
     parser.add_argument("-d", "--device", action='store', type=int, nargs="+", default=[0],
                         help='Try to train the model on the GPU device with <DEVICE> ID. '+
                             ' Valid IDs: 0, 1, ..., 7. A List of IDs can be provided as well.'+
@@ -126,7 +124,7 @@ def run_inference():
     # -- Extract the arguments specific for all trainers from argument parser -- #
     trained_on = args.trained_on    # List of the tasks that helps to navigate to the correct folder, eg. A B C
     use_model = args.use            # List of the tasks representing the network to use, e. use A B from folder A B C
-    evaluate_on = args.evaluate_on  # List of the tasks that should be used to evaluate the model
+    evaluate_on = args.evaluate_on  # Tasks that should be used to evaluate the model
     use_head = args.use_head        # One task specifying which head should be used
     if isinstance(use_head, list):
         use_head = use_head[0]
@@ -138,7 +136,7 @@ def run_inference():
         assert evaluate_on is not None
 
     # -- Extract further arguments -- #
-    fold = args.folds
+    fold = args.fold
     cuda = args.device
     mixed_precision = not args.fp32_used
     transfer_heads = not args.no_transfer_heads
@@ -183,19 +181,11 @@ def run_inference():
     # -------------------------------
     # Transform tasks to task names
     # -------------------------------
-    # -- Transform fold to list if it is set to 'all'
-    if fold[0] == 'all':
-        fold = list(range(5))
-    else: # change each fold type from str to int
-        fold = list(map(int, fold))
-
-    # -- Assert if fold is not a number or a list as desired, meaning anything else, like Tuple or whatever -- #
-    assert isinstance(fold, (int, list)), "To Evaluate multiple tasks with {} trainer, only one or multiple folds specified as integers are allowed..".format(network_trainer)
+    assert isinstance(fold, int)
 
     # -- Build all necessary task lists -- #
     tasks_for_folder = list()
     use_model_w_tasks = list()
-    evaluate_on_tasks = list()
     if use_head is not None:
         use_head = convert_id_to_task_name(int(use_head)) if not use_head.startswith("Task") else use_head
     for idx, t in enumerate(trained_on):
@@ -212,13 +202,7 @@ def run_inference():
             t = convert_id_to_task_name(task_id)
         # -- Add corresponding task in dictoinary -- #
         use_model_w_tasks.append(t)
-    for idx, t in enumerate(evaluate_on):
-        # -- Convert task ids to names if necessary --> can be then omitted later on by just using the tasks list with all names in it -- #
-        if not t.startswith("Task"):
-            task_id = int(t)
-            t = convert_id_to_task_name(task_id)
-        # -- Add corresponding task in dictoinary -- #
-        evaluate_on_tasks.append(t)
+
 
     char_to_join_tasks = '_'
     
@@ -255,21 +239,19 @@ def run_inference():
                                 'task_specific' if ViT_task_specific_ln else 'not_task_specific', folder_n, 'SEQ' if transfer_heads else 'MH')
             output_path = join(evaluation_output_dir, network, tasks_joined_name, model_joined_name,\
                                 network_trainer+'__'+plans_identifier, Generic_ViT_UNet.__name__+version, vit_type,\
-                                'task_specific' if ViT_task_specific_ln else 'not_task_specific', folder_n, 'SEQ' if transfer_heads else 'MH',\
-                                'last_head' if always_use_last_head else 'corresponding_head')
+                                'task_specific' if ViT_task_specific_ln else 'not_task_specific', folder_n, 'SEQ' if transfer_heads else 'MH')
         else:
             trainer_path = join(network_training_output_dir, network, tasks_joined_name, model_joined_name,\
                                 network_trainer+'__'+plans_identifier, Generic_UNet.__name__, 'SEQ' if transfer_heads else 'MH')
             output_path = join(evaluation_output_dir, network, tasks_joined_name, model_joined_name,\
-                                network_trainer+'__'+plans_identifier, Generic_UNet.__name__, 'SEQ' if transfer_heads else 'MH',\
-                                'last_head' if always_use_last_head else 'corresponding_head')
+                                network_trainer+'__'+plans_identifier, Generic_UNet.__name__, 'SEQ' if transfer_heads else 'MH')
 
     # -- Re-Modify trainer path for own methods if necessary -- #
     if 'OwnM' in network_trainer:
         trainer_path = join(os.path.sep, *trainer_path.split(os.path.sep)[:-1], 'pod' if do_pod else 'no_pod')
-        output_path = join(os.path.sep, *output_path.split(os.path.sep)[:-1], 'pod' if do_pod else 'no_pod', 'last_head' if always_use_last_head else 'corresponding_head')
+        output_path = join(os.path.sep, *output_path.split(os.path.sep)[:-1], 'pod' if do_pod else 'no_pod')
 
-    output_path = join(output_path, 'predictions', 'head_{}'.format(use_head))
+    output_path = join(output_path, 'head_{}'.format(use_head), 'fold_'+str(fold), 'Preds_{}'.format(convert_id_to_task_name(evaluate_on)))
 
     # Note that unlike the trainer_path from run_evaluation, this does not include the fold because plans.pkl is one level above 
 
@@ -281,7 +263,7 @@ def run_inference():
         output_folder = output_path
     chk = args.chk
     overwrite_existing = args.overwrite_existing
-    disable_tta = args.disable_tta
+    enable_tta = args.enable_tta
     lowres_segmentations = None
     save_npz = False
     num_threads_preprocessing = 1
@@ -309,14 +291,12 @@ def run_inference():
     }
 
     if input_folder is None:
-        input_folders = [os.path.join(os.environ['nnUNet_raw_data_base'], 'nnUNet_raw_data', task_name, 'imagesTr') for task_name in evaluate_on_tasks]
-
-    else:
-        input_folders = [input_folder]
+        input_folder = os.path.join(os.environ['nnUNet_raw_data_base'], 'nnUNet_raw_data', convert_id_to_task_name(evaluate_on), 'imagesTr')
+    input_folders = [input_folder]
 
     for input_folder in input_folders:
-        predict_from_folder(params_ext, trainer_path, input_folder, output_folder, fold, save_npz, num_threads_preprocessing,
-                            num_threads_nifti_save, lowres_segmentations, part_id, num_parts, not disable_tta,
+        predict_from_folder(params_ext, trainer_path, input_folder, output_folder, [fold], save_npz, num_threads_preprocessing,
+                            num_threads_nifti_save, lowres_segmentations, part_id, num_parts, enable_tta,
                             overwrite_existing=overwrite_existing, mode="normal", overwrite_all_in_gpu=all_in_gpu,
                             mixed_precision=mixed_precision,
                             step_size=step_size, checkpoint_name=chk)
