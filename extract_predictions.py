@@ -10,18 +10,18 @@ device = '0'
 """
 # Prostate
 trained_on = [79, 78, 77, 76]
-use_model = [79, 78, 77, 76]
-use_heads = [76]
-trainers = ["nnUNetTrainerSequential", "nnUNetTrainerEWC", "nnUNetTrainerRehearsal", "nnUNetTrainerMiB", "nnUNetTrainerRW"]
+use_model = [79]
+use_heads = [79]
+trainers = ["nnUNetTrainerSequential"]
 evaluate_on_tasks = [79]
 
 """
 # Hyppocampus
 trained_on = [99, 98, 97]
-use_model = [99, 98, 97]
-use_heads = [97]
-trainers = ["nnUNetTrainerSequential", "nnUNetTrainerEWC", "nnUNetTrainerLWF", "nnUNetTrainerRehearsal", "nnUNetTrainerMiB", "nnUNetTrainerRW"]
-evaluate_on_tasks = [79]
+use_model = [99]
+use_heads = [99]
+trainers = ["nnUNetTrainerSequential"]#, "nnUNetTrainerEWC", "nnUNetTrainerLWF", "nnUNetTrainerRehearsal", "nnUNetTrainerMiB", "nnUNetTrainerRW"]
+evaluate_on_tasks = [99]
 
 
 # Adapt checkpoint
