@@ -40,7 +40,7 @@ class Experiment():
     r"""Class that can be used to perform a specific Experiment using the nnU-Net extension. This was specifically
         developed for the Parameter Search method but it can also be used for other purposes.
     """
-    def __init__(self, network, network_trainer, tasks_list_with_char, version=1, vit_type='base', eval_mode_for_lns='last_lns', fold=0,
+    def __init__(self, network, network_trainer, tasks_list_with_char, version=1, vit_type='base', fold=0,
                  plans_identifier=default_plans_identifier, mixed_precision=True, extension='multihead', save_csv=True, val_folder='validation_raw',
                  split_at=None, transfer_heads=False, use_vit=False, ViT_task_specific_ln=False, do_LSA=False, do_SPT=False, do_pod=False,
                  always_use_last_head=True, npz=False, output_exp=None, output_eval=None, perform_validation=False, param_call=False,
@@ -82,7 +82,6 @@ class Experiment():
         self.network_trainer = network_trainer
         self.mixed_precision = mixed_precision
         self.plans_identifier = plans_identifier
-        self.eval_mode_for_lns = eval_mode_for_lns
         self.use_progress_bar = show_progress_tr_bar
         self.always_use_last_head = always_use_last_head
         self.tasks_list_with_char = tasks_list_with_char
@@ -232,7 +231,6 @@ class Experiment():
                 prev_trainer = TRAINER_MAP.get(already_trained_on[str(self.fold)]['prev_trainer'][-1], None)
                 init_identifier = already_trained_on[str(self.fold)]['used_identifier']
 
-
             # -- began_with == -1 or no tasks to train --> nothing to restore -- #
             else:   # Start from beginning without continue_tr
                 # -- Set continue_tr to False so there will be no error in the process of building the trainer -- #
@@ -246,7 +244,6 @@ class Experiment():
                     prev_trainer = TRAINER_MAP.get(already_trained_on[str(self.fold)]['prev_trainer'][-1], None)
                     init_identifier = already_trained_on[str(self.fold)]['used_identifier']
                 
-
         # -- Create a summary file for this experiment --> self.summary might be None, so provide all arguments -- #
         else:
             self.summary = print_to_log_file(self.summary, experiment_folder, '{}_summary'.format(exp_id), "Starting with the experiment.. \n")
@@ -411,7 +408,7 @@ class Experiment():
             # -- Do the actual evaluation on the current network -- #
             self.summary = print_to_log_file(self.summary, None, '', 'Doing evaluation for trainer {} (trained on {}) using the data from {}.'.format(self.network_trainer, ', '.join(running_task_list), ', '.join(running_task_list)))
             self.evaluator.evaluate_on([self.fold], self.tasks_list_with_char[0], None, self.always_use_last_head,
-                                       self.do_pod, self.eval_mode_for_lns, trainer_path, output_path)
+                                       self.do_pod, trainer_path, output_path)
             self.summary = print_to_log_file(self.summary, None, '', 'Finished with evaluation. The results can be found in the following folder: {}. \n'.format(join(output_path, 'fold_'+str(self.fold))))
             
             # -- Update the summary wrt to the used split -- #

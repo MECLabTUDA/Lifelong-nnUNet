@@ -137,10 +137,6 @@ def run_param_search():
                              "will be the product between all provided values along the hyperparameters.")
     parser.add_argument("-mode",  action='store', type=str, nargs=1, required=True, choices=['grid', 'random'],
                         help="Specify the parameter search method. This can either be \'random\' or \'grid\'.")
-    parser.add_argument("--eval_mode_for_lns", action='store', type=str, nargs=1, default='last_lns', choices=['corr_lns', 'last_lns'],
-                        help='Specify how to evaluate if task_specific_ln is set. There are 2 ways, ie. '+
-                             'using always the last LNs (\'last_lns\') or corresponding to the tasks (\'corr_lns\'). ' +
-                             'Default: last_lns')
     parser.add_argument("--in_parallel", action="store_true", default=False,
                         help="Use this if you want to perform the experiments in parallel on different GPUs. "+
                              "Note that then multiple GPU IDs have to be provided, otherwise only one GPU will be "+
@@ -263,8 +259,7 @@ def run_param_search():
     perform_validation = args.do_val
     # vals_per_param = args.vals_per_hp
     run_in_parallel = args.in_parallel
-    eval_mode_for_lns = args.eval_mode_for_lns[0] if isinstance(args.eval_mode_for_lns, list) else args.eval_mode_for_lns
-
+    
     # -- Which parameters to fixate and at which values -- #
     fixate_at = args.fixate # Structure: parameter_name:value
 
@@ -347,7 +342,7 @@ def run_param_search():
                   'mixed_precision': mixed_precision, 'use_vit': use_vit, 'vit_type': vit_type, 'version': version, 'num_epochs': num_epochs,
                   'split_gpu': split_gpu, 'transfer_heads': transfer_heads, 'ViT_task_specific_ln': ViT_task_specific_ln, 'fold': fold,
                   'do_LSA': do_LSA, 'do_SPT': do_SPT, 'do_pod': do_pod, 'search_mode': search_mode, 'grid_picks': grid_picks, 'rand_range': rand_range,
-                  'rand_pick': rand_pick, 'rand_seed': rand_seed, 'eval_mode_for_lns': eval_mode_for_lns, 'always_use_last_head': always_use_last_head,
+                  'rand_pick': rand_pick, 'rand_seed': rand_seed, 'always_use_last_head': always_use_last_head,
                   'perform_validation': perform_validation, 'fixate_params': fixate_params, 'run_in_parallel': run_in_parallel, **unet_args}
     
     # -- Create the ParamSearcher -- #

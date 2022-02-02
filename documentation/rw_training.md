@@ -9,7 +9,7 @@ The exact same Command Line Arguments as presented in the [Multi-Head](multihead
 |:-:|-|:-:|:-:|:-:|
 | `-rw_alpha` | Specify the alpha parameter that is used to calculate the Fisher values --> should be [0, 1]. | no | -- | `0.9` |
 | `-rw_lambda` | Specify the importance of the previous tasks for the RW method using the EWC regularization. | no | -- | `0.4` |
-| `-update_after` | Specify after which iteration (batch iteration, not epoch) the fisher values are updated/calculated. | no | -- | `10` |
+| `-fisher_update_after` | Specify after which iteration (batch iteration, not epoch) the fisher values are updated/calculated. | no | -- | `10` |
 
 ### Exemplary use cases
 In the following, a few examples are shown representing possible use cases on how to use the RW Trainer.
@@ -20,14 +20,14 @@ One of the easiest and simplest example is to simply train on a bunch of tasks, 
                     ~ $ source activate <your_anaconda_env>
 (<your_anaconda_env>) $ nnUNet_train_rw 3d_fullres -t 11 12 13 -f 0 -rw_lambda 0.21 -rw_alpha 0.77
                                         -num_epoch 250 -d <GPU_ID> -save_interval 25 -s seg_outputs --store_csv
-                                        [--use_vit -v <VERSION> -v_type <TYPE> -update_after <PERIOD> ...]
+                                        [--use_vit -v <VERSION> -v_type <TYPE> -fisher_update_after <PERIOD> ...]
 ```
 
 The following example uses Version 1 (out of 3) of the [Generic_ViT_UNet](https://github.com/camgbus/Lifelong-nnUNet/blob/continual_learning/nnunet_ext/network_architecture/generic_ViT_UNet.py#L14) using the smallest one (out of 3 types). More informations with regard to the ViT_U-Net architecture can be found [here](https://github.com/camgbus/Lifelong-nnUNet/blob/ViT_U-Net/documentation/ViT_U-Net.md). Further, after every 5th epoch, the fisher and score values should be updated instead of every 10th:
 ```bash
                     ~ $ source ~/.bashrc
                     ~ $ source activate <your_anaconda_env>
-(<your_anaconda_env>) $ nnUNet_train_rw 3d_fullres -t 11 12 13 -f 0 -update_after 5
+(<your_anaconda_env>) $ nnUNet_train_rw 3d_fullres -t 11 12 13 -f 0 -fisher_update_after 5
                                         -num_epoch 250 -d <GPU_ID> -save_interval 25 -s seg_outputs --store_csv
                                         --use_vit -v 1 -v_type base
                                         [-rw_alpha <VALUE>  -rw_lambda <VALUE> --use_mult_gpus ...]

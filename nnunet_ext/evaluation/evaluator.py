@@ -67,7 +67,7 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
                       mixed_precision, extension, save_csv, transfer_heads, use_vit, use_param_split, ViT_task_specific_ln,
                       do_LSA, do_SPT)
 
-    def evaluate_on(self, folds, tasks, use_head=None, always_use_last_head=False, do_pod=True, eval_mode_for_lns='last_lns',
+    def evaluate_on(self, folds, tasks, use_head=None, always_use_last_head=False, do_pod=True,
                     trainer_path=None, output_path=None):
         r"""This function performs the actual evaluation given the transmitted tasks.
             :param folds: List of integer values specifying the folds on which the evaluation should be performed.
@@ -98,7 +98,7 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
                     trainer_path = join(network_training_output_dir, self.network, self.tasks_joined_name, self.network_trainer+'__'+self.plans_identifier, self.vit_type,\
                                         'task_specific' if self.ViT_task_specific_ln else 'not_task_specific', folder_n, 'fold_'+str(t_fold))
                     output_path = join(evaluation_output_dir, self.network, self.tasks_joined_name, self.network_trainer+'__'+self.plans_identifier, self.vit_type,\
-                                    'task_specific' if self.ViT_task_specific_ln else 'not_task_specific', folder_n)
+                                       'task_specific' if self.ViT_task_specific_ln else 'not_task_specific', folder_n)
                     trainer_path = trainer_path.replace(nnViTUNetTrainer.__name__, nnViTUNetTrainer.__name__+self.version)
                     output_path = output_path.replace(nnViTUNetTrainer.__name__, nnViTUNetTrainer.__name__+self.version)
                 else:   # Any other extension like CL extension for example (using MH Architecture)

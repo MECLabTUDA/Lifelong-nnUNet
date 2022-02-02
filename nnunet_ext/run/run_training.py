@@ -191,7 +191,7 @@ def run_training(extension='multihead'):
         parser.add_argument('-rw_lambda', action='store', type=float, nargs=1, required=False, default=0.4,
                             help='Specify the importance of the previous tasks for the RW method using the EWC regularization.'
                                 ' Default: rw_lambda = 0.4')
-        parser.add_argument('-update_after', action='store', type=int, nargs=1, required=False, default=10,
+        parser.add_argument('-fisher_update_after', action='store', type=int, nargs=1, required=False, default=10,
                             help='Specify after which iteration (batch iteration, not epoch) the fisher values are updated/calculated.'
                                 ' Default: The result will be updated every 10th epoch.')
 
@@ -215,9 +215,9 @@ def run_training(extension='multihead'):
         parser.add_argument('-mib_alpha', action='store', type=float, nargs=1, required=False, default=1.0,
                             help='Specify the mib_alpha parameter to hard-ify the soft-labels.'
                                 ' Default: mib_alpha = 1.0')
-        parser.add_argument('-lkd', action='store', type=float, nargs=1, required=False, default=10,
+        parser.add_argument('-mib_lkd', action='store', type=float, nargs=1, required=False, default=10,
                             help='Specify the weighting of the KL loss.'
-                                ' Default: lkd = 10')
+                                ' Default: mib_lkd = 10')
 
     # -- Add arguments for own method -- #
     if extension in ['ownm4']:
@@ -382,7 +382,7 @@ def run_training(extension='multihead'):
         if isinstance(rw_lambda, list):
             rw_lambda = rw_lambda[0]
         # -- Extract update_fisher_every -- #
-        update_fisher_every = args.update_after
+        update_fisher_every = args.fisher_update_after
         if isinstance(update_fisher_every, list):
             update_fisher_every = update_fisher_every[0]
 
@@ -427,20 +427,20 @@ def run_training(extension='multihead'):
                   "changed from previous one..")
 
     # -- Extract MiB arguments -- #
-    mib_alpha, lkd = None, None  # --> So the dictionary arguments can be build without an error even if not plop desired ..
+    mib_alpha, mib_lkd = None, None  # --> So the dictionary arguments can be build without an error even if not plop desired ..
     if extension in ['mib', 'ownm1', 'ownm2', 'ownm3']:
         # -- Extract mib lambda for dist_loss -- #
         mib_alpha = args.mib_alpha
         if isinstance(mib_alpha, list):
             mib_alpha = mib_alpha[0]
         # -- Extract plop scale for dist_loss -- #
-        lkd = args.lkd
-        if isinstance(lkd, list):
-            lkd = lkd[0]
+        mib_lkd = args.mib_lkd
+        if isinstance(mib_lkd, list):
+            mib_lkd = mib_lkd[0]
 
-        # -- Notify the user that the mib_alpha and lkd should not have been changed if -c is activated -- #
+        # -- Notify the user that the mib_alpha and mib_lkd should not have been changed if -c is activated -- #
         if continue_training:
-            print("Note: It will be continued with previous training, be sure that the provided mib_alpha and lkd have not "
+            print("Note: It will be continued with previous training, be sure that the provided mib_alpha and mib_lkd have not "
                   "changed from previous one..")
 
     # -- Extract own arguments -- #
@@ -451,7 +451,7 @@ def run_training(extension='multihead'):
         if isinstance(pseudo_alpha, list):
             pseudo_alpha = pseudo_alpha[0]
 
-        # -- Notify the user that the mib_alpha and lkd should not have been changed if -c is activated -- #
+        # -- Notify the user that the mib_alpha and mib_lkd should not have been changed if -c is activated -- #
         if continue_training:
             print("Note: It will be continued with previous training, be sure that the provided pseudo_alpha has not "
                   "changed from previous one..")
@@ -501,12 +501,12 @@ def run_training(extension='multihead'):
                   'split_gpu': split_gpu, 'transfer_heads': transfer_heads, 'ViT_task_specific_ln': ViT_task_specific_ln,
                   'do_LSA': do_LSA, 'do_SPT': do_SPT, **basic_args}
     ewc_args = {'ewc_lambda': ewc_lambda, **basic_exts}
-    mib_args = {'lkd': lkd, 'mib_alpha': mib_alpha, **basic_exts}
+    mib_args = {'mib_lkd': mib_lkd, 'mib_alpha': mib_alpha, **basic_exts}
     lwf_args = {'lwf_temperature': lwf_temperature, **basic_exts}
-    reh_args = {'samples_per_ds': samples, 'seed': seed, **basic_exts}
+    reh_args = {'samples_in_perc': samples, 'seed': seed, **basic_exts}
     plop_args = {'pod_lambda': pod_lambda, 'scales': pod_scales, **basic_exts}
     rw_args = {'rw_lambda': rw_lambda, 'rw_alpha': rw_alpha, 'fisher_update_after': update_fisher_every, **basic_exts}
-    ownm1_args = {'ewc_lambda': ewc_lambda, 'pod_lambda': pod_lambda, 'scales': pod_scales, 'do_pod': do_pod, 'lkd': lkd, 'mib_alpha': mib_alpha, **basic_exts}
+    ownm1_args = {'ewc_lambda': ewc_lambda, 'pod_lambda': pod_lambda, 'scales': pod_scales, 'do_pod': do_pod, 'mib_lkd': mib_lkd, 'mib_alpha': mib_alpha, **basic_exts}
     ownm3_args = {'do_LSA': do_LSA, 'do_SPT': do_SPT, **ownm1_args, **basic_exts}
     ownm4_args = {'ewc_lambda': ewc_lambda, 'pod_lambda': pod_lambda, 'scales': pod_scales, 'do_pod': do_pod, 'pseudo_alpha': pseudo_alpha, **basic_exts}
     
@@ -701,11 +701,11 @@ def run_training(extension='multihead'):
                             "To continue training on the fold {} the importance lambda for previous tasks should be used, ie. \'{}\' needs to be provided, "\
                             "not \'{}\'.".format(t_fold, trained_on_folds['used_rw_lambda'], rw_lambda)
 
-                    # -- Ensure that alpha and lkd is not changed when using mib method --- #
+                    # -- Ensure that alpha and mib_lkd is not changed when using mib method --- #
                     if extension == 'mib':
                         assert mib_alpha == float(trained_on_folds['used_alpha']),\
                             "To continue training on the fold {} the same alpha, ie. \'{}\' needs to be provided, not \'{}\'.".format(t_fold, trained_on_folds['used_alpha'], seed)
-                        assert lkd == float(trained_on_folds['used_lkd']),\
+                        assert mib_lkd == float(trained_on_folds['used_lkd']),\
                             "To continue training on the fold {} the same knowledge distillation importance has to be set, ie. \'{}\' needs to be provided, "\
                             "not \'{}\'.".format(t_fold, trained_on_folds['used_lkd'], samples)
                 
@@ -890,6 +890,18 @@ def run_training(extension='multihead'):
 #------------------------------------------- Inspired by original implementation -------------------------------------------#
 
 # -- Add the main function calls for the setup file -- #
+# -- Main function for setup execution of Multihead method -- #
+def main_multihead():
+    r"""Run training for Multihead Trainer.
+    """
+    run_training(extension='multihead')
+
+# -- Main function for setup execution of Sequential method -- #
+def main_sequential():
+    r"""Run training for Sequential Trainer.
+    """
+    run_training(extension='sequential')
+
 # -- Main function for setup execution of EWC_LN method -- #
 def main_ewc_ln():
     r"""Run training for Elastic Weight Consolidation Trainer only applied on the LayerNorms component.

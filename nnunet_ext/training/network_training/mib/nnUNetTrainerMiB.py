@@ -13,12 +13,12 @@ from nnunet_ext.training.loss_functions.deep_supervision import MultipleOutputLo
 from nnunet_ext.training.network_training.multihead.nnUNetTrainerMultiHead import nnUNetTrainerMultiHead
 
 # -- Define globally the Hyperparameters for this trainer along with their type -- #
-HYPERPARAMS = {'mib_alpha': float, 'lkd': float}
+HYPERPARAMS = {'mib_alpha': float, 'mib_lkd': float}
 
 class nnUNetTrainerMiB(nnUNetTrainerMultiHead):
     def __init__(self, split, task, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
-                 identifier=default_plans_identifier, extension='mib', mib_alpha=1., lkd=10, tasks_list_with_char=None,
+                 identifier=default_plans_identifier, extension='mib', mib_alpha=1., mib_lkd=10, tasks_list_with_char=None,
                  mixed_precision=True, save_csv=True, del_log=False, use_vit=False, vit_type='base', version=1, split_gpu=False,
                  transfer_heads=True, ViT_task_specific_ln=False, do_LSA=False, do_SPT=False, network=None, use_param_split=False):
         r"""Constructor of MiB trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
@@ -31,7 +31,7 @@ class nnUNetTrainerMiB(nnUNetTrainerMultiHead):
         
         # -- Set the alpha and kl variable for the MiB Loss calculation during training -- #
         self.alpha = mib_alpha
-        self.lkd = lkd
+        self.lkd = mib_lkd
 
         # -- Add flags in trained on file for restoring to be able to ensure that seed can not be changed during training -- #
         if already_trained_on is not None:
@@ -53,7 +53,7 @@ class nnUNetTrainerMiB(nnUNetTrainerMultiHead):
         # -- Update self.init_tasks so the storing works properly -- #
         self.init_args = (split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
                           deterministic, fp16, save_interval, already_trained_on, use_progress, identifier, extension,
-                          mib_alpha, lkd, tasks_list_with_char, mixed_precision, save_csv, del_log, use_vit, self.vit_type,
+                          mib_alpha, mib_lkd, tasks_list_with_char, mixed_precision, save_csv, del_log, use_vit, self.vit_type,
                           version, split_gpu, transfer_heads, ViT_task_specific_ln, do_LSA, do_SPT)
 
     def initialize(self, training=True, force_load_plans=False, num_epochs=500, prev_trainer_path=None, call_for_eval=False):

@@ -16,7 +16,7 @@ from nnunet_ext.training.network_training.multihead.nnUNetTrainerMultiHead impor
 class ParamSearcher():
     r"""Class that can be used to perform a parameter search using a specific extension that uses Hyperparameters.
     """
-    def __init__(self, network, network_trainer, tasks_list_with_char, version=1, vit_type='base', eval_mode_for_lns='last_lns', fold=0,
+    def __init__(self, network, network_trainer, tasks_list_with_char, version=1, vit_type='base', fold=0,
                  plans_identifier=default_plans_identifier, mixed_precision=True, extension='multihead', val_folder='validation_raw',
                  split_at=None, transfer_heads=False, use_vit=False, ViT_task_specific_ln=False, do_LSA=False, do_SPT=False, do_pod=False,
                  search_mode='grid', grid_picks=None, rand_range=None, rand_pick=None, rand_seed=None, always_use_last_head=True, npz=False,
@@ -54,7 +54,7 @@ class ParamSearcher():
 
         # -- Define the experiment arguments -- #
         self.exp_args = {'network': network, 'network_trainer': network_trainer, 'tasks_list_with_char': tasks_list_with_char,
-                         'version': version, 'vit_type': vit_type, 'eval_mode_for_lns': eval_mode_for_lns, 'fold': fold, 'plans_identifier': plans_identifier,
+                         'version': version, 'vit_type': vit_type, 'fold': fold, 'plans_identifier': plans_identifier,
                          'mixed_precision': mixed_precision, 'extension': extension, 'save_interval': save_interval, 'val_folder': val_folder,
                          'split_at': split_at, 'transfer_heads': transfer_heads, 'use_vit': use_vit, 'ViT_task_specific_ln': ViT_task_specific_ln,
                          'do_LSA': do_LSA, 'do_SPT': do_SPT, 'do_pod': do_pod, 'always_use_last_head': always_use_last_head, 'npz': npz, 'use_param_split': True,

@@ -539,7 +539,6 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # -- Register the task if it does not exist in one of the heads -- #
         if task not in self.mh_network.heads:
             self.mh_network.add_new_task(task, use_init=not self.transfer_heads)
-            # self._update_optimizer(task)
 
         # -- Register the task in the ViT if task specific ViT is used -- #
         if self.use_vit and self.ViT_task_specific_ln:
@@ -552,7 +551,6 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
 
         # -- Activate the model based on task --> self.mh_network.active_task is now set to task as well -- #
         self.network = self.mh_network.assemble_model(task)
-        # self._update_optimizer(task)
         
         # -- Delete the trainer_model (used for restoring) -- #
         self.trainer_model = None
@@ -765,9 +763,8 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             # -- ELSE: nn-UNet is used to perform evaluation, ie. external call, so there are -- #
             # --       no heads except one so omit it --> NOTE: The calling function needs to ensure -- #
             # --       that self.network is assembled correctly ! -- #
+
             # -- For evaluation, no gradients are necessary so do not use them -- #
-            # self._update_optimizer(task)
-            
             with torch.no_grad():
                 # -- Put current network into evaluation mode -- #
                 self.network.eval()
@@ -1030,7 +1027,6 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             # -- Set the correct task_name for training -- #
             if self.use_vit and self.ViT_task_specific_ln:
                 self.network.ViT.use_task(task)
-            # self._update_optimizer(task)
             # -- Perform individual validations with updated self.gt_niftis_folder -- #
             ret_joined.append(super().validate(do_mirroring=do_mirroring, use_sliding_window=use_sliding_window, step_size=step_size,
                                                save_softmax=save_softmax, use_gaussian=use_gaussian,
@@ -1080,22 +1076,6 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         write_pickle(self.already_trained_on, join(self.trained_on_path, self.extension+'_trained_on.pkl'))
         # -- Update self.init_tasks so the storing works properly -- #
         self.update_init_args()
-
-    def _update_optimizer(self, task):
-        r"""This function updates the optimizer when a new head is selected, so the correct parameters are tuned.
-            Golden answers (Jan '19 from ptrblck): https://discuss.pytorch.org/t/are-there-any-recommended-methods-to-clone-a-model/483/16
-            and https://discuss.pytorch.org/t/how-to-update-optimizer-when-my-network-has-newly-added-parameters/12159
-        """
-        assert task in self.mh_network.heads, "When updating the optimizer, the provided task should be an existing head.."
-
-        # -- Update the optimizers parameters based on transmitted task -- #
-        # self.optimizer.add_param_group({'param':self.mh_network.heads[task].parameters()})
-
-        lr = self.optimizer.param_groups[0]['lr']
-        self.optimizer = torch.optim.SGD(self.network.parameters(), lr, weight_decay=self.weight_decay,
-                                         momentum=0.99, nesterov=True)
-
-        # self.optimizer.param_groups[0]['params'] = list(self.network.parameters())
 
     def save_checkpoint(self, fname, save_optimizer=True):
         r"""Overwrite the parent class, since we want to store the body and heads along with the current activated model
@@ -1242,7 +1222,8 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             # -- Set mode of old network always train = false since it should not be used to train but during training -- #
             super().load_checkpoint_ram(checkpoint_old, False)
             # -- Set the network_old model correctly or it does exist otherwise -- #
-            self.network_old = self.network
+            self.network_old = copy.deepcopy(self.network)
+            del self.network
 
         # -- Reset the running model to train on -- #
         self.network = self.mh_network.model

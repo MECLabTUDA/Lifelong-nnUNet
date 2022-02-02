@@ -17,13 +17,13 @@ from nnunet_ext.training.loss_functions.deep_supervision import MultipleOutputLo
 from nnunet_ext.training.network_training.multihead.nnUNetTrainerMultiHead import nnUNetTrainerMultiHead
 
 # -- Define globally the Hyperparameters for this trainer along with their type -- #
-HYPERPARAMS = {'mib_alpha': float, 'lkd': float, 'pod_lambda': float, 'scales': int, 'ewc_lambda': float}
+HYPERPARAMS = {'mib_alpha': float, 'mib_lkd': float, 'pod_lambda': float, 'pod_scales': int, 'ewc_lambda': float}
 
 class nnUNetTrainerOwnM1(nnUNetTrainerMultiHead):
     def __init__(self, split, task, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
-                 identifier=default_plans_identifier, extension='ownm1', ewc_lambda=0.4, mib_alpha=1., lkd=10, pod_lambda=1e-2,
-                 scales=3, tasks_list_with_char=None, mixed_precision=True, save_csv=True, del_log=False, use_vit=True,
+                 identifier=default_plans_identifier, extension='ownm1', ewc_lambda=0.4, mib_alpha=1., mib_lkd=10, pod_lambda=1e-2,
+                 pod_scales=3, tasks_list_with_char=None, mixed_precision=True, save_csv=True, del_log=False, use_vit=True,
                  vit_type='base', version=1, split_gpu=False, transfer_heads=True, ViT_task_specific_ln=False, do_pod=True,
                  do_LSA=False, do_SPT=False, network=None, use_param_split=False):
         r"""Constructor of our own trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
@@ -60,8 +60,8 @@ class nnUNetTrainerOwnM1(nnUNetTrainerMultiHead):
         self.pod_lambda = pod_lambda
         self.do_pod = do_pod
         self.alpha = mib_alpha
-        self.scales = scales
-        self.lkd = lkd
+        self.scales = pod_scales
+        self.lkd = mib_lkd
 
         # -- Add flags in trained on file for restoring to be able to ensure that seed can not be changed during training -- #
         if already_trained_on is not None:
@@ -95,7 +95,7 @@ class nnUNetTrainerOwnM1(nnUNetTrainerMultiHead):
         # -- Update self.init_tasks so the storing works properly -- #
         self.init_args = (split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
                           deterministic, fp16, save_interval, self.already_trained_on, use_progress, identifier, extension,
-                          ewc_lambda, mib_alpha, lkd, pod_lambda, scales, tasks_list_with_char, mixed_precision, save_csv,
+                          ewc_lambda, mib_alpha, mib_lkd, pod_lambda, pod_scales, tasks_list_with_char, mixed_precision, save_csv,
                           del_log, use_vit, self.vit_type, version, split_gpu, transfer_heads, ViT_task_specific_ln, do_pod,
                           do_LSA, do_SPT)
 
