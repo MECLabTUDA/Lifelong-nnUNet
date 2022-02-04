@@ -101,8 +101,7 @@ def modify_checkpoints():
     do_SPT = args.do_SPT
     
     # -- If the tasks are None, then set them as an empty list so the loop will not fail -- #
-    if tasks is None:
-        return  # Nothing to do here
+    assert tasks is not None, "Please set the -trained_on flag.."
 
     # -- When no task is provided, print a Note -- #
     if len(tasks) == 0:
