@@ -268,7 +268,7 @@ def run_training(extension='multihead'):
     assert len(split) > 0,\
         "When providing a split, ensure that it is not empty, otheriwse no split can be performed."
     # -- Check that the number of tasks is greater than 1, else a conventional nnUNetTrainerV2 should be used -- #
-    if len(task) > 1:
+    if len(task) == 1:
         warnings.warn("When training on only one task, the conventional training of the nnU-Net can be used.")
 
     # -- Extract the vit_type structure and check it is one from the existing ones -- #
