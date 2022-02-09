@@ -5,6 +5,7 @@
 
 import copy
 import numpy as np
+import warnings
 import os, argparse, nnunet_ext
 from nnunet.network_architecture.generic_UNet import Generic_UNet
 from batchgenerators.utilities.file_and_folder_operations import *
@@ -264,8 +265,8 @@ def run_training(extension='multihead'):
     assert len(split) > 0,\
         "When providing a split, ensure that it is not empty, otheriwse no split can be performed."
     # -- Check that the number of tasks is greater than 1, else a conventional nnUNetTrainerV2 should be used -- #
-    assert len(task) > 1,\
-        "When training on only one task, the conventional training of the nnU-Net should be used, not the extension."
+    if len(task) > 1:
+        warnings.warn("When training on only one task, the conventional training of the nnU-Net can be used.")
 
     # -- Extract the vit_type structure and check it is one from the existing ones -- #
     vit_type = args.vit_type
