@@ -31,9 +31,9 @@ All other methods have been used for experiments and are not further discussed s
 * Elastic Weight Consolidation only applied on LayerNorm layers of the Vision Transformer ([ewc_ln](/nnunet_ext/training/network_training/ewc_ln/nnUNetTrainerEWCLN.py))
 * Elastic Weight Consolidation only applied on nnU-Net layers ([ewc_unet](/nnunet_ext/training/network_training/ewc_unet/nnUNetTrainerEWCUNet.py))
 * Elastic Weight Consolidation only applied on Vision Transformer layers ([ewc_vit](/nnunet_ext/training/network_training/ewc_vit/nnUNetTrainerEWCViT.py))
-* Sequential Training while freezing all parameters except the LayerNorm parameters from the Vision Transformer after the successfull training of the first task ([freezed_nonln](/nnunet_ext/training/network_training/freezed_nonln/nnUNetTrainerFreezedNonLN.py))
-* Sequential Training while freezing all parameters from the Vision Transformer after the successfull training of the first task ([freezed_vit](/nnunet_ext/training/network_training/freezed_vit/nnUNetTrainerFreezedViT.py))
-* Sequential Training while freezing all parameters from the nnU-Net after the successfull training of the first task ([freezed_unet](/nnunet_ext/training/network_training/freezed_unet/nnUNetTrainerFreezedUNet.py))
+* Sequential Training while freezing all parameters except the LayerNorm parameters from the Vision Transformer after the successfull training of the first task ([frozen_nonln](/nnunet_ext/training/network_training/Frozen_nonln/nnUNetTrainerFrozenNonLN.py))
+* Sequential Training while freezing all parameters from the Vision Transformer after the successfull training of the first task ([frozen_vit](/nnunet_ext/training/network_training/frozen_vit/nnUNetTrainerFrozenViT.py))
+* Sequential Training while freezing all parameters from the nnU-Net after the successfull training of the first task ([frozen_unet](/nnunet_ext/training/network_training/frozen_unet/nnUNetTrainerFrozenUNet.py))
 
 Note that all those just described trainers are not further described in the [documentations](documentation/continual_learning.md). Further, all those trainers can only be used with the [Generic_ViT_UNet](https://github.com/camgbus/Lifelong-nnUNet/blob/continual_learning/nnunet_ext/network_architecture/generic_ViT_UNet.py#L14) architecture instead of the classic [Generic_UNet](https://github.com/MIC-DKFZ/nnUNet/blob/master/nnunet/network_architecture/generic_UNet.py#L167) architecture, so the `--use_vit` and all corresponding ViT related arguments have to be set or the training will fail.
 
