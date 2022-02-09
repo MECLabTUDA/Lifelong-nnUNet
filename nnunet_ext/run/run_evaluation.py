@@ -93,7 +93,7 @@ def run_evaluation():
     parser.add_argument('--always_use_last_head', action='store_true', default=False,
                         help='If this is set, during the evaluation, always the last head will be used, '+
                              'for every dataset the evaluation is performed on. When an extension network was trained with '+
-                             'the -transfer_heads flag then this should be set, i.e. nnUNetTrainerSequential or nnUNetTrainerFreezedViT.')
+                             'the -transfer_heads flag then this should be set, i.e. nnUNetTrainerSequential or nnUNetTrainerFrozendViT.')
     parser.add_argument('--no_pod', action='store_true', default=False,
                         help='This will only be considered if our own trainers are used. If set, this flag indicates that the POD '+
                              'embedding has not been used.')

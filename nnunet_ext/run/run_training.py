@@ -330,7 +330,7 @@ def run_training(extension='multihead'):
     os.environ["CUDA_VISIBLE_DEVICES"] = cuda
 
     # -- Reset transfer heads if the Trainer is of sequential type -- #
-    if extension in ['sequential', 'plop', 'freezed_nonln', 'freezed_unet', 'freezed_vit']:
+    if extension in ['sequential', 'plop', 'frozen_nonln', 'frozen_unet', 'frozen_vit']:
         # -- Transfer heads is always True here even if the user did not set it -- #
         transfer_heads = True
 
@@ -508,17 +508,17 @@ def run_training(extension='multihead'):
     mib_args = {'mib_lkd': mib_lkd, 'mib_alpha': mib_alpha, **basic_exts}
     lwf_args = {'lwf_temperature': lwf_temperature, **basic_exts}
     reh_args = {'samples_in_perc': samples, 'seed': seed, **basic_exts}
-    plop_args = {'pod_lambda': pod_lambda, 'scales': pod_scales, **basic_exts}
+    plop_args = {'pod_lambda': pod_lambda, 'pod_scales': pod_scales, **basic_exts}
     rw_args = {'rw_lambda': rw_lambda, 'rw_alpha': rw_alpha, 'fisher_update_after': update_fisher_every, **basic_exts}
-    ownm1_args = {'ewc_lambda': ewc_lambda, 'pod_lambda': pod_lambda, 'scales': pod_scales, 'do_pod': do_pod, 'mib_lkd': mib_lkd, 'mib_alpha': mib_alpha, **basic_exts}
+    ownm1_args = {'ewc_lambda': ewc_lambda, 'pod_lambda': pod_lambda, 'pod_scales': pod_scales, 'do_pod': do_pod, 'mib_lkd': mib_lkd, 'mib_alpha': mib_alpha, **basic_exts}
     ownm3_args = {'do_LSA': do_LSA, 'do_SPT': do_SPT, **ownm1_args, **basic_exts}
-    ownm4_args = {'ewc_lambda': ewc_lambda, 'pod_lambda': pod_lambda, 'scales': pod_scales, 'do_pod': do_pod, 'pseudo_alpha': pseudo_alpha, **basic_exts}
+    ownm4_args = {'ewc_lambda': ewc_lambda, 'pod_lambda': pod_lambda, 'pod_scales': pod_scales, 'do_pod': do_pod, 'pseudo_alpha': pseudo_alpha, **basic_exts}
     
     # -- Join the dictionaries into a dictionary with the corresponding class name -- #
     args_f = {'nnUNetTrainerRW': rw_args, 'nnUNetTrainerMultiHead': basic_exts,
-              'nnUNetTrainerFreezedViT': basic_exts, 'nnUNetTrainerEWCViT': ewc_args,
-              'nnUNetTrainerFreezedNonLN': basic_exts, 'nnUNetTrainerEWCLN': ewc_args,
-              'nnUNetTrainerFreezedUNet': basic_exts, 'nnUNetTrainerEWCUNet': ewc_args,
+              'nnUNetTrainerFrozenViT': basic_exts, 'nnUNetTrainerEWCViT': ewc_args,
+              'nnUNetTrainerFrozenNonLN': basic_exts, 'nnUNetTrainerEWCLN': ewc_args,
+              'nnUNetTrainerFrozenUNet': basic_exts, 'nnUNetTrainerEWCUNet': ewc_args,
               'nnUNetTrainerSequential': basic_exts, 'nnUNetTrainerRehearsal': reh_args,
               'nnUNetTrainerMiB': mib_args, 'nnUNetTrainerEWC': ewc_args, 'nnUNetTrainerLWF': lwf_args,
               'nnUNetTrainerPLOP': plop_args, 'nnUNetTrainerV2': basic_args, 'nnViTUNetTrainer': basic_vit,
@@ -927,26 +927,26 @@ def main_ewc():
     """
     run_training(extension='ewc')
 
-# -- Main function for setup execution of Freezed non LN method -- #
-def main_freezed_nonln():
+# -- Main function for setup execution of Frozen non LN method -- #
+def main_frozen_nonln():
     r"""Run training for Sequential Trainer --> this is an equivalence to a Sequential Trainer, using the ViT Architecture while
         freezing everythin except the LayerNorms after training on the first task.
     """
-    run_training(extension='freezed_nonln')
+    run_training(extension='frozen_nonln')
 
-# -- Main function for setup execution of Freezed UNet method -- #
-def main_freezed_unet():
+# -- Main function for setup execution of Frozen UNet method -- #
+def main_frozen_unet():
     r"""Run training for Sequential Trainer --> this is an equivalence to a Sequential Trainer, using the ViT Architecture while
         freezing the U-Net parts after training on the first task.
     """
-    run_training(extension='freezed_unet')
+    run_training(extension='frozen_unet')
 
-# -- Main function for setup execution of Freezed ViT method -- #
-def main_freezed_vit():
+# -- Main function for setup execution of Frozen ViT method -- #
+def main_frozen_vit():
     r"""Run training for Sequential Trainer --> this is an equivalence to a Sequential Trainer, using the ViT Architecture while
         freezing the ViT module after training on the first task.
     """
-    run_training(extension='freezed_vit')
+    run_training(extension='frozen_vit')
 
 # -- Main function for setup execution of LwF method -- #
 def main_lwf():
@@ -959,13 +959,6 @@ def main_mib():
     r"""Run training for MiB Trainer: https://arxiv.org/pdf/2002.00718.pdf.
     """
     run_training(extension='mib')
-
-# -- Main function for setup execution of MultiHead method -- #
-def main_multihead():
-    r"""Run training for Multi Head Trainer --> this is an equivalence to a Sequential Trainer, internally there
-        does not exist a Sequential Trainer.
-    """
-    run_training(extension='multihead')
 
 # -- Main function for setup execution of OwnMethod 1 -- #
 def main_ownm1():
