@@ -175,6 +175,13 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
                 # -- Reset the epoch -- #
                 trainer.epoch = epoch
 
+            # -- Delete the current trainers log file since its in the wrong path -- #
+            try:
+                os.remove(trainer.log_file)
+            except: # Either it does not exist or trainer.log_file is None
+                pass
+            trainer.log_file = None
+            
             # -- Create the directory if it does not exist -- #
             maybe_mkdir_p(output_path)
 

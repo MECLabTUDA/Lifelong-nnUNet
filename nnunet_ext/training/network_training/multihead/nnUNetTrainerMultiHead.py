@@ -459,7 +459,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         while len(self.already_trained_on[str(self.fold)]['prev_trainer']) < len(self.mh_network.heads)+1:
             self.already_trained_on[str(self.fold)]['prev_trainer'].append(self.trainer_class_name)
 
-        # -- Create a new log file as well -- #
+        # -- Create a new log file --> NOTE: Update output_folder before calling this function! -- #
         self.log_file = None
         # -- Update the log file -- #
         self.print_to_log_file("Updating the Dataloaders for new task \'{}\'.".format(task))
@@ -515,13 +515,6 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                   of the class only if transfer is false. If transfer is set to true, the last head will be used instead
                   of the one from the initialization. This new head is saved under task and will then be trained.
         """
-        # -- Create the dataloaders again, if they are still from the last task -- #
-        if self.task != task:
-            # -- Recreate the dataloaders for training and validation -- #
-            self.reinitialize(task)
-            # -- Now reset self.task to the current task -- #
-            self.task = task
-
         # -- Update the self.output_folder, otherwise the data will always be in the same folder for every task -- #
         # -- and everything will be overwritten over and over again -- #
         # -- Do this after reinitialization since the function might change the path -- #
@@ -532,6 +525,14 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
 
         # -- Make the directory so there will no problems when trying to save some files -- #
         maybe_mkdir_p(self.output_folder)
+
+        # -- Create the dataloaders again, if they are still from the last task --> do this after building -- #
+        # -- The output folder, otherwise the log file will be generated in the folder from the previous task -- #
+        if self.task != task:
+            # -- Recreate the dataloaders for training and validation -- #
+            self.reinitialize(task)
+            # -- Now reset self.task to the current task -- #
+            self.task = task
 
         # -- Add the current task to the self.already_trained_on dict in case of restoring -- #
         self.update_save_trained_on_json(task, False)   # Add task to start_training
