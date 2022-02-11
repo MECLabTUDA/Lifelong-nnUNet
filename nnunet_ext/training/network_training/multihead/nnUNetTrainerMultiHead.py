@@ -494,7 +494,8 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # -- Extract corresponding self.val_gen --> the used function is extern and does not change any values from self -- #
         del self.tr_gen, self.val_gen # --> Avoid memory leak
         self.tr_gen, self.val_gen = get_moreDA_augmentation(self.dl_tr, self.dl_val,
-                                                            self.data_aug_params['patch_size_for_spatialtransform'],
+                                                            #self.data_aug_params['patch_size_for_spatialtransform'],
+                                                            self.patch_size,
                                                             self.data_aug_params,
                                                             deep_supervision_scales=self.deep_supervision_scales,
                                                             pin_memory=self.pin_memory,
