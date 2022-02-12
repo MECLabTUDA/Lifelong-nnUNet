@@ -103,6 +103,7 @@ def restore_model(pkl_file, checkpoint=None, train=False, fp16=True, use_extensi
     
     # -- Backup the patch_size before loading the plans -- #
     patch_size = trainer.patch_size
+    net_num_pool_op_kernel_sizes = trainer.net_num_pool_op_kernel_sizes
 
     # -- NOTE: This loads the plan file from the current task! The patch size is high likely to change -- #
     # --       which is why we created a backup to reset the patch size after plans processing --> we -- #
@@ -114,6 +115,7 @@ def restore_model(pkl_file, checkpoint=None, train=False, fp16=True, use_extensi
     
     # -- Restore the patch size -- #
     trainer.patch_size = patch_size
+    trainer.net_num_pool_op_kernel_sizes = net_num_pool_op_kernel_sizes
     
     if checkpoint is not None:
         # -- Note, when restoring we don't need the old network --> this is only called once training is finished -- #
