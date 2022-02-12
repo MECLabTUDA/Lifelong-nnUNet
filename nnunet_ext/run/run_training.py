@@ -132,6 +132,9 @@ def run_training(extension='multihead'):
                         help='Specify the network_trainer that should be used as a foundation to start training sequentially.'
                             ' The network_trainer of the first provided task needs to be finished with training and either a (extensional) network_trainer'
                             ' or a standard nnUNetTrainer. Default: None.')
+    parser.add_argument("--continue_from_previous_dir", required=False, action='store_true',
+                        help='Instead of continuing with the experiment with a certain task order, continue from a dedicated'
+                            'experiment with previous tasks.')
     parser.add_argument('-used_identifier_in_init_network_trainer', type=str, required=False, default=None,
                         help='Specify the identifier that should be used for the network_trainer that is used as a foundation to start training sequentially.'
                             ' Default: default_plans_identifier from paths.py (nnUNetPlansv2.1).')
@@ -265,7 +268,7 @@ def run_training(extension='multihead'):
     assert len(split) > 0,\
         "When providing a split, ensure that it is not empty, otheriwse no split can be performed."
     # -- Check that the number of tasks is greater than 1, else a conventional nnUNetTrainerV2 should be used -- #
-    if len(task) > 1:
+    if len(task) == 1:
         warnings.warn("When training on only one task, the conventional training of the nnU-Net can be used.")
 
     # -- Extract the vit_type structure and check it is one from the existing ones -- #
@@ -563,13 +566,21 @@ def run_training(extension='multihead'):
                 if len(folder_n) == 0:
                     folder_n = 'traditional'
                 # -- Build base_path -- #
-                base_path = join(network_training_output_dir, network, tasks_joined_name, 'metadata', Generic_ViT_UNet.__name__+'V'+str(version), vit_type.lower())
+                if args.continue_from_previous_dir:
+                    tasks_excluding_last = join_texts_with_char(tasks_for_folds[:-1], char_to_join_tasks)
+                    base_path = join(network_training_output_dir, network, tasks_excluding_last, 'metadata', Generic_ViT_UNet.__name__+'V'+str(version), vit_type.lower())
+                else:
+                    base_path = join(network_training_output_dir, network, tasks_joined_name, 'metadata', Generic_ViT_UNet.__name__+'V'+str(version), vit_type.lower())
                 if ViT_task_specific_ln:
                     base_path = join(base_path, 'task_specific', folder_n)
                 else:
                     base_path = join(base_path, 'not_task_specific', folder_n)
             else:
-                base_path = join(network_training_output_dir, network, tasks_joined_name, 'metadata', Generic_UNet.__name__)
+                if args.continue_from_previous_dir:
+                    tasks_excluding_last = join_texts_with_char(tasks_for_folds[:-1], char_to_join_tasks)
+                    base_path = join(network_training_output_dir, network, tasks_excluding_last, 'metadata', Generic_UNet.__name__)
+                else:
+                    base_path = join(network_training_output_dir, network, tasks_joined_name, 'metadata', Generic_UNet.__name__)
             if transfer_heads:
                 # -- Load the pickle file, older versions use json file so keep this in here -- #
                 if os.path.isfile(join(base_path, 'SEQ', extension+"_trained_on.pkl")):
@@ -594,8 +605,8 @@ def run_training(extension='multihead'):
             if isinstance(trained_on_folds, dict):
                 began_with = trained_on_folds.get('start_training_on', None)
                 running_task_list = already_trained_on[str(t_fold)]['finished_training_on'][:] # Without '[:]' reference will change over time as well !
-            
-            # -- If began_with is None, the fold has not started training with --> start with the first task as -c would not have been set -- #
+
+            # -- If began_with is None, the fold has not started training with the latest task -- #
             if began_with is None:
                 # -- Check if all tasks have been trained on so far, if so, this fold is finished with training, else it is not -- #
                 run_tasks = running_task_list
@@ -618,100 +629,85 @@ def run_training(extension='multihead'):
                     began_with = None
 
             # -- If this list is empty, the trainer did not train on any task --> Start directly with the first task as -c would not have been set -- #
-            if began_with != -1: # At this point began_with is either a task or None but not -1
-                if began_with is None:  # --> Only the case when training is finished but validation on last task is missing
-                    # -- Update the user that the current fold is finished with training -- #
-                    print("Fold {} has been trained on all tasks however the validation is still missing..".format(t_fold))
-                    # -- Set validation_only to True, so the trainer will be build in the following and only validated -- #
-                    validation_only = True
-                    # -- Add only the first and last task since the validation of the last task is missing -- #
-                    tasks = tasks[-1:]
-                    # -- Remove the last task from the running_task_list because we want to do validation on this task -- #
-                    running_task_list = running_task_list[:-1]
-                    # -- Set everything for the upcoming loop and break the current one -- #
-                    began_with = tasks[0]
+            # -- At this point began_with is either a task or None but not -1. began_with == None is the case where the 
+            # training is finalized for that task, may not be for further tasks -- #
+            if began_with != -1:
+                if len(running_task_list) != 0:
+                    # -- Substract the tasks from the tasks list --> Only use the tasks that are in tasks but not in finished_with -- #
+                    remove_tasks = tasks[:]
+                    for task in tasks:
+                        # -- If the task has already been trained, remove the entry from the tasks dictionary -- #
+                        if task in running_task_list:
+                            prev_task = task    # Keep track to insert it at the end again
+                            remove_tasks.remove(task)
+                    # -- Reset the tasks so everything is as expected -- #
+                    tasks = remove_tasks
+                    del remove_tasks
+
+                    # -- Only when we want to train change tasks and running_task_list -- #
+                    if not validation_only:
+                        # -- Insert the previous task to the beginning of the list to ensure that the model will be initialized the right way -- #
+                        tasks.insert(0, prev_task)
+                        
+                    # -- Treat the last fold as initialization, so set init_seq to True by keeping continue_learning to True  -- #
                     init_seq = True
-                    # -- Set the prev_trainer and the init_identifier so the trainer will be build correctly -- #
-                    prev_trainer = TRAINER_MAP.get(already_trained_on[str(t_fold)]['prev_trainer'][-1], None)
-                    init_identifier = already_trained_on[str(t_fold)]['used_identifier']
 
-                else:
-                    if len(running_task_list) != 0:
-                        # -- Substract the tasks from the tasks list --> Only use the tasks that are in tasks but not in finished_with -- #
-                        remove_tasks = tasks[:]
-                        for task in tasks:
-                            # -- If the task has already been trained, remove the entry from the tasks dictionary -- #
-                            if task in running_task_list:
-                                prev_task = task    # Keep track to insert it at the end again
-                                remove_tasks.remove(task)
-                        # -- Reset the tasks so everything is as expected -- #
-                        tasks = remove_tasks
-                        del remove_tasks
+                # -- ELSE -- #
+                # -- If running_task_list is empty, the training failed at very first task, -- #
+                # -- so nothing needs to be changed, simply continue with the training -- #
+                # -- Set the prev_trainer and the init_identifier so the trainer will be build correctly -- #
+                prev_trainer = TRAINER_MAP.get(already_trained_on[str(t_fold)]['prev_trainer'][-1], None)
+                init_identifier = already_trained_on[str(t_fold)]['used_identifier']
 
-                        # -- Only when we want to train change tasks and running_task_list -- #
-                        if not validation_only:
-                            # -- Insert the previous task to the beginning of the list to ensure that the model will be initialized the right way -- #
-                            tasks.insert(0, prev_task)
-                            
-                        # -- Treat the last fold as initialization, so set init_seq to True by keeping continue_learning to True  -- #
-                        init_seq = True
-                    
-                    # -- ELSE -- #
-                    # -- If running_task_list is empty, the training failed at very first task, -- #
-                    # -- so nothing needs to be changed, simply continue with the training -- #
-                    # -- Set the prev_trainer and the init_identifier so the trainer will be build correctly -- #
-                    prev_trainer = TRAINER_MAP.get(already_trained_on[str(t_fold)]['prev_trainer'][-1], None)
-                    init_identifier = already_trained_on[str(t_fold)]['used_identifier']
+                # -- Set began_with to first task since at this point it is either a task or it can be None if previous fold was not trained in full -- #
+                began_with = tasks[0]
 
-                    # -- Set began_with to first task since at this point it is either a task or it can be None if previous fold was not trained in full -- #
-                    began_with = tasks[0]
+                # -- Ensure that seed and sample portion are not changed when using rehearsal method --- #
+                if extension == 'rehearsal':
+                    assert seed == int(trained_on_folds['used_seed']),\
+                        "To continue training on the fold {} the same seed, ie. \'{}\' needs to be provided, not \'{}\'.".format(t_fold, trained_on_folds['used_seed'], seed)
+                    assert samples == float(trained_on_folds['used_sample_portion']),\
+                        "To continue training on the fold {} the same portion of samples for previous tasks should be used, ie. \'{}\' needs to be provided, "\
+                        "not \'{}\'.".format(t_fold, trained_on_folds['used_sample_portion'], samples)
+            
+                # -- Ensure that ewc_lambda is not changed when using EWC method --- #
+                if extension == 'ewc':
+                    assert ewc_lambda == float(trained_on_folds['used_ewc_lambda']),\
+                        "To continue training on the fold {} the same ewc_lambda, ie. \'{}\' needs to be provided, not \'{}\'.".format(t_fold, trained_on_folds['used_ewc_lambda'], ewc_lambda)
+            
+                # -- Ensure that lwf_temperature is not changed when using LWF method --- #
+                if extension == 'lwf':
+                    assert lwf_temperature == float(trained_on_folds['used_lwf_temperature']),\
+                        "To continue training on the fold {} the same lwf_temperature, ie. \'{}\' needs to be provided, not \'{}\'.".format(t_fold, trained_on_folds['used_lwf_temperature'], lwf_temperature)
+            
+                # -- Ensure that lambda and scales are not changed when using plop or pod method --- #
+                if extension == 'plop' or extension == 'pod':
+                    assert pod_lambda == float(trained_on_folds['used_pod_lambda']),\
+                        "To continue training on the fold {} the same lambda, ie. \'{}\' needs to be provided, not \'{}\'.".format(t_fold, trained_on_folds['used_pod_lambda'], pod_lambda)
+                    assert pod_scales == float(trained_on_folds['used_scales']),\
+                        "To continue training on the fold {} the same number of scales should be used, ie. \'{}\' needs to be provided, "\
+                        "not \'{}\'.".format(t_fold, trained_on_folds['used_scales'], pod_scales)
 
-                    # -- Ensure that seed and sample portion are not changed when using rehearsal method --- #
-                    if extension == 'rehearsal':
-                        assert seed == int(trained_on_folds['used_seed']),\
-                            "To continue training on the fold {} the same seed, ie. \'{}\' needs to be provided, not \'{}\'.".format(t_fold, trained_on_folds['used_seed'], seed)
-                        assert samples == float(trained_on_folds['used_sample_portion']),\
-                            "To continue training on the fold {} the same portion of samples for previous tasks should be used, ie. \'{}\' needs to be provided, "\
-                            "not \'{}\'.".format(t_fold, trained_on_folds['used_sample_portion'], samples)
-                
-                    # -- Ensure that ewc_lambda is not changed when using EWC method --- #
-                    if extension == 'ewc':
-                        assert ewc_lambda == float(trained_on_folds['used_ewc_lambda']),\
-                            "To continue training on the fold {} the same ewc_lambda, ie. \'{}\' needs to be provided, not \'{}\'.".format(t_fold, trained_on_folds['used_ewc_lambda'], ewc_lambda)
-                
-                    # -- Ensure that lwf_temperature is not changed when using LWF method --- #
-                    if extension == 'lwf':
-                        assert lwf_temperature == float(trained_on_folds['used_lwf_temperature']),\
-                            "To continue training on the fold {} the same lwf_temperature, ie. \'{}\' needs to be provided, not \'{}\'.".format(t_fold, trained_on_folds['used_lwf_temperature'], lwf_temperature)
-                
-                    # -- Ensure that lambda and scales are not changed when using plop or pod method --- #
-                    if extension == 'plop' or extension == 'pod':
-                        assert pod_lambda == float(trained_on_folds['used_pod_lambda']),\
-                            "To continue training on the fold {} the same lambda, ie. \'{}\' needs to be provided, not \'{}\'.".format(t_fold, trained_on_folds['used_pod_lambda'], pod_lambda)
-                        assert pod_scales == float(trained_on_folds['used_scales']),\
-                            "To continue training on the fold {} the same number of scales should be used, ie. \'{}\' needs to be provided, "\
-                            "not \'{}\'.".format(t_fold, trained_on_folds['used_scales'], pod_scales)
+                # -- Ensure that alpha, lambda and update_every are not changed when using rw method --- #
+                if extension == 'rw':
+                    assert update_fisher_every == int(trained_on_folds['update_fisher_after']),\
+                        "To continue training on the fold {} the interval of fisher actualization should ont have changed, ie. \'{}\' needs to be provided, not \'{}\'.".format(t_fold, trained_on_folds['update_fisher_after'], update_fisher_every)
+                    assert rw_alpha == float(trained_on_folds['used_alpha']),\
+                        "To continue training on the fold {} the same alpha, ie. \'{}\' needs to be provided, not \'{}\'.".format(t_fold, trained_on_folds['used_alpha'], rw_alpha)
+                    assert rw_lambda == float(trained_on_folds['used_rw_lambda']),\
+                        "To continue training on the fold {} the importance lambda for previous tasks should be used, ie. \'{}\' needs to be provided, "\
+                        "not \'{}\'.".format(t_fold, trained_on_folds['used_rw_lambda'], rw_lambda)
 
-                    # -- Ensure that alpha, lambda and update_every are not changed when using rw method --- #
-                    if extension == 'rw':
-                        assert update_fisher_every == int(trained_on_folds['update_fisher_after']),\
-                            "To continue training on the fold {} the interval of fisher actualization should ont have changed, ie. \'{}\' needs to be provided, not \'{}\'.".format(t_fold, trained_on_folds['update_fisher_after'], update_fisher_every)
-                        assert rw_alpha == float(trained_on_folds['used_alpha']),\
-                            "To continue training on the fold {} the same alpha, ie. \'{}\' needs to be provided, not \'{}\'.".format(t_fold, trained_on_folds['used_alpha'], rw_alpha)
-                        assert rw_lambda == float(trained_on_folds['used_rw_lambda']),\
-                            "To continue training on the fold {} the importance lambda for previous tasks should be used, ie. \'{}\' needs to be provided, "\
-                            "not \'{}\'.".format(t_fold, trained_on_folds['used_rw_lambda'], rw_lambda)
-
-                    # -- Ensure that alpha and mib_lkd is not changed when using mib method --- #
-                    if extension == 'mib':
-                        assert mib_alpha == float(trained_on_folds['used_alpha']),\
-                            "To continue training on the fold {} the same alpha, ie. \'{}\' needs to be provided, not \'{}\'.".format(t_fold, trained_on_folds['used_alpha'], seed)
-                        assert mib_lkd == float(trained_on_folds['used_lkd']),\
-                            "To continue training on the fold {} the same knowledge distillation importance has to be set, ie. \'{}\' needs to be provided, "\
-                            "not \'{}\'.".format(t_fold, trained_on_folds['used_lkd'], samples)
-                
-                    # -- Update the user that the fold for training has been found -- #
-                    print("Fold {} has not been trained on all tasks --> continue the training with restoring task {}..".format(t_fold, began_with))
+                # -- Ensure that alpha and mib_lkd is not changed when using mib method --- #
+                if extension == 'mib':
+                    assert mib_alpha == float(trained_on_folds['used_alpha']),\
+                        "To continue training on the fold {} the same alpha, ie. \'{}\' needs to be provided, not \'{}\'.".format(t_fold, trained_on_folds['used_alpha'], seed)
+                    assert mib_lkd == float(trained_on_folds['used_lkd']),\
+                        "To continue training on the fold {} the same knowledge distillation importance has to be set, ie. \'{}\' needs to be provided, "\
+                        "not \'{}\'.".format(t_fold, trained_on_folds['used_lkd'], samples)
+            
+                # -- Update the user that the fold for training has been found -- #
+                print("Fold {} has not been trained on all tasks --> continue the training with restoring task {}..".format(t_fold, began_with))
             
             # -- began_with == -1 or no tasks to train --> nothing to restore -- #
             else:   # Start with new fold, use init_seq that is provided from argument parser
@@ -781,8 +777,12 @@ def run_training(extension='multihead'):
                 # -- will result in other network structures (structure based on plans_file) -- #
                 # -- Current task t might not be equal to all_tasks[0], since tasks might be changed in the -- #
                 # -- preparation for -c. -- #
+                if args.continue_from_previous_dir:
+                    prev_directory = join_texts_with_char(tasks_for_folds[:-1], char_to_join_tasks)
+                else:
+                    prev_directory = tasks_joined_name
                 plans_file, prev_trainer_path, dataset_directory, batch_dice, stage, \
-                trainer_class = get_default_configuration(network, all_tasks[0], running_task, prev_trainer, tasks_joined_name,\
+                trainer_class = get_default_configuration(network, all_tasks[0], running_task, prev_trainer, prev_directory,\
                                                           init_identifier, extension_type=extension)
                 
                 # -- Ensure that trainer_class is not None -- #
