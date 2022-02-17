@@ -2,7 +2,7 @@
 #--------This class represents a 2D and 3D ViT model based on the ViT implementation from timm module---------#
 ###############################################################################################################
 
-import math, torch
+import math, torch, copy
 from torch import nn, einsum
 from einops import rearrange
 from functools import partial
@@ -78,51 +78,6 @@ class PatchEmbed(PatchEmbed2D):
 
         return x
 
-class Block(nn.Module):
-    r"""Modify the blocks so we can have task specific LNs.
-    """
-    def __init__(self, dim, num_heads, mlp_ratio=4., qkv_bias=False, drop=0., attn_drop=0.,
-                 drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm, task_specific_ln=False, task_name=None,
-                 is_LSA=False, num_patches=16):
-        # -- Initialize -- #
-        super().__init__()
-        
-        # -- Specify if LayerNorms should be task specific, ie. in a ModuleDict -- #
-        self.task_specific_ln = task_specific_ln
-        if self.task_specific_ln:
-            self.use_task_name = None   # --> user has to set it by using ViT.use_task(..)
-            assert task_name is not None and isinstance(task_name, str), "When using task specific LNs, than please provide a task_name during initialization.."
-            self.norm1 = nn.ModuleDict()
-            self.norm1[task_name] = norm_layer(dim)
-        else:
-            self.norm1 = norm_layer(dim)
-        
-        self.attn = Attention(dim, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=drop,\
-                              is_LSA=is_LSA, num_patches=num_patches)
-        # NOTE: drop path for stochastic depth, we shall see if this is better than dropout here
-        self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
-        
-        if self.task_specific_ln:
-            self.norm2 = nn.ModuleDict()
-            self.norm2[task_name] = norm_layer(dim)
-        else:
-            self.norm2 = norm_layer(dim)
-
-        mlp_hidden_dim = int(dim * mlp_ratio)
-        self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
-
-    def forward(self, x):
-        r"""If task_specific_ln is used, don't forget to call ViT.use_task(..) to select the correct LNs for the blocks.
-        """
-        if self.task_specific_ln:
-            assert self.use_task_name is not None and isinstance(self.use_task_name, str), "When using task specific LNs, than please set a task_name for the forward call using ViT.use_task(..).."
-            x = x + self.drop_path(self.attn(self.norm1[self.use_task_name].to(x.device.index)(x)))
-            x = x + self.drop_path(self.mlp(self.norm2[self.use_task_name].to(x.device.index)(x)))
-        else:
-            x = x + self.drop_path(self.attn(self.norm1(x)))
-            x = x + self.drop_path(self.mlp(self.norm2(x)))
-        return x
-
 class Attention(AttentionTimm):
     def __init__(self, dim, num_heads=8, qkv_bias=False, attn_drop=0., proj_drop=0., is_LSA=False, num_patches=16):
         # -- Do not modify the attention module if not LSA -- #
@@ -163,6 +118,9 @@ class Attention(AttentionTimm):
                 nn.init.constant_(m.weight, 1.0)
 
     def forward(self, x):
+        # -- Keep track of attention weights -- #
+        weights = list()
+
         if self.LSA:
             # -- Perform forward function from Attention with LSA --> copied and modified from https://github.com/aanna0701/SPT_LSA_ViT/blob/main/models/vit.py#L75 -- #
             b, _, _, h = *x.shape, self.heads
@@ -174,14 +132,91 @@ class Attention(AttentionTimm):
             dots[:, :, self.mask[:, 0], self.mask[:, 1]] = -987654321
 
             attn = self.attend(dots)
+            weights = attn
             out = einsum('b h i j, b h j d -> b h i d', attn, v) 
                 
             out = rearrange(out, 'b h n d -> b n (h d)')
             x = self.to_out(out)
         else:
-            # -- Do not modify the attention module if not LSA -- #
-            x = super().forward(x)
-        return x
+            # -- Do not modify the attention module if not LSA, only keep track of weights -- #
+            B, N, C = x.shape
+            qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+            q, k, v = qkv.unbind(0)   # make torchscript happy (cannot use tensor as tuple)
+
+            attn = (q @ k.transpose(-2, -1)) * self.scale
+            attn = attn.softmax(dim=-1)
+            weights = attn
+            attn = self.attn_drop(attn)
+
+            x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+            x = self.proj(x)
+            x = self.proj_drop(x)
+        return x, weights
+
+class Block(nn.Module):
+    r"""Modify the blocks so we can have task specific LNs.
+    """
+    def __init__(self, dim, num_heads, mlp_ratio=4., qkv_bias=False, drop=0., attn_drop=0.,
+                 drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm, task_specific_ln=False, task_name=None,
+                 is_LSA=False, num_patches=16):
+        # -- Initialize -- #
+        super().__init__()
+        
+        # -- Specify if LayerNorms should be task specific, ie. in a ModuleDict -- #
+        self.task_specific_ln = task_specific_ln
+        if self.task_specific_ln:
+            self.use_task_name = None   # --> user has to set it by using ViT.use_task(..)
+            assert task_name is not None and isinstance(task_name, str), "When using task specific LNs, than please provide a task_name during initialization.."
+            self.norm1 = nn.ModuleDict()
+            self.norm1[task_name] = norm_layer(dim)
+        else:
+            self.norm1 = norm_layer(dim)
+        
+        self.attn = Attention(dim, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=drop,\
+                              is_LSA=is_LSA, num_patches=num_patches)
+        # NOTE: drop path for stochastic depth, we shall see if this is better than dropout here
+        self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
+        
+        if self.task_specific_ln:
+            self.norm2 = nn.ModuleDict()
+            self.norm2[task_name] = norm_layer(dim)
+        else:
+            self.norm2 = norm_layer(dim)
+
+        mlp_hidden_dim = int(dim * mlp_ratio)
+        self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
+
+    def forward(self, x):
+        r"""If task_specific_ln is used, don't forget to call ViT.use_task(..) to select the correct LNs for the blocks.
+        """
+        if self.task_specific_ln:
+            assert self.use_task_name is not None and isinstance(self.use_task_name, str), "When using task specific LNs, than please set a task_name for the forward call using ViT.use_task(..).."
+            x_, weights = self.attn(self.norm1[self.use_task_name].to(x.device.index)(x))
+            x = x + self.drop_path(x_)
+            x = x + self.drop_path(self.mlp(self.norm2[self.use_task_name].to(x.device.index)(x)))
+        else:
+            x_, weights = self.attn(self.norm1(x))
+            x = x + self.drop_path(x_)
+            x = x + self.drop_path(self.mlp(self.norm2(x)))
+        return x, weights
+
+class Encoder(nn.Module):
+    r"""This class' sole purpose is to keep track of the attention weights.
+    """
+    def __init__(self, depth, dpr, **configs):
+        super(Encoder, self).__init__()
+        self.layer = nn.ModuleList()
+        for i in range(depth):
+            # self.layer.append(Block(drop_path=dpr[i], **configs))
+            layer = Block(drop_path=dpr[i], **configs)
+            self.layer.append(copy.deepcopy(layer))
+
+    def forward(self, hidden_states):
+        attn_weights = []
+        for layer_block in self.layer:
+            hidden_states, weights = layer_block(hidden_states)
+            attn_weights.append(weights)
+        return hidden_states, attn_weights
 
 class VisionTransformer(VisionTransformer2D):
     r"""This class extends the ViT from timm (https://github.com/rwightman/pytorch-image-models/blob/a41de1f666f9187e70845bbcf5b092f40acaf097/timm/models/vision_transformer.py)
@@ -209,6 +244,9 @@ class VisionTransformer(VisionTransformer2D):
         # -- LSA and SPT flags -- #
         self.LSA = is_LSA
         self.SPT = is_SPT
+
+        # -- Attribute that stores attention weights -- #
+        self.attn_weights = None
 
         # -- Keep track of the some things in case the user wants task specific LNs -- #
         self.block_depth = depth
@@ -249,16 +287,20 @@ class VisionTransformer(VisionTransformer2D):
                                                         is_pe=True, img_depth=None if ViT_2d else img_depth[0])
 
         # -- If LSA is desired, create all new blocks with the LSA Attention method -- #
-        if self.LSA:
-            # -- Recreate the blocks if the user wants LSA method -- #
-            dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
-            num_patches = self.patch_embed.num_patches
-            self.blocks = nn.Sequential(*[
-                Block(
-                    dim=embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, drop=drop_rate,
-                    attn_drop=attn_drop_rate, drop_path=dpr[i], norm_layer=self.norm_layer, act_layer=self.act_layer,\
-                    is_LSA=True, num_patches=num_patches)
-                for i in range(depth)])
+        # if self.LSA:
+        # -- Recreate the blocks if the user wants LSA method -- #
+        dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
+        num_patches = self.patch_embed.num_patches
+        self.blocks = Encoder(depth, dim=embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, drop=drop_rate,
+                              attn_drop=attn_drop_rate, dpr=dpr, norm_layer=self.norm_layer, act_layer=self.act_layer,\
+                              is_LSA=self.LSA, num_patches=num_patches)
+            # self.blocks = nn.Sequential(*[
+            #     Block(
+            #         dim=embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, drop=drop_rate,
+            #         attn_drop=attn_drop_rate, drop_path=dpr[i], norm_layer=self.norm_layer, act_layer=self.act_layer,\
+            #         is_LSA=True, num_patches=num_patches)
+            #     for i in range(depth)])
+        
 
         # -- Remove and create a new self.norm if user wants task_specific_ln -- #
         if self.task_specific_ln:    # --> If not task specific, we don't have anything to do
@@ -269,12 +311,15 @@ class VisionTransformer(VisionTransformer2D):
 
             # -- Recreate the blocks and patch embedding from the initialization if the user wants task specific LNs since this would not be done yet -- #
             dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
-            self.blocks = nn.Sequential(*[
-                Block(
-                    dim=embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, drop=drop_rate,
-                    attn_drop=attn_drop_rate, drop_path=dpr[i], norm_layer=self.norm_layer, act_layer=self.act_layer,
-                    task_specific_ln=self.task_specific_ln, task_name=task_name)
-                for i in range(depth)])
+            self.blocks = Encoder(depth, dim=embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, drop=drop_rate,
+                                  attn_drop=attn_drop_rate, dpr=dpr, norm_layer=self.norm_layer, act_layer=self.act_layer,
+                                  task_specific_ln=self.task_specific_ln, task_name=task_name, is_LSA=self.LSA)
+            # self.blocks = nn.Sequential(*[
+            #     Block(
+            #         dim=embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, drop=drop_rate,
+            #         attn_drop=attn_drop_rate, drop_path=dpr[i], norm_layer=self.norm_layer, act_layer=self.act_layer,
+            #         task_specific_ln=self.task_specific_ln, task_name=task_name)
+            #     for i in range(depth)])
             
             init_size = init_size[1:] if len(init_size) == 3 else init_size
             self.patch_embed = embed_layer(img_size=init_size, patch_size=init_patch, in_chans=init_channel, embed_dim=embed_dim, norm_layer=norm_layer,\
@@ -352,8 +397,10 @@ class VisionTransformer(VisionTransformer2D):
             patch_e.norm[task_name] = nn.Identity() if 'Identity' in str(type(patch_e.norm[list(patch_e.norm.keys())[0]])) else self.norm_layer(self.embed_dim)
         for i in range(self.block_depth):
             # -- Register new LN for norm1 and norm2 -- #
-            self.blocks[i].norm1[task_name], self.blocks[i].norm2[task_name] = nn.Identity() if 'Identity' in str(type(self.blocks[i].norm1[list(self.blocks[i].norm1.keys())[0]])) else self.norm_layer(self.embed_dim),\
-                                                                               nn.Identity() if 'Identity' in str(type(self.blocks[i].norm2[list(self.blocks[i].norm2.keys())[0]])) else self.norm_layer(self.embed_dim)
+            self.blocks.layer[i].norm1[task_name], self.blocks.layer[i].norm2[task_name] = nn.Identity() if 'Identity' in str(type(self.blocks.layer[i].norm1[list(self.blocks.layer[i].norm1.keys())[0]])) else self.norm_layer(self.embed_dim),\
+                                                                               nn.Identity() if 'Identity' in str(type(self.blocks.layer[i].norm2[list(self.blocks.layer[i].norm2.keys())[0]])) else self.norm_layer(self.embed_dim)
+            # self.blocks[i].norm1[task_name], self.blocks[i].norm2[task_name] = nn.Identity() if 'Identity' in str(type(self.blocks[i].norm1[list(self.blocks[i].norm1.keys())[0]])) else self.norm_layer(self.embed_dim),\
+            #                                                                    nn.Identity() if 'Identity' in str(type(self.blocks[i].norm2[list(self.blocks[i].norm2.keys())[0]])) else self.norm_layer(self.embed_dim)
             
     def use_task(self, task_name):
         r"""This function has to be used to specify which task_name to use in the forward function. Call this before every
@@ -368,7 +415,8 @@ class VisionTransformer(VisionTransformer2D):
         # -- Set the task_names in blocks as well since its sequential and with the standard forward we can not set it -- #
         for i in range(self.block_depth):
             # -- Set the use_task_name that is used in the forward function -- #
-            self.blocks[i].use_task_name = task_name
+            self.blocks.layer[i].use_task_name = task_name
+            # self.blocks[i].use_task_name = task_name
 
     def forward_features(self, x, idx, task_name): # Modified so idx specifies which embeddings to use
         if self.SPT:
@@ -382,7 +430,8 @@ class VisionTransformer(VisionTransformer2D):
             x = torch.cat((cls_token, self.dist_token.expand(x.shape[0], -1, -1), x), dim=1)
         x = self.pos_drop(x + getattr(self, 'pos_embed_' + str(idx)))
         # -- Blocks can handle task_name since it user should have set it using ViT.use_task(..) -- #
-        self.blocks(x)
+        x, self.attn_weights = self.blocks(x)
+
         # -- For self.norm we have to do it here 'by hand' -- #
         if self.task_specific_ln:
             x = self.norm[task_name].to(x.device.index)(x)

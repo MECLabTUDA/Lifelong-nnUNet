@@ -216,12 +216,12 @@ def run_training(extension='multihead'):
     
     # -- Add arguments for MiB method -- #
     if extension in ['mib', 'ownm1', 'ownm2', 'ownm3']:
-        parser.add_argument('-mib_alpha', action='store', type=float, nargs=1, required=False, default=1.0,
+        parser.add_argument('-mib_alpha', action='store', type=float, nargs=1, required=False, default=0.9,
                             help='Specify the mib_alpha parameter to hard-ify the soft-labels.'
-                                ' Default: mib_alpha = 1.0')
-        parser.add_argument('-mib_lkd', action='store', type=float, nargs=1, required=False, default=10,
+                                ' Default: mib_alpha = 0.9')
+        parser.add_argument('-mib_lkd', action='store', type=float, nargs=1, required=False, default=1,
                             help='Specify the weighting of the KL loss.'
-                                ' Default: mib_lkd = 10')
+                                ' Default: mib_lkd = 1')
 
     # -- Add arguments for own method -- #
     if extension in ['ownm4']:
@@ -856,13 +856,13 @@ def run_training(extension='multihead'):
                     else:
                         trainer.load_final_checkpoint(train=False)
 
-                # -- Evaluate the trainers network -- #
-                trainer.network.eval()
+                # # -- Evaluate the trainers network -- #
+                # trainer.network.eval()
 
-                # -- Perform validation using the trainer -- #
-                trainer.validate(save_softmax=args.npz, validation_folder_name=val_folder,
-                                 run_postprocessing_on_folds=not disable_postprocessing_on_folds,
-                                 overwrite=args.val_disable_overwrite)
+                # # -- Perform validation using the trainer -- #
+                # trainer.validate(save_softmax=args.npz, validation_folder_name=val_folder,
+                #                  run_postprocessing_on_folds=not disable_postprocessing_on_folds,
+                #                  overwrite=args.val_disable_overwrite)
 
             # -- If the models for each sequence should not be stored, delete the last model and only keep the current finished one -- #
             # -- NOTE: If the previous trainer was a nnU-Net, i.e. not an extension, then do not remove it -- #

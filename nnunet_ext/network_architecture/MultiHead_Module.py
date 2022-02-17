@@ -218,13 +218,16 @@ class MultiHead_Module(nn.Module):
         # -- Perform splitting: Loop through the models modules -- #
         for idx, (name, n_module) in enumerate(list(model.named_children())):
             # -- Deep copy the module to bypass the runtime error that would occur due to changing of the module -- #
-            module = copy.deepcopy(n_module)
+            # module = copy.deepcopy(n_module)
+            # module = n_module.clone()
+
             # -- If, given layer_id, a desired module from the path is not reached and layer_id is -- #
             # -- smaller than number of split path elements --> set body -- #
             # -- Ensure that nothing is added twice due to recursion, thus layer_id == 0 -- #
             if layer_id == 0 and layer_id < len(self.split)-1 and name != self.split[layer_id]:
                 # -- Add this whole module with all children to body -- #
-                body.add_module(name, module)
+                # body.add_module(name, module)
+                body.add_module(name, n_module)
 
             # -- If the layer_id is equal to the number of split path elements and equal to the last element in split -- #
             # -- the split point is found --> the last node of the split, so everything after that is head -- #

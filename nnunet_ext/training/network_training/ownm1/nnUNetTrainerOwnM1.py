@@ -216,9 +216,6 @@ class nnUNetTrainerOwnM1(nnUNetTrainerMultiHead):
         # -- Create a deepcopy of the previous, ie. currently set model if we do PLOP training -- #
         if task not in self.mh_network.heads:
             self.network_old = copy.deepcopy(self.network)
-            # -- Save this network using checkpoint saving for restoring purposes -- #
-            self.save_checkpoint(join(self.output_folder, "model_latest.model"), old_model=True, fname_old=join(self.output_folder, "model_old.model"))
-
             if self.split_gpu and not self.use_vit:
                 self.network_old.cuda(1)    # Put on second GPU
 

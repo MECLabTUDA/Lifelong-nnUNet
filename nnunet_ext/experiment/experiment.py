@@ -223,7 +223,7 @@ class Experiment():
                         
                     # -- Treat the last task as initialization, so set re_init to True by keeping continue_tr True  -- #
                     re_init = True
-                    
+                   
                 # -- ELSE -- #
                 # -- If running_task_list is empty, the training failed at very first task, -- #
                 # -- so nothing needs to be changed, simply continue with the training -- #
@@ -268,7 +268,7 @@ class Experiment():
             if t not in running_task_list:
                 running_task_list.append(t)
             running_task = join_texts_with_char(running_task_list, self.tasks_list_with_char[1])
-            
+
             # -- Extract the configurations and check that trainer_class is not None -- #
             # -- NOTE: Each task will be saved as new folder using the running_task that are all previous and current task joined together. -- #
             # -- NOTE: Perform preprocessing and planning before ! -- #
@@ -405,18 +405,23 @@ class Experiment():
             trainer_path = trainer.output_folder
             output_path = os.path.join(os.path.sep, *trainer_path.replace(self.output_exp, self.output_eval).split(os.path.sep)[:-1])    # Remove fold_X folder here
 
+            # -- Remove the trainer if we're done after this evaluation, i.e. if do_train is false -- #
+            ds_dir = trainer.dataset_directory
+            if not do_train or set(all_tasks) == set(running_task_list):    # We can delete the trainer here to avoid CUDA OOM since evaluate_on restores the model
+                del trainer
+            
             # -- Do the actual evaluation on the current network -- #
             self.summary = print_to_log_file(self.summary, None, '', 'Doing evaluation for trainer {} (trained on {}) using the data from {}.'.format(self.network_trainer, ', '.join(running_task_list), ', '.join(running_task_list)))
             self.evaluator.evaluate_on([self.fold], self.tasks_list_with_char[0], None, self.always_use_last_head,
                                        self.do_pod, trainer_path, output_path)
             self.summary = print_to_log_file(self.summary, None, '', 'Finished with evaluation. The results can be found in the following folder: {}. \n'.format(join(output_path, 'fold_'+str(self.fold))))
-            
+
             # -- Update the summary wrt to the used split -- #
             spts = ''
             if self.param_split:
-                splits_file = join(trainer.dataset_directory, "splits_param_search.pkl")
+                splits_file = join(ds_dir, "splits_param_search.pkl")
             else:
-                splits_file = join(trainer.dataset_directory, "splits_final.pkl")
+                splits_file = join(ds_dir, "splits_final.pkl")
             split = load_pickle(splits_file)
             for k, v in split[self.fold].items():
                 spts += str(k) + ' := ' + ', '.join(str(v_) for v_ in v) + '\n'

@@ -4,7 +4,7 @@ def pod_embed(embedding_tensor):
         # -- Calculate the POD embedding -- #
         w_p = torch.mean(embedding_tensor, -1)  # Over W: H × C width-pooled slices of embedding_tensor using mean
         h_p = torch.mean(embedding_tensor, -2)  # Over H: W × C height-pooled slices of embedding_tensor using mean
-        return torch.cat((w_p, h_p), dim=2)       # Concat over C axis
+        return torch.cat((w_p, h_p), dim=1)     # Concat over C axis
 
 def local_POD(h_, h_old, scales):
         # -- Calculate the local POD embedding using intermediate convolutional outputs -- #
@@ -21,6 +21,7 @@ def local_POD(h_, h_old, scales):
             # -- Calculate step sizes -- #
             w = int(W/(2**scale))
             h = int(H/(2**scale))
+
             # -- Throw an error if scale is too big resulting in a step size of 0 -- #
             assert w > 0 and h > 0,\
                 "The number of scales ({}) are too big in such a way that during scale {} either the step size for H ({}) or W ({}) is 0..".format(scales, scale, h, w)

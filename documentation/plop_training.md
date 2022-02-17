@@ -11,7 +11,7 @@ The exact same Command Line Arguments as presented in the [Multi-Head](multihead
 | `-pod_scales` | Specify the number of scales for the PLOP method. | no | -- | `3` |
 
 ### Exemplary use cases
-In the following, a few examples are shown representing possible use cases on how to use the PLOP Trainer.
+In the following, a few examples are shown representing possible use cases on how to use the PLOP Trainer. It is important to mention that the first task that is used to train has to have images where the heights and widths are equal to avoid a size mismatch, when slices embeddings are concatenated due to different step sizes.
 
 One of the easiest and simplest example is to simply train on a bunch of tasks, for example `Task011_XYZ`, `Task012_XYZ` and `Task013_XYZ`. Each task should be trained for 250 epochs, whereas every 25th epoch, the stored data is updated and the results are stored in a `.csv` file. Additionally, the network should be split at the `seg_outputs` part of the network and trained on the GPU with ID <GPU_ID> (can be one or multilpe IDs). The importance of the previous tasks for the PLOP method should be set to 0.01 instead of 0.05:
 ```bash
