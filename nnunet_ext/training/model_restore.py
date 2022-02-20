@@ -6,7 +6,7 @@
 import importlib, pkgutil, nnunet, nnunet_ext
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet.training.model_restore import recursive_find_python_class
-from nnunet.training.network_training.nnUNetTrainer import nnUNetTrainer
+from nnunet_ext.training.network_training.nnUNetTrainer import nnUNetTrainer
 from nnunet_ext.training.network_training.nnViTUNetTrainer import nnViTUNetTrainer
 
 def recursive_find_python_class_file(folder, trainer_name, current_module):

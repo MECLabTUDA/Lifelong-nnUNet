@@ -9,7 +9,7 @@ from typing import Tuple, Union, List
 
 import numpy as np
 from batchgenerators.augmentations.utils import resize_segmentation
-from nnunet_ext.inference.segmentation_export import save_segmentation_nifti_from_softmax, save_segmentation_nifti
+from nnunet_ext.inference.segmentation_export import save_segmentation_nifti_from_softmax
 from batchgenerators.utilities.file_and_folder_operations import *
 from multiprocessing import Process, Queue
 import torch
@@ -19,8 +19,7 @@ from multiprocessing import Pool
 from nnunet.postprocessing.connected_components import load_remove_save, load_postprocessing
 from nnunet.utilities.one_hot_encoding import to_one_hot
 from nnunet_ext.training.model_restore_pred import load_model_and_checkpoint_files
-#from nnunet.training.network_training.nnUNetTrainer import nnUNetTrainer
-from nnunet_ext.training.network_training.multihead.nnUNetTrainerMultiHead import nnUNetTrainerMultiHead
+from nnunet_ext.training.network_training.nnUNetTrainer import nnUNetTrainer
 
 def preprocess_save_to_queue(preprocess_fn, q, list_of_lists, output_files, segs_from_prev_stage, classes,
                              transpose_forward):
@@ -115,7 +114,6 @@ def preprocess_multithreaded(trainer, list_of_lists, output_files, num_processes
 
         q.close()
 
-
 def predict_cases(params_ext, model, list_of_lists, output_filenames, folds, save_npz, num_threads_preprocessing,
                   num_threads_nifti_save, segs_from_prev_stage=None, do_tta=True, mixed_precision=True, 
                   overwrite_existing=False,
@@ -208,7 +206,7 @@ def predict_cases(params_ext, model, list_of_lists, output_filenames, folds, sav
             assert len(features_dir) == 1
             features_dir = features_dir[0]
             for p in params:
-                trainer.load_checkpoint_ram(p, False)
+                #trainer.load_checkpoint_ram(p, False)
                 trainer.save_features(
                     d, do_mirroring=do_tta, mirror_axes=trainer.data_aug_params['mirror_axes'], use_sliding_window=True,
                     step_size=step_size, use_gaussian=True, all_in_gpu=all_in_gpu,
