@@ -240,15 +240,15 @@ def predict_cases(params_ext, model, list_of_lists, output_filenames, folds, sav
                 softmax = trainer.predict_preprocessed_data_return_seg_and_softmax(
                     d, do_mirroring=do_tta, mirror_axes=trainer.data_aug_params['mirror_axes'], use_sliding_window=True,
                     step_size=step_size, use_gaussian=True, all_in_gpu=all_in_gpu,
-                    mixed_precision=mixed_precision)[1]
+                    mixed_precision=mixed_precision, tta=tta, mcdo=mcdo)[1]  # Added tta=tta, mcdo=mcdo
 
-                for i, p in enumerate(params[1:]):
+                for p in params[1:]:
                     #trainer.load_checkpoint_ram(p, False)
                     #trainer.load_checkpoint(all_best_model_files[i+1], train=False)
                     softmax += trainer.predict_preprocessed_data_return_seg_and_softmax(
                         d, do_mirroring=do_tta, mirror_axes=trainer.data_aug_params['mirror_axes'], use_sliding_window=True,
                         step_size=step_size, use_gaussian=True, all_in_gpu=all_in_gpu,
-                        mixed_precision=mixed_precision)[1]
+                        mixed_precision=mixed_precision, tta=tta, mcdo=mcdo)[1]  # Added tta=tta, mcdo=mcdo
 
                 if len(params) > 1:
                     softmax /= len(params)
@@ -258,13 +258,13 @@ def predict_cases(params_ext, model, list_of_lists, output_filenames, folds, sav
                     transpose_backward = trainer.plans.get('transpose_backward')
                     softmax = softmax.transpose([0] + [i + 1 for i in transpose_backward])
 
-                if save_npz:
+                if save_npz:  # No
                     npz_file = output_filename[:-7] + ".npz"
                 else:
                     npz_file = None
 
                 if hasattr(trainer, 'regions_class_order'):
-                    region_class_order = trainer.regions_class_order
+                    region_class_order = trainer.regions_class_order  # Is None
                 else:
                     region_class_order = None
 
@@ -284,11 +284,21 @@ def predict_cases(params_ext, model, list_of_lists, output_filenames, folds, sav
                     np.save(output_filename[:-7] + ".npy", softmax)
                     softmax = output_filename[:-7] + ".npy"
 
+                # TODO: is this necessary to repeat?
+                if output_probabilities and tta != -1:
+                    part = tta
+                elif output_probabilities and mcdo != -1:
+                    part = mcdo
+                elif output_probabilities:
+                    part = folds[0]
+                else:
+                    part = -1
+
                 results.append(pool.starmap_async(save_segmentation_nifti_from_softmax,
                                                 ((softmax, output_filename, dct, interpolation_order, region_class_order,
                                                     None, None,
-                                                    npz_file, None, force_separate_z, interpolation_order_z),)
-                                                ))
+                                                    npz_file, None, force_separate_z, interpolation_order_z, True, output_probabilities, part),)
+                                                )) # Added True, output_probabilities, part
 
             print("inference done. Now waiting for the segmentation export to finish...")
             _ = [i.get() for i in results]
