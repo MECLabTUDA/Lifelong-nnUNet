@@ -19,7 +19,7 @@ from nnunet.utilities.to_torch import maybe_to_torch, to_cuda
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet.training.loss_functions.dice_loss import DC_and_CE_loss
 from nnunet_ext.utilities.helpful_functions import calculate_target_logits
-from nnunet.training.network_training.nnUNetTrainerV2 import nnUNetTrainerV2
+from nnunet_ext.training.network_training.nnUNetTrainerV2 import nnUNetTrainerV2
 from nnunet_ext.training.loss_functions.deep_supervision import MultipleOutputLossLWF as LwFloss
 from nnunet_ext.training.network_training.multihead.nnUNetTrainerMultiHead import nnUNetTrainerMultiHead
 
