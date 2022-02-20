@@ -325,7 +325,9 @@ def predict_from_folder(params_ext, model: str, input_folder: str, output_folder
                         part_id: int, num_parts: int, tta: bool, mixed_precision: bool = True,
                         overwrite_existing: bool = True, mode: str = 'normal', overwrite_all_in_gpu: bool = None,
                         step_size: float = 0.5, checkpoint_name: str = "model_final_checkpoint",
-                        segmentation_export_kwargs: dict = None, disable_postprocessing: bool = False):
+                        segmentation_export_kwargs: dict = None, disable_postprocessing: bool = False,
+                        output_probabilities: bool = False, uncertainty_tta: int = -1, mcdo: int = -1, no_softmax = False,
+                        features_folder=None, feature_paths=None):
     """
         here we use the standard naming scheme to generate list_of_lists and output_files needed by predict_cases
     :param model:
@@ -387,6 +389,14 @@ def predict_from_folder(params_ext, model: str, input_folder: str, output_folder
     else:
         lowres_segmentations = None
 
+    if features_folder is not None:
+        if not os.path.isdir(features_folder):
+            os.makedirs(features_folder)
+        features_dirs = [join(features_folder, i) for i in case_ids]
+        features_dirs = features_dirs[part_id::num_parts]
+    else:
+        features_dirs = None
+
     if mode == "normal":
         if overwrite_all_in_gpu is None:
             all_in_gpu = False
@@ -399,6 +409,8 @@ def predict_from_folder(params_ext, model: str, input_folder: str, output_folder
                              all_in_gpu=all_in_gpu,
                              step_size=step_size, checkpoint_name=checkpoint_name,
                              segmentation_export_kwargs=segmentation_export_kwargs,
-                             disable_postprocessing=disable_postprocessing)
+                             disable_postprocessing=disable_postprocessing,
+                             output_probabilities=output_probabilities, tta=uncertainty_tta, mcdo=mcdo, no_softmax=no_softmax,
+                             features_dirs=features_dirs, feature_paths=feature_paths)
     else:
         raise ValueError("unrecognized mode. Must be normal")
