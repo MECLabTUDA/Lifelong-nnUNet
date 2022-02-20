@@ -251,7 +251,7 @@ def run_inference():
         trainer_path = join(os.path.sep, *trainer_path.split(os.path.sep)[:-1], 'pod' if do_pod else 'no_pod')
         output_path = join(os.path.sep, *output_path.split(os.path.sep)[:-1], 'pod' if do_pod else 'no_pod')
 
-    output_path = join(output_path, 'head_{}'.format(use_head), 'fold_'+str(fold), 'Preds_{}'.format(convert_id_to_task_name(evaluate_on)))
+    output_path = join(output_path, 'head_{}'.format(use_head), 'fold_'+str(fold), 'predictions_{}'.format(convert_id_to_task_name(evaluate_on)))
 
     # Note that unlike the trainer_path from run_evaluation, this does not include the fold because plans.pkl is one level above 
 
