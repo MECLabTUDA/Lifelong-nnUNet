@@ -19,7 +19,7 @@ from nnunet_ext.paths import network_training_output_dir
 from nnunet.paths import network_training_output_dir as network_training_output_dir_orig
 from nnunet_ext.utilities.helpful_functions import get_ViT_LSA_SPT_folder_name
 from nnunet_ext.training.network_training.nnViTUNetTrainer import nnViTUNetTrainer
-from nnunet.network_architecture.generic_UNet import Generic_UNet
+from nnunet_ext.network_architecture.generic_UNet import Generic_UNet
 from nnunet_ext.network_architecture.generic_ViT_UNet import Generic_ViT_UNet
 
 def run_inference():

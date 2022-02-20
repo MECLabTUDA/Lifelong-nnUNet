@@ -11,7 +11,7 @@ from collections import OrderedDict
 from nnunet_ext.utilities.helpful_functions import *
 from nnunet_ext.paths import default_plans_identifier
 from nnunet_ext.training.model_restore import restore_model
-from nnunet.network_architecture.generic_UNet import Generic_UNet
+from nnunet_ext.network_architecture.generic_UNet import Generic_UNet
 from nnunet_ext.run.default_configuration import get_default_configuration
 from nnunet_ext.network_architecture.generic_ViT_UNet import Generic_ViT_UNet
 from nnunet_ext.paths import network_training_output_dir, evaluation_output_dir

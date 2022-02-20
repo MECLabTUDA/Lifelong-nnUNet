@@ -15,7 +15,7 @@ from nnunet.utilities.nd_softmax import softmax_helper
 from nnunet.utilities.tensor_utilities import sum_tensor
 from nnunet_ext.training.model_restore import restore_model
 from nnunet.utilities.to_torch import maybe_to_torch, to_cuda
-from nnunet.network_architecture.generic_UNet import Generic_UNet
+from nnunet_ext.network_architecture.generic_UNet import Generic_UNet
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet.training.loss_functions.dice_loss import DC_and_CE_loss
 from nnunet_ext.run.default_configuration import get_default_configuration
