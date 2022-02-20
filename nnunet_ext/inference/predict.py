@@ -5,7 +5,6 @@
 
 from copy import deepcopy
 from typing import Tuple, Union, List
-import sys
 
 import numpy as np
 from batchgenerators.augmentations.utils import resize_segmentation
@@ -344,21 +343,30 @@ def predict_from_folder(params_ext, model: str, input_folder: str, output_folder
     """
     maybe_mkdir_p(output_folder)
 
+    if isfile(join(model, "plans.pkl")):
+        shutil.copy(join(model, 'plans.pkl'), output_folder)
+    else:
+        # In Lifelong-nnUNet, the plans.pkl is only created for teh first task, for
+        # which parameters are selected. The trainer path leads to "SEQ", we need
+        # to go up four levels and select only the first task, then rebuild the path
 
-    # In Lifelong-nnUNet, the plans.pkl is only created for teh first task, for
-    # which parameters are selected. The trainer path leads to "SEQ", we need
-    # to go up four levels and select only the first task, then rebuild the path
+        original_path = model
+        original_path = os.path.normpath(original_path)
+        splitted_path = original_path.split(os.sep)
 
-    original_path = model
-    original_path = os.path.normpath(original_path)
-    splitted_path = original_path.split(os.sep)
-    splitted_path[-4] = '_'.join(splitted_path[-4].split('_')[:2])
-    plans_path = '/'+os.path.join(*splitted_path)
-    
-    shutil.copy(join(plans_path, 'plans.pkl'), output_folder)
+        # Change for the plans of the first task for the second directory
+        splitted_path[-4] = '_'.join(splitted_path[-4].split('_')[:2])
+        plans_path = '/'+os.path.join(*splitted_path)
 
-    assert isfile(join(plans_path, "plans.pkl")), "Folder with saved model weights must contain a plans.pkl file"
-    expected_num_modalities = load_pickle(join(plans_path, "plans.pkl"))['num_modalities']
+        if not os.path.isfile(os.path.join(plans_path, 'plans.pkl')):
+            # Change for the plans of the first task for the first directory as well
+            splitted_path[-5] = '_'.join(splitted_path[-5].split('_')[:2])
+            plans_path = '/'+os.path.join(*splitted_path)
+        
+        shutil.copy(join(plans_path, 'plans.pkl'), output_folder)
+
+    assert isfile(join(output_folder, "plans.pkl")), "Folder with saved model weights must contain a plans.pkl file"
+    expected_num_modalities = load_pickle(join(output_folder, "plans.pkl"))['num_modalities']
 
     # check input folder integrity
     case_ids = check_input_folder_and_return_caseIDs(input_folder, expected_num_modalities)

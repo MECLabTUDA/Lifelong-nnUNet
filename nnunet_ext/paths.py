@@ -21,9 +21,10 @@ base = os.environ['nnUNet_raw_data_base'] if "nnUNet_raw_data_base" in os.enviro
 preprocessing_output_dir = os.environ['nnUNet_preprocessed'] if "nnUNet_preprocessed" in os.environ.keys() else None
 network_training_output_dir_base = os.path.join(os.environ['RESULTS_FOLDER']) if "RESULTS_FOLDER" in os.environ.keys() else None
 
-# -- New variable for evaluation -- #
+# -- New variables for evaluation and inference -- #
 evaluation_output_dir_base = os.path.join(os.environ['EVALUATION_FOLDER']) if "EVALUATION_FOLDER" in os.environ.keys() else None
 param_search_output_dir = os.path.join(os.environ['PARAM_SEARCH_FOLDER']) if "PARAM_SEARCH_FOLDER" in os.environ.keys() else None
+inference_output_dir = os.path.join(os.environ['INFERENCE_FOLDER']) if "INFERENCE_FOLDER" in os.environ.keys() else None
 
 if base is not None:
     nnUNet_raw_data = join(base, "nnUNet_raw_data")
@@ -71,4 +72,14 @@ else:
           "If this is not intended behavior, please read documentation/setting_up_paths.md for information on how to set this "
           "up.\n")
     param_search_output_dir = None
+
+# -- Set new path for inference -- #
+if inference_output_dir is not None:
+    inference_output_dir = join(inference_output_dir, my_output_identifier)
+    maybe_mkdir_p(inference_output_dir)
+else:
+    print("INFERENCE_FOLDER is not defined and nnU-Net extension cannot be used for inference. "
+          "If this is not intended behavior, please read documentation/setting_up_paths.md for information on how to set this "
+          "up.\n")
+    inference_output_dir = None
 #------------------------------------------- Copied and adapted from original implementation -------------------------------------------#

@@ -6,7 +6,7 @@ import os, argparse
 from nnunet_ext.evaluation.evaluator import Evaluator
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet_ext.utilities.helpful_functions import join_texts_with_char
-from nnunet_ext.paths import evaluation_output_dir, default_plans_identifier
+from nnunet_ext.paths import inference_output_dir, default_plans_identifier
 from nnunet_ext.inference.predict import predict_from_folder
 from nnunet.utilities.task_name_id_conversion import convert_id_to_task_name
 from nnunet_ext.paths import network_training_output_dir
@@ -16,11 +16,9 @@ from nnunet_ext.training.network_training.nnViTUNetTrainer import nnViTUNetTrain
 from nnunet.network_architecture.generic_UNet import Generic_UNet
 from nnunet_ext.network_architecture.generic_ViT_UNet import Generic_ViT_UNet
 
-import sys
-
 def run_inference():
-    # -- First of all check that evaluation_output_dir is set otherwise we do not perform an evaluation -- #
-    assert evaluation_output_dir is not None, "Before running any evaluation, please specify the Evaluation folder (EVALUATION_FOLDER) as described in the paths.md."
+    # -- First of all check that inference_output_dir is set otherwise we do not perform inference -- #
+    assert inference_output_dir is not None, "Before running any inference, please specify the inference folder (INFERENCE_FOLDER) as described in the paths.md."
 
     # -----------------------
     # Build argument parser
@@ -223,12 +221,12 @@ def run_inference():
     # -- Build the trainer_path first -- #
     if 'nnUNetTrainerV2' in network_trainer:   # always_last_head makes no sense here, there is only one head
         trainer_path = join(network_training_output_dir_orig, network, tasks_joined_name, network_trainer+'__'+plans_identifier)
-        output_path = join(evaluation_output_dir, network, tasks_joined_name, network_trainer+'__'+plans_identifier)
+        output_path = join(inference_output_dir, network, tasks_joined_name, network_trainer+'__'+plans_identifier)
         output_path = output_path.replace('nnUNet_ext', 'nnUNet')
     elif nnViTUNetTrainer.__name__ in network_trainer: # always_last_head makes no sense here, there is only one head
         trainer_path = join(network_training_output_dir, network, tasks_joined_name, network_trainer+'__'+plans_identifier, vit_type,\
                             'task_specific' if ViT_task_specific_ln else 'not_task_specific', folder_n)
-        output_path = join(evaluation_output_dir, network, tasks_joined_name, network_trainer+'__'+plans_identifier, vit_type,\
+        output_path = join(inference_output_dir, network, tasks_joined_name, network_trainer+'__'+plans_identifier, vit_type,\
                         'task_specific' if ViT_task_specific_ln else 'not_task_specific', folder_n)
         trainer_path = trainer_path.replace(nnViTUNetTrainer.__name__, nnViTUNetTrainer.__name__+version)
         output_path = output_path.replace(nnViTUNetTrainer.__name__, nnViTUNetTrainer.__name__+version)
@@ -237,13 +235,13 @@ def run_inference():
             trainer_path = join(network_training_output_dir, network, tasks_joined_name, model_joined_name,\
                                 network_trainer+'__'+plans_identifier, Generic_ViT_UNet.__name__+version, vit_type,\
                                 'task_specific' if ViT_task_specific_ln else 'not_task_specific', folder_n, 'SEQ' if transfer_heads else 'MH')
-            output_path = join(evaluation_output_dir, network, tasks_joined_name, model_joined_name,\
+            output_path = join(inference_output_dir, network, tasks_joined_name, model_joined_name,\
                                 network_trainer+'__'+plans_identifier, Generic_ViT_UNet.__name__+version, vit_type,\
                                 'task_specific' if ViT_task_specific_ln else 'not_task_specific', folder_n, 'SEQ' if transfer_heads else 'MH')
         else:
             trainer_path = join(network_training_output_dir, network, tasks_joined_name, model_joined_name,\
                                 network_trainer+'__'+plans_identifier, Generic_UNet.__name__, 'SEQ' if transfer_heads else 'MH')
-            output_path = join(evaluation_output_dir, network, tasks_joined_name, model_joined_name,\
+            output_path = join(inference_output_dir, network, tasks_joined_name, model_joined_name,\
                                 network_trainer+'__'+plans_identifier, Generic_UNet.__name__, 'SEQ' if transfer_heads else 'MH')
 
     # -- Re-Modify trainer path for own methods if necessary -- #
@@ -251,7 +249,7 @@ def run_inference():
         trainer_path = join(os.path.sep, *trainer_path.split(os.path.sep)[:-1], 'pod' if do_pod else 'no_pod')
         output_path = join(os.path.sep, *output_path.split(os.path.sep)[:-1], 'pod' if do_pod else 'no_pod')
 
-    output_path = join(output_path, 'head_{}'.format(use_head), 'fold_'+str(fold), 'predictions_{}'.format(convert_id_to_task_name(evaluate_on)))
+    output_path = join(output_path, 'head_{}'.format(use_head), 'fold_'+str(fold), 'predictions', convert_id_to_task_name(evaluate_on))
 
     # Note that unlike the trainer_path from run_evaluation, this does not include the fold because plans.pkl is one level above 
 
@@ -273,7 +271,6 @@ def run_inference():
 
     num_threads_nifti_save = 2
     step_size = 0.5
-
 
     # Additional parameters needed for restoring extension trainers/models
     params_ext = {
