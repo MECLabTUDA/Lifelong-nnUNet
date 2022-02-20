@@ -11,7 +11,10 @@
 #    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
-
+#
+# Changes include:
+# - Support for extracting outputs with MC Dropout
+# - Support for extracting network features
 
 from collections import OrderedDict
 from typing import Tuple
@@ -203,7 +206,7 @@ class nnUNetTrainerV2(nnUNetTrainer):
                                                          use_sliding_window: bool = True, step_size: float = 0.5,
                                                          use_gaussian: bool = True, pad_border_mode: str = 'constant',
                                                          pad_kwargs: dict = None, all_in_gpu: bool = False,
-                                                         verbose: bool = True, mixed_precision=True) -> Tuple[np.ndarray, np.ndarray]:
+                                                         verbose: bool = True, mixed_precision=True, tta: int = -1, mcdo: int = -1) -> Tuple[np.ndarray, np.ndarray]:
         """
         We need to wrap this because we need to enforce self.network.do_ds = False for prediction
         """
@@ -217,7 +220,7 @@ class nnUNetTrainerV2(nnUNetTrainer):
                                                                        pad_border_mode=pad_border_mode,
                                                                        pad_kwargs=pad_kwargs, all_in_gpu=all_in_gpu,
                                                                        verbose=verbose,
-                                                                       mixed_precision=mixed_precision)
+                                                                       mixed_precision=mixed_precision, tta=tta, mcdo=mcdo)
         self.network.do_ds = ds
         return ret
 
@@ -439,5 +442,31 @@ class nnUNetTrainerV2(nnUNetTrainer):
         ds = self.network.do_ds
         self.network.do_ds = True
         ret = super().run_training()
+        self.network.do_ds = ds
+        return ret
+
+    def save_features(self, data: np.ndarray, do_mirroring: bool = True,
+            mirror_axes: Tuple[int] = None,
+            use_sliding_window: bool = True, step_size: float = 0.5,
+            use_gaussian: bool = True, pad_border_mode: str = 'constant',
+            pad_kwargs: dict = None, all_in_gpu: bool = False,
+            verbose: bool = True, mixed_precision=True, tta: int = -1, mcdo: int = -1, 
+            features_dir=None, feature_paths=None) -> Tuple[np.ndarray, np.ndarray]:
+        r"""
+        Basically a copy of predict_preprocessed_data_return_seg_and_softmax, but stores features instead of making
+        predictions.
+        """
+        ds = self.network.do_ds
+        self.network.do_ds = False
+        ret = super().save_features(data,
+            do_mirroring=do_mirroring,
+            mirror_axes=mirror_axes,
+            use_sliding_window=use_sliding_window,
+            step_size=step_size, use_gaussian=use_gaussian,
+            pad_border_mode=pad_border_mode,
+            pad_kwargs=pad_kwargs, all_in_gpu=all_in_gpu,
+            verbose=verbose,
+            mixed_precision=mixed_precision, tta=tta, mcdo=mcdo, 
+            features_dir=features_dir, feature_paths=feature_paths)
         self.network.do_ds = ds
         return ret

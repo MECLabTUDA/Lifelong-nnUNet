@@ -11,7 +11,10 @@
 #    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
-
+#
+# Changes include:
+# - Support for extracting outputs with MC Dropout
+# - Support for extracting network features
 
 import shutil
 from collections import OrderedDict
@@ -485,7 +488,7 @@ class nnUNetTrainer(NetworkTrainer):
                                                          use_sliding_window: bool = True, step_size: float = 0.5,
                                                          use_gaussian: bool = True, pad_border_mode: str = 'constant',
                                                          pad_kwargs: dict = None, all_in_gpu: bool = False,
-                                                         verbose: bool = True, mixed_precision: bool = True) -> Tuple[np.ndarray, np.ndarray]:
+                                                         verbose: bool = True, mixed_precision: bool = True, tta: int = -1, mcdo: int = -1) -> Tuple[np.ndarray, np.ndarray]:
         """
         :param data:
         :param do_mirroring:
@@ -519,7 +522,7 @@ class nnUNetTrainer(NetworkTrainer):
                                       patch_size=self.patch_size, regions_class_order=self.regions_class_order,
                                       use_gaussian=use_gaussian, pad_border_mode=pad_border_mode,
                                       pad_kwargs=pad_kwargs, all_in_gpu=all_in_gpu, verbose=verbose,
-                                      mixed_precision=mixed_precision)
+                                      mixed_precision=mixed_precision, tta=tta, mcdo=mcdo)
         self.network.train(current_mode)
         return ret
 
@@ -732,3 +735,39 @@ class nnUNetTrainer(NetworkTrainer):
         info['plans'] = self.plans
 
         write_pickle(info, fname + ".pkl")
+
+    def save_features(self, data: np.ndarray, do_mirroring: bool = True,
+        mirror_axes: Tuple[int] = None,
+        use_sliding_window: bool = True, step_size: float = 0.5,
+        use_gaussian: bool = True, pad_border_mode: str = 'constant',
+        pad_kwargs: dict = None, all_in_gpu: bool = False,
+        verbose: bool = True, mixed_precision: bool = True, tta: int = -1, mcdo: int = -1, 
+        features_dir=None, feature_paths=None) -> Tuple[np.ndarray, np.ndarray]:
+        r"""
+        Basically a copy of predict_preprocessed_data_return_seg_and_softmax, but stores features instead of making
+        predictions.
+        """
+        if pad_border_mode == 'constant' and pad_kwargs is None:
+            pad_kwargs = {'constant_values': 0}
+
+        if do_mirroring and mirror_axes is None:
+            mirror_axes = self.data_aug_params['mirror_axes']
+
+        if do_mirroring:
+            assert self.data_aug_params["do_mirror"], "Cannot do mirroring as test time augmentation when training " \
+                                                      "was done without mirroring"
+
+        valid = list((SegmentationNetwork, nn.DataParallel))
+        assert isinstance(self.network, tuple(valid))
+
+        current_mode = self.network.training
+        self.network.eval()
+        ret = self.network.predict_3D(data, do_mirroring=do_mirroring, mirror_axes=mirror_axes,
+                                      use_sliding_window=use_sliding_window, step_size=step_size,
+                                      patch_size=self.patch_size, regions_class_order=self.regions_class_order,
+                                      use_gaussian=use_gaussian, pad_border_mode=pad_border_mode,
+                                      pad_kwargs=pad_kwargs, all_in_gpu=all_in_gpu, verbose=verbose,
+                                      mixed_precision=mixed_precision, tta=tta, mcdo=mcdo, 
+                                      features_dir=features_dir, feature_paths=feature_paths)
+        self.network.train(current_mode)
+        return ret
