@@ -106,7 +106,6 @@ def run_inference():
     parser.add_argument("--no_softmax", required=False, default=False, action='store_true')
     parser.add_argument("-uncertainty_tta", required=False, default=-1)
     parser.add_argument("-mcdo", required=False, default=-1)
-    parser.add_argument('-of', required=False, default=None, help="Folder for saving features.")
     parser.add_argument('-feature_paths', required=False, default=None, nargs='+', help="Paths to network features.")
 
 
@@ -193,7 +192,6 @@ def run_inference():
     uncertainty_tta = int(args.uncertainty_tta)
     mcdo = int(args.mcdo)
     no_softmax = args.no_softmax
-    features_folder = args.of
     feature_paths = args.feature_paths
     
     # -------------------------------
@@ -269,7 +267,21 @@ def run_inference():
         trainer_path = join(os.path.sep, *trainer_path.split(os.path.sep)[:-1], 'pod' if do_pod else 'no_pod')
         output_path = join(os.path.sep, *output_path.split(os.path.sep)[:-1], 'pod' if do_pod else 'no_pod')
 
-    output_path = join(output_path, 'head_{}'.format(use_head), 'fold_'+str(fold), 'predictions', convert_id_to_task_name(evaluate_on))
+    final_dir_name = 'preds'
+    if output_probabilities:
+        if mcdo > -1:
+            final_dir_name = 'MC_outputs'
+        elif no_softmax:
+            final_dir_name = 'non_softmaxed_outputs'
+        else:
+            final_dir_name = 'outputs'
+    elif uncertainty_tta > -1:
+        final_dir_name = 'TTA_preds'
+    elif feature_paths is not None: 
+        final_dir_name = 'features'
+
+    output_path = join(output_path, 'head_{}'.format(use_head), 'fold_'+str(fold), final_dir_name, convert_id_to_task_name(evaluate_on))
+    features_folder = output_path if final_dir_name == 'features' else None
 
     # Note that unlike the trainer_path from run_evaluation, this does not include the fold because plans.pkl is one level above 
 

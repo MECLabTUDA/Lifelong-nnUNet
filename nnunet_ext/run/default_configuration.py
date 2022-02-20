@@ -7,7 +7,7 @@ import nnunet, nnunet_ext
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet.training.model_restore import recursive_find_python_class
 from nnunet.experiment_planning.summarize_plans import summarize_plans
-from nnunet.training.network_training.nnUNetTrainerV2 import nnUNetTrainerV2
+from nnunet_ext.training.network_training.nnUNetTrainerV2 import nnUNetTrainerV2
 from nnunet.paths import network_training_output_dir as orig_network_training_output_dir
 from nnunet_ext.paths import network_training_output_dir, preprocessing_output_dir, default_plans_identifier
 
