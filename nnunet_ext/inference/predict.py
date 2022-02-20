@@ -117,10 +117,12 @@ def preprocess_multithreaded(trainer, list_of_lists, output_files, num_processes
 
 
 def predict_cases(params_ext, model, list_of_lists, output_filenames, folds, save_npz, num_threads_preprocessing,
-                  num_threads_nifti_save, segs_from_prev_stage=None, do_tta=True, mixed_precision=True,
+                  num_threads_nifti_save, segs_from_prev_stage=None, do_tta=True, mixed_precision=True, 
                   overwrite_existing=False,
                   all_in_gpu=False, step_size=0.5, checkpoint_name="model_final_checkpoint",
-                  segmentation_export_kwargs: dict = None, disable_postprocessing: bool = False):
+                  segmentation_export_kwargs: dict = None, disable_postprocessing: bool = False,
+                  output_probabilities: bool = False, tta: int = -1, mcdo: int = -1, no_softmax=False,
+                  features_dirs=None, feature_paths=None):
     """
     :param segmentation_export_kwargs:
     :param model: folder where the model is saved, must contain fold_x subfolders
@@ -199,85 +201,117 @@ def predict_cases(params_ext, model, list_of_lists, output_filenames, folds, sav
             os.remove(d)
             d = data
 
-        print("predicting", output_filename)
+        if features_dirs:  # Feature extraction
+            _, filename = os.path.split(output_filename)
+            filename = filename.split('.')[0]
+            features_dir = [d for d in features_dirs if filename in os.path.split(d)[1]]
+            assert len(features_dir) == 1
+            features_dir = features_dir[0]
+            for p in params:
+                trainer.load_checkpoint_ram(p, False)
+                trainer.save_features(
+                    d, do_mirroring=do_tta, mirror_axes=trainer.data_aug_params['mirror_axes'], use_sliding_window=True,
+                    step_size=step_size, use_gaussian=True, all_in_gpu=all_in_gpu,
+                    mixed_precision=mixed_precision, tta=tta, mcdo=mcdo, 
+                    features_dir=features_dir, feature_paths=feature_paths)[1][None]
+        else:  # Save predictions or network outputs
+            # If file exists, do not export
+            out_fname = output_filename
+            if output_probabilities and tta != -1:
+                part = tta
+            elif output_probabilities and mcdo != -1:
+                part = mcdo
+            elif output_probabilities:
+                part = folds[0]
+            else:
+                part = -1
+            if part != -1:
+                out_fname = out_fname[:-7] + "_" + str(0) + "_part_" + str(part) + ".nii.gz"
+            else:
+                out_fname = out_fname[:-7] + "_" + str(0) + ".nii.gz"
 
-        #trainer.load_checkpoint(all_best_model_files[0], train=False)
-        #trainer.load_checkpoint_ram(params[0], False)
-        softmax = trainer.predict_preprocessed_data_return_seg_and_softmax(
-            d, do_mirroring=do_tta, mirror_axes=trainer.data_aug_params['mirror_axes'], use_sliding_window=True,
-            step_size=step_size, use_gaussian=True, all_in_gpu=all_in_gpu,
-            mixed_precision=mixed_precision)[1]
+            if os.path.isfile(out_fname):
+                print('File found, not predicting')
+            else:
+                print("predicting", output_filename)
 
-        for i, p in enumerate(params[1:]):
-            #trainer.load_checkpoint_ram(p, False)
-            #trainer.load_checkpoint(all_best_model_files[i+1], train=False)
-            softmax += trainer.predict_preprocessed_data_return_seg_and_softmax(
-                d, do_mirroring=do_tta, mirror_axes=trainer.data_aug_params['mirror_axes'], use_sliding_window=True,
-                step_size=step_size, use_gaussian=True, all_in_gpu=all_in_gpu,
-                mixed_precision=mixed_precision)[1]
+                #trainer.load_checkpoint(all_best_model_files[0], train=False)
+                #trainer.load_checkpoint_ram(params[0], False)
+                softmax = trainer.predict_preprocessed_data_return_seg_and_softmax(
+                    d, do_mirroring=do_tta, mirror_axes=trainer.data_aug_params['mirror_axes'], use_sliding_window=True,
+                    step_size=step_size, use_gaussian=True, all_in_gpu=all_in_gpu,
+                    mixed_precision=mixed_precision)[1]
 
-        if len(params) > 1:
-            softmax /= len(params)
+                for i, p in enumerate(params[1:]):
+                    #trainer.load_checkpoint_ram(p, False)
+                    #trainer.load_checkpoint(all_best_model_files[i+1], train=False)
+                    softmax += trainer.predict_preprocessed_data_return_seg_and_softmax(
+                        d, do_mirroring=do_tta, mirror_axes=trainer.data_aug_params['mirror_axes'], use_sliding_window=True,
+                        step_size=step_size, use_gaussian=True, all_in_gpu=all_in_gpu,
+                        mixed_precision=mixed_precision)[1]
 
-        transpose_forward = trainer.plans.get('transpose_forward')
-        if transpose_forward is not None:
-            transpose_backward = trainer.plans.get('transpose_backward')
-            softmax = softmax.transpose([0] + [i + 1 for i in transpose_backward])
+                if len(params) > 1:
+                    softmax /= len(params)
 
-        if save_npz:
-            npz_file = output_filename[:-7] + ".npz"
-        else:
-            npz_file = None
+                transpose_forward = trainer.plans.get('transpose_forward')
+                if transpose_forward is not None:
+                    transpose_backward = trainer.plans.get('transpose_backward')
+                    softmax = softmax.transpose([0] + [i + 1 for i in transpose_backward])
 
-        if hasattr(trainer, 'regions_class_order'):
-            region_class_order = trainer.regions_class_order
-        else:
-            region_class_order = None
+                if save_npz:
+                    npz_file = output_filename[:-7] + ".npz"
+                else:
+                    npz_file = None
 
-        """There is a problem with python process communication that prevents us from communicating objects 
-        larger than 2 GB between processes (basically when the length of the pickle string that will be sent is 
-        communicated by the multiprocessing.Pipe object then the placeholder (I think) does not allow for long 
-        enough strings (lol). This could be fixed by changing i to l (for long) but that would require manually 
-        patching system python code. We circumvent that problem here by saving softmax_pred to a npy file that will 
-        then be read (and finally deleted) by the Process. save_segmentation_nifti_from_softmax can take either 
-        filename or np.ndarray and will handle this automatically"""
-        bytes_per_voxel = 4
-        if all_in_gpu:
-            bytes_per_voxel = 2  # if all_in_gpu then the return value is half (float16)
-        if np.prod(softmax.shape) > (2e9 / bytes_per_voxel * 0.85):  # * 0.85 just to be save
-            print(
-                "This output is too large for python process-process communication. Saving output temporarily to disk")
-            np.save(output_filename[:-7] + ".npy", softmax)
-            softmax = output_filename[:-7] + ".npy"
+                if hasattr(trainer, 'regions_class_order'):
+                    region_class_order = trainer.regions_class_order
+                else:
+                    region_class_order = None
 
-        results.append(pool.starmap_async(save_segmentation_nifti_from_softmax,
-                                          ((softmax, output_filename, dct, interpolation_order, region_class_order,
-                                            None, None,
-                                            npz_file, None, force_separate_z, interpolation_order_z),)
-                                          ))
+                """There is a problem with python process communication that prevents us from communicating objects 
+                larger than 2 GB between processes (basically when the length of the pickle string that will be sent is 
+                communicated by the multiprocessing.Pipe object then the placeholder (I think) does not allow for long 
+                enough strings (lol). This could be fixed by changing i to l (for long) but that would require manually 
+                patching system python code. We circumvent that problem here by saving softmax_pred to a npy file that will 
+                then be read (and finally deleted) by the Process. save_segmentation_nifti_from_softmax can take either 
+                filename or np.ndarray and will handle this automatically"""
+                bytes_per_voxel = 4
+                if all_in_gpu:
+                    bytes_per_voxel = 2  # if all_in_gpu then the return value is half (float16)
+                if np.prod(softmax.shape) > (2e9 / bytes_per_voxel * 0.85):  # * 0.85 just to be save
+                    print(
+                        "This output is too large for python process-process communication. Saving output temporarily to disk")
+                    np.save(output_filename[:-7] + ".npy", softmax)
+                    softmax = output_filename[:-7] + ".npy"
 
-    print("inference done. Now waiting for the segmentation export to finish...")
-    _ = [i.get() for i in results]
-    # now apply postprocessing
-    # first load the postprocessing properties if they are present. Else raise a well visible warning
-    if not disable_postprocessing:
-        results = []
-        pp_file = join(model, "postprocessing.json")
-        if isfile(pp_file):
-            print("postprocessing...")
-            shutil.copy(pp_file, os.path.abspath(os.path.dirname(output_filenames[0])))
-            # for_which_classes stores for which of the classes everything but the largest connected component needs to be
-            # removed
-            for_which_classes, min_valid_obj_size = load_postprocessing(pp_file)
-            results.append(pool.starmap_async(load_remove_save,
-                                              zip(output_filenames, output_filenames,
-                                                  [for_which_classes] * len(output_filenames),
-                                                  [min_valid_obj_size] * len(output_filenames))))
+                results.append(pool.starmap_async(save_segmentation_nifti_from_softmax,
+                                                ((softmax, output_filename, dct, interpolation_order, region_class_order,
+                                                    None, None,
+                                                    npz_file, None, force_separate_z, interpolation_order_z),)
+                                                ))
+
+            print("inference done. Now waiting for the segmentation export to finish...")
             _ = [i.get() for i in results]
-        else:
-            print("WARNING! Cannot run postprocessing because the postprocessing file is missing. Make sure to run "
-                  "consolidate_folds in the output folder of the model first!\nThe folder you need to run this in is "
-                  "%s" % model)
+            # now apply postprocessing
+            # first load the postprocessing properties if they are present. Else raise a well visible warning
+            if not disable_postprocessing:
+                results = []
+                pp_file = join(model, "postprocessing.json")
+                if isfile(pp_file):
+                    print("postprocessing...")
+                    shutil.copy(pp_file, os.path.abspath(os.path.dirname(output_filenames[0])))
+                    # for_which_classes stores for which of the classes everything but the largest connected component needs to be
+                    # removed
+                    for_which_classes, min_valid_obj_size = load_postprocessing(pp_file)
+                    results.append(pool.starmap_async(load_remove_save,
+                                                    zip(output_filenames, output_filenames,
+                                                        [for_which_classes] * len(output_filenames),
+                                                        [min_valid_obj_size] * len(output_filenames))))
+                    _ = [i.get() for i in results]
+                else:
+                    print("WARNING! Cannot run postprocessing because the postprocessing file is missing. Make sure to run "
+                        "consolidate_folds in the output folder of the model first!\nThe folder you need to run this in is "
+                        "%s" % model)
 
     pool.close()
     pool.join()
