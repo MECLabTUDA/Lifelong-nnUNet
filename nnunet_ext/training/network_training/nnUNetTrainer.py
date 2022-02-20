@@ -30,9 +30,9 @@ from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet.configuration import default_num_threads
 from nnunet.evaluation.evaluator import aggregate_scores
 from nnunet_ext.inference.segmentation_export import save_segmentation_nifti_from_softmax
-from nnunet.network_architecture.generic_UNet import Generic_UNet
+from nnunet_ext.network_architecture.generic_UNet import Generic_UNet
 from nnunet.network_architecture.initialization import InitWeights_He
-from nnunet.network_architecture.neural_network import SegmentationNetwork
+from nnunet_ext.network_architecture.neural_network import SegmentationNetwork
 from nnunet.postprocessing.connected_components import determine_postprocessing
 from nnunet.training.data_augmentation.default_data_augmentation import default_3D_augmentation_params, \
     default_2D_augmentation_params, get_default_augmentation, get_patch_size
@@ -187,7 +187,7 @@ class nnUNetTrainer(NetworkTrainer):
         self.data_aug_params['selected_seg_channels'] = [0]
         self.data_aug_params['patch_size_for_spatialtransform'] = self.patch_size
 
-    def initialize(self, training=True, force_load_plans=False):
+    def initialize(self, training=True, force_load_plans=False, mcdo=-1):
         """
         For prediction of test cases just set training=False, this will prevent loading of training data and
         training batchgenerator initialization
@@ -227,12 +227,12 @@ class nnUNetTrainer(NetworkTrainer):
                                    also_print_to_console=False)
         else:
             pass
-        self.initialize_network()
+        self.initialize_network(mcdo)
         self.initialize_optimizer_and_scheduler()
         # assert isinstance(self.network, (SegmentationNetwork, nn.DataParallel))
         self.was_initialized = True
 
-    def initialize_network(self):
+    def initialize_network(self, mcdo=-1):
         """
         This is specific to the U-Net and must be adapted for other network architectures
         :return:
@@ -252,7 +252,13 @@ class nnUNetTrainer(NetworkTrainer):
             norm_op = nn.InstanceNorm2d
 
         norm_op_kwargs = {'eps': 1e-5, 'affine': True}
-        dropout_op_kwargs = {'p': 0, 'inplace': True}
+        if mcdo != -1:
+            print("Dropout activated ############################################")
+            dropout_p = 0.5
+        else:
+            print("Dropout NOT activated ############################################")
+            dropout_p = 0.0
+        dropout_op_kwargs = {'p': dropout_p, 'inplace': True}
         net_nonlin = nn.LeakyReLU
         net_nonlin_kwargs = {'negative_slope': 1e-2, 'inplace': True}
         self.network = Generic_UNet(self.num_input_channels, self.base_num_features, self.num_classes, net_numpool,

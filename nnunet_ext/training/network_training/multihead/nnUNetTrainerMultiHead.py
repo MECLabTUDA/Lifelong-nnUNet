@@ -305,7 +305,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             self.trainer_path = prev_trainer_path
         
         # -- Initialize using super class -- #
-        super().initialize(training, force_load_plans) # --> This updates the corresponding variables automatically since we inherit this class
+        super().initialize(training, force_load_plans, mcdo=mcdo) # --> This updates the corresponding variables automatically since we inherit this class
 
         # -- Set nr_epochs to provided number -- #
         self.max_num_epochs = num_epochs
@@ -325,7 +325,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         else:
             self.new_trainer = True
 
-    def initialize_network(self):
+    def initialize_network(self, mcdo=-1):
         r"""Extend Initialization of Network --> Load pre-trained model (specified to setup the network).
             Optimizer and lr initialization is still the same, since only the network is different.
         """
@@ -354,7 +354,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                                                    first_task_name=self.tasks_list_with_char[0][0], do_LSA=self.LSA, do_SPT=self.SPT)
             else:
                 # -- Initialize from beginning and start training, since no model is provided -- #
-                super().initialize_network() # --> This updates the corresponding variables automatically since we inherit this class
+                super().initialize_network(mcdo=mcdo) # --> This updates the corresponding variables automatically since we inherit this class
                 self.mh_network = MultiHead_Module(Generic_UNet, self.split, self.tasks_list_with_char[0][0], prev_trainer=self.network,
                                                    input_channels=self.num_input_channels, base_num_features=self.base_num_features,\
                                                    num_classes=self.num_classes, num_pool=len(self.net_num_pool_op_kernel_sizes))

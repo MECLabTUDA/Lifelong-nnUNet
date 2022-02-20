@@ -24,9 +24,9 @@ import torch
 from nnunet.training.data_augmentation.data_augmentation_moreDA import get_moreDA_augmentation
 from nnunet.training.loss_functions.deep_supervision import MultipleOutputLoss2
 from nnunet.utilities.to_torch import maybe_to_torch, to_cuda
-from nnunet.network_architecture.generic_UNet import Generic_UNet
+from nnunet_ext.network_architecture.generic_UNet import Generic_UNet
 from nnunet.network_architecture.initialization import InitWeights_He
-from nnunet.network_architecture.neural_network import SegmentationNetwork
+from nnunet_ext.network_architecture.neural_network import SegmentationNetwork
 from nnunet.training.data_augmentation.default_data_augmentation import default_2D_augmentation_params, \
     get_patch_size, default_3D_augmentation_params
 from nnunet.training.dataloading.dataset_loading import unpack_dataset
@@ -37,7 +37,6 @@ from torch import nn
 from torch.cuda.amp import autocast
 from nnunet.training.learning_rate.poly_lr import poly_lr
 from batchgenerators.utilities.file_and_folder_operations import *
-import sys
 
 
 class nnUNetTrainerV2(nnUNetTrainer):
@@ -56,7 +55,7 @@ class nnUNetTrainerV2(nnUNetTrainer):
 
         self.pin_memory = True
 
-    def initialize(self, training=True, force_load_plans=False):
+    def initialize(self, training=True, force_load_plans=False, mcdo=-1):
         """
         - replaced get_default_augmentation with get_moreDA_augmentation
         - enforce to only run this code once
@@ -122,7 +121,7 @@ class nnUNetTrainerV2(nnUNetTrainer):
             else:
                 pass
 
-            self.initialize_network()
+            self.initialize_network(mcdo)
             self.initialize_optimizer_and_scheduler()
 
             assert isinstance(self.network, (SegmentationNetwork, nn.DataParallel))
@@ -130,7 +129,7 @@ class nnUNetTrainerV2(nnUNetTrainer):
             self.print_to_log_file('self.was_initialized is True, not running self.initialize again')
         self.was_initialized = True
 
-    def initialize_network(self):
+    def initialize_network(self, mcdo=-1):
         """
         - momentum 0.99
         - SGD instead of Adam
@@ -152,7 +151,13 @@ class nnUNetTrainerV2(nnUNetTrainer):
             norm_op = nn.InstanceNorm2d
 
         norm_op_kwargs = {'eps': 1e-5, 'affine': True}
-        dropout_op_kwargs = {'p': 0, 'inplace': True}
+        if mcdo != -1:
+            print("Dropout activated ############################################")
+            dropout_p = 0.5
+        else:
+            print("Dropout NOT activated ############################################")
+            dropout_p = 0.0
+        dropout_op_kwargs = {'p': dropout_p, 'inplace': True}
         net_nonlin = nn.LeakyReLU
         net_nonlin_kwargs = {'negative_slope': 1e-2, 'inplace': True}
         self.network = Generic_UNet(self.num_input_channels, self.base_num_features, self.num_classes,
