@@ -1,6 +1,9 @@
 #########################################################################################################
 # This class represents the model_restore module for the nnUNet extension. Unlike the original 
 # implementation, we separate this from model_restore to avoid circular imports.
+# Changes include:
+# - Pass on MCDO
+# - Change where to look for a trainer so that the nnunet_ext trainer is initialized
 #########################################################################################################
 
 import torch
@@ -16,7 +19,7 @@ from nnunet_ext.training.network_training.multihead.nnUNetTrainerMultiHead impor
 import sys
 
 # -------------------- Arguments are different from the original nnUNet -------------------- #
-def load_model_and_checkpoint_files(params, folder, folds=None, mixed_precision=None, checkpoint_name="model_best"):
+def load_model_and_checkpoint_files(params, folder, folds=None, mixed_precision=None, checkpoint_name="model_best", mcdo=-1):
     """
     This will restore the model from the checkpoint in the specified fold.
     """
@@ -76,7 +79,7 @@ def load_model_and_checkpoint_files(params, folder, folds=None, mixed_precision=
         trainer = nnUNetTrainerMultiHead('seg_outputs', params['tasks_list_with_char'][0][0], plans_file, t_fold, output_folder=trainer_path,\
                                             dataset_directory=dataset_directory, tasks_list_with_char=(params['tasks_list_with_char'][0], params['tasks_list_with_char'][1]),\
                                             batch_dice=batch_dice, stage=stage, already_trained_on=None, use_param_split=params['param_split'], network=params['network'])
-        trainer.initialize(False, num_epochs=0, prev_trainer_path=prev_trainer_path, call_for_eval=True)
+        trainer.initialize(False, num_epochs=0, prev_trainer_path=prev_trainer_path, call_for_eval=True, mcdo=mcdo)
         # -- Reset the epoch -- #
         trainer.epoch = epoch
         # -- Remove the Generic_UNet/MH part from the ouptput folder -- #

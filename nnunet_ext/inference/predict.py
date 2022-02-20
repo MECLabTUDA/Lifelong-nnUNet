@@ -3,12 +3,13 @@
 #----------inspired by original implementation (--> predict)--------------------------------------------#
 #########################################################################################################
 
+import argparse
 from copy import deepcopy
 from typing import Tuple, Union, List
 
 import numpy as np
 from batchgenerators.augmentations.utils import resize_segmentation
-from nnunet.inference.segmentation_export import save_segmentation_nifti_from_softmax, save_segmentation_nifti
+from nnunet_ext.inference.segmentation_export import save_segmentation_nifti_from_softmax, save_segmentation_nifti
 from batchgenerators.utilities.file_and_folder_operations import *
 from multiprocessing import Process, Queue
 import torch
@@ -16,9 +17,10 @@ import SimpleITK as sitk
 import shutil
 from multiprocessing import Pool
 from nnunet.postprocessing.connected_components import load_remove_save, load_postprocessing
-from nnunet.training.network_training.nnUNetTrainer import nnUNetTrainer
 from nnunet.utilities.one_hot_encoding import to_one_hot
 from nnunet_ext.training.model_restore_pred import load_model_and_checkpoint_files
+#from nnunet.training.network_training.nnUNetTrainer import nnUNetTrainer
+from nnunet_ext.training.network_training.multihead.nnUNetTrainerMultiHead import nnUNetTrainerMultiHead
 
 def preprocess_save_to_queue(preprocess_fn, q, list_of_lists, output_files, segs_from_prev_stage, classes,
                              transpose_forward):

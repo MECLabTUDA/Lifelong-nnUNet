@@ -1,5 +1,11 @@
 #########################################################################################################
-#----------------------------This class allows the user to make predictions-----------------------------#
+#---------------This class allows the user to make predictions, based on predict_simple.py--------------#
+# Changes include:
+# - Exporting network outputs before applying the softmax operation (--output_probabilities)
+# - Applying Dropout during inference (-mcdo)
+# - Applying TTA for extracting uncertainties (-uncertainty_tta)
+# - Turning off the softmax operation with --no_softmax
+# - Extracting network features with -of and -feature_paths
 #########################################################################################################
 
 import os, argparse
@@ -96,6 +102,13 @@ def run_inference():
                         help='Set this flag if Locality Self-Attention should be used for the ViT.')
     parser.add_argument('--do_SPT', action='store_true', default=False,
                         help='Set this flag if Shifted Patch Tokenization should be used for the ViT.')
+    parser.add_argument("--output_probabilities", required=False, default=False, action='store_true')
+    parser.add_argument("--no_softmax", required=False, default=False, action='store_true')
+    parser.add_argument("-uncertainty_tta", required=False, default=-1)
+    parser.add_argument("-mcdo", required=False, default=-1)
+    parser.add_argument('-of', required=False, default=None, help="Folder for saving features.")
+    parser.add_argument('-feature_paths', required=False, default=None, nargs='+', help="Paths to network features.")
+
 
     # -- Build mapping for network_trainer to corresponding extension name -- #
     ext_map = {'nnViTUNetTrainer': None, 'nnViTUNetTrainerCascadeFullRes': None,
@@ -174,7 +187,14 @@ def run_inference():
     if isinstance(version, list):    # When the version gets returned as a list, extract the number to avoid later appearing errors
         version = version[0]
     # assert version in range(1, 5), 'We only provide three versions, namely 1, 2, 3 or 4, but not {}..'.format(version)
-    
+
+    # -- Arguments specifying what to extract -- #
+    output_probabilities = args.output_probabilities
+    uncertainty_tta = int(args.uncertainty_tta)
+    mcdo = int(args.mcdo)
+    no_softmax = args.no_softmax
+    features_folder = args.of
+    feature_paths = args.feature_paths
     
     # -------------------------------
     # Transform tasks to task names
@@ -296,7 +316,10 @@ def run_inference():
                             num_threads_nifti_save, lowres_segmentations, part_id, num_parts, enable_tta,
                             overwrite_existing=overwrite_existing, mode="normal", overwrite_all_in_gpu=all_in_gpu,
                             mixed_precision=mixed_precision,
-                            step_size=step_size, checkpoint_name=chk)
+                            step_size=step_size, checkpoint_name=chk,
+                            output_probabilities=output_probabilities,
+                            uncertainty_tta=uncertainty_tta, mcdo=mcdo, no_softmax=no_softmax,
+                            features_folder=features_folder, feature_paths=feature_paths)
 
 # -- Main function for setup execution -- #
 def main():
