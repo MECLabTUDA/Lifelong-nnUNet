@@ -30,7 +30,7 @@ def recursive_find_python_class_file(folder, trainer_name, current_module):
 
     return mod
 
-def restore_model(pkl_file, checkpoint=None, train=False, fp16=True, use_extension=False, extension_type='multihead', del_log=False, param_search=False, network=None):
+def restore_model(pkl_file, checkpoint=None, train=False, fp16=True, use_extension=False, extension_type='multihead', del_log=False, param_search=False, network=None, mcdo=-1):
     """ This function is modified to work for the nnU-Net extension as well and ensures a correct loading of trainers
         for both (conventional and extension). Use del_log when using this for evaluation to remove the then created log_file
         during intialization.
@@ -95,7 +95,7 @@ def restore_model(pkl_file, checkpoint=None, train=False, fp16=True, use_extensi
     else:
         trainer = tr(*init)
         
-    trainer.initialize(train)
+    trainer.initialize(train, mcdo=mcdo)
 
     # -------------------- From nnUNet implementation (modifed, but same output) -------------------- #
     if fp16 is not None:

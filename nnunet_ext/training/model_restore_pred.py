@@ -50,7 +50,7 @@ def load_model_and_checkpoint_files(params, folder, folds=None, mixed_precision=
     use_extension = not 'nnUNetTrainerV2' in trainer_path
     trainer = restore_model(pkl_file, checkpoint, train=False, fp16=mixed_precision,\
                             use_extension=use_extension, extension_type=params['extension'], del_log=True,\
-                            param_search=params['param_split'], network=params['network'])
+                            param_search=params['param_split'], network=params['network'], mcdo=mcdo)
 
     # -- If this is a conventional nn-Unet Trainer, then make a MultiHead Trainer out of it, so we can use the _perform_validation function -- #
     if not use_extension or nnViTUNetTrainer.__name__ in trainer_path:
@@ -79,6 +79,7 @@ def load_model_and_checkpoint_files(params, folder, folds=None, mixed_precision=
         trainer = nnUNetTrainerMultiHead('seg_outputs', params['tasks_list_with_char'][0][0], plans_file, t_fold, output_folder=trainer_path,\
                                             dataset_directory=dataset_directory, tasks_list_with_char=(params['tasks_list_with_char'][0], params['tasks_list_with_char'][1]),\
                                             batch_dice=batch_dice, stage=stage, already_trained_on=None, use_param_split=params['param_split'], network=params['network'])
+        print('\n IN MODEL RESTORE PRED {}'.format(mcdo))
         trainer.initialize(False, num_epochs=0, prev_trainer_path=prev_trainer_path, call_for_eval=True, mcdo=mcdo)
         # -- Reset the epoch -- #
         trainer.epoch = epoch

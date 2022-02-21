@@ -170,7 +170,7 @@ def predict_cases(params_ext, model, list_of_lists, output_filenames, folds, sav
 
     print("loading parameters for folds,", folds)
     trainer, params, all_best_model_files = load_model_and_checkpoint_files(params_ext, model, folds, mixed_precision=mixed_precision,
-                                                      checkpoint_name=checkpoint_name)
+                                                      checkpoint_name=checkpoint_name, mcdo=mcdo)
 
     if segmentation_export_kwargs is None:
         if 'segmentation_export_params' in trainer.plans.keys():
