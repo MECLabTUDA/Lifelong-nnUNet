@@ -275,13 +275,13 @@ def run_inference():
             final_dir_name = 'non_softmaxed_outputs'
         else:
             final_dir_name = 'outputs'
-    elif uncertainty_tta > -1:
+    if uncertainty_tta > -1:
         final_dir_name = 'TTA_preds'
-    elif feature_paths is not None: 
+    if feature_paths is not None: 
         final_dir_name = 'features'
 
     output_path = join(output_path, 'head_{}'.format(use_head), 'fold_'+str(fold), final_dir_name, convert_id_to_task_name(evaluate_on))
-    features_folder = output_path if final_dir_name == 'features' else None
+    features_folder = output_path if feature_paths is not None else None
 
     # Note that unlike the trainer_path from run_evaluation, this does not include the fold because plans.pkl is one level above 
 
