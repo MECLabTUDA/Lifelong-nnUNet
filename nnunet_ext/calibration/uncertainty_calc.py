@@ -144,8 +144,8 @@ def mahalanobis_uncertainty(features_path, base_name, feature_key,
         aggregated_results = utils.normalize(aggregated_results)
     return aggregated_results
 
-def estimate_multivariate_gaussian_save_distances(features_root_path, 
-    train_ds_names, store_ds_names, feature_names=None):
+def estimate_multivariate_gaussian_save_distances(train_ds_paths, store_ds_paths, 
+    train_ds_cases=None, feature_names=None):
     r"""Estimates a distribution using the training data and saves the distances
     for all other provided datasets.
     """
@@ -153,11 +153,13 @@ def estimate_multivariate_gaussian_save_distances(features_root_path,
 
     # Extract features
     print('Extracting features')
-    for ds_name in train_ds_names:
-        features_path = os.path.join(features_root_path, ds_name)
+    for ds_name, features_path in train_ds_paths.items():
         base_names = list(os.listdir(features_path))
-        base_names = [x for x in base_names if 'pkl' in x and 
+        base_names = [x for x in base_names if 'pkl' in x and
             'plans' not in x and 'distances' not in x]
+        if train_ds_cases is not None:
+            base_names = [x for x in base_names if x.replace('.pkl', '') in train_ds_cases[ds_name]]
+            assert len(base_names) > 0, 'There are no training cases'
         for base_name in base_names:
             full_path = os.path.join(features_path, base_name)
             features = pickle.load(open(full_path, 'rb'))
@@ -183,9 +185,8 @@ def estimate_multivariate_gaussian_save_distances(features_root_path,
 
     # Finally, for each other training set create a directory similar to the 
     # features but storing distances for each patch instead of features
-    for ds_name in store_ds_names:
+    for ds_name, features_path in store_ds_paths.items():
         print('Extracting distances for dataset {}'.format(ds_name))
-        features_path = os.path.join(features_root_path, ds_name)
         base_names = list(os.listdir(features_path))
         base_names = [x for x in base_names if 'pkl' in x 
             and 'plans' not in x and 'distances' not in x]
