@@ -65,7 +65,7 @@ def run_inference():
                               'is not necessary. If this is not set, always the latest trained head will be used.')
     parser.add_argument("--fp32_used", required=False, default=False, action="store_true",
                         help="Specify if mixed precision has been used during training or not")
-    parser.add_argument("-evaluate_on",  action='store', type=int, 
+    parser.add_argument("-evaluate_on",  action='store', type=str, 
                         help="Specify a task id for which predictions will be extracted. It must have a matching folder 'TaskXXX_' in the raw data folder", required=False, default=None)
     parser.add_argument("-d", "--device", action='store', type=int, nargs="+", default=[0],
                         help='Try to train the model on the GPU device with <DEVICE> ID. '+
@@ -219,6 +219,9 @@ def run_inference():
         # -- Add corresponding task in dictoinary -- #
         use_model_w_tasks.append(t)
 
+    if "Task" not in evaluate_on:
+        evaluate_on = convert_id_to_task_name(int(evaluate_on))
+
 
     char_to_join_tasks = '_'
     
@@ -280,7 +283,7 @@ def run_inference():
     if feature_paths is not None: 
         final_dir_name = 'features'
 
-    output_path = join(output_path, 'head_{}'.format(use_head), 'fold_'+str(fold), final_dir_name, convert_id_to_task_name(evaluate_on))
+    output_path = join(output_path, 'head_{}'.format(use_head), 'fold_'+str(fold), final_dir_name, evaluate_on)
     features_folder = output_path if feature_paths is not None else None
 
     # Note that unlike the trainer_path from run_evaluation, this does not include the fold because plans.pkl is one level above 
@@ -320,7 +323,7 @@ def run_inference():
     }
 
     if input_folder is None:
-        input_folder = os.path.join(os.environ['nnUNet_raw_data_base'], 'nnUNet_raw_data', convert_id_to_task_name(evaluate_on), 'imagesTr')
+        input_folder = os.path.join(os.environ['nnUNet_raw_data_base'], 'nnUNet_raw_data', evaluate_on, 'imagesTr')
     input_folders = [input_folder]
 
     for input_folder in input_folders:
