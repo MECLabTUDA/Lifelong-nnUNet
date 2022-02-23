@@ -94,8 +94,11 @@ def restore_model(pkl_file, checkpoint=None, train=False, fp16=True, use_extensi
         trainer.param_split = param_search
     else:
         trainer = tr(*init)
-        
-    trainer.initialize(train, mcdo=mcdo)
+    # Some trainers do not yet support mcdo
+    try:
+        trainer.initialize(train, mcdo=mcdo)
+    except:
+        trainer.initialize(train)
 
     # -------------------- From nnUNet implementation (modifed, but same output) -------------------- #
     if fp16 is not None:
