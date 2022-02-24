@@ -33,8 +33,11 @@ def extract_small_np_features(act_seeker, x=None, model=None, max_elems=10000):
         nr_elements = torch.numel(val)
         # Apply average pooling to reduce dimensionality
         while nr_elements > max_elems:
-            val = apply_pooling(val)
-            nr_elements = torch.numel(val)
+            try:
+                val = apply_pooling(val)
+                nr_elements = torch.numel(val)
+            except:
+                break
         act_dict_after_pool[key] = val.detach().cpu().numpy()
         # print('Key {} Item shape {} Item size {}'.format(key, val.shape, torch.numel(val)))
     return act_dict_after_pool
