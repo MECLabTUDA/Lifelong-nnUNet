@@ -769,50 +769,38 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             # -- ELSE: nn-UNet is used to perform evaluation, ie. external call, so there are -- #
             # --       no heads except one so omit it --> NOTE: The calling function needs to ensure -- #
             # --       that self.network is assembled correctly ! -- #
-
+            
+            # -- Add validation subject names to list -- #
+            self.subject_names_raw.extend(self.dl_val.list_of_keys)
             if use_all_data:    # --> Use train and val generator
+                # -- Add training subject names as well -- #
+                self.subject_names_raw.extend(self.dl_tr.list_of_keys)
                 with torch.no_grad():
                      # -- Put current network into evaluation mode -- #
                     self.network.eval()
                     for gen in (self.tr_gen, self.val_gen):
-                        # -- Run an iteration for each batch in validation generator -- #
-                        gen_copy = tee(gen, 1)[0] # <-- Duplicate the generator so the names are extracted correctly during the loop
-                        
                         # -- Loop through generator based on number of defined batches -- #
                         for _ in range(self.num_val_batches_per_epoch):
-                            # -- First, extract the subject names so we can map the predictions to the names -- #
-                            data = next(gen_copy)
-                            self.subject_names_raw.append(data['keys'])
-
                             # -- Run iteration without backprop but online_evaluation to be able to get TP, FP, FN for Dice and IoU -- #
                             if call_for_eval:
                                 # -- Call only this run_iteration since only the one from MultiHead has no_loss flag -- #
                                 _ = self.run_iteration(gen, False, True, no_loss=True)
                             else:
                                 _ = self.run_iteration(gen, False, True)
-                        del gen_copy
             else:   # Eval only on val generator
                 # -- For evaluation, no gradients are necessary so do not use them -- #
                 with torch.no_grad():
                     # -- Put current network into evaluation mode -- #
                     self.network.eval()
-                    # -- Run an iteration for each batch in validation generator -- #
-                    val_gen_copy = tee(self.val_gen, 1)[0] # <-- Duplicate the generator so the names are extracted correctly during the loop
-                    
                     # -- Loop through generator based on number of defined batches -- #
                     for _ in range(self.num_val_batches_per_epoch):
-                        # -- First, extract the subject names so we can map the predictions to the names -- #
-                        data = next(val_gen_copy)
-                        self.subject_names_raw.append(data['keys'])
-
                         # -- Run iteration without backprop but online_evaluation to be able to get TP, FP, FN for Dice and IoU -- #
                         if call_for_eval:
                             # -- Call only this run_iteration since only the one from MultiHead has no_loss flag -- #
                             _ = self.run_iteration(self.val_gen, False, True, no_loss=True)
                         else:
                             _ = self.run_iteration(self.val_gen, False, True)
-                    del val_gen_copy
-
+                    
             # -- Calculate Dice and IoU --> self.validation_results is already updated once the evaluation is done -- #
             self.finish_online_evaluation_extended(task)
 
