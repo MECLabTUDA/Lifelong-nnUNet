@@ -118,6 +118,7 @@ class nnUNetTrainerFrozEWC(nnUNetTrainerEWC):
                     self.print_to_log_file(f"Reducing EWC loss weight from {self.ewc_lambda} to {self.loss.ewc_lambda}..")
 
             else:   # Task not in heads so if added we're uneven, so unfreeze
+                self.print_to_log_file(f"Unfreeze the ViT for task {task}..")
                 # -- Unfreeze the whole ViT module -- #
                 self.freeze_ViT(False)
                 if self.enhanced:

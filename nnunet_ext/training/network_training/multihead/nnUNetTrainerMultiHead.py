@@ -869,7 +869,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                 pass
 
     #------------------------------------------ Partially copied from original implementation ------------------------------------------#
-    def get_basic_generators(self, use_all_data):
+    def get_basic_generators(self, use_all_data=False):
         self.load_dataset()
         self.do_split()
 
