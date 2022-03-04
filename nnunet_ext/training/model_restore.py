@@ -68,7 +68,7 @@ def restore_model(pkl_file, checkpoint=None, train=False, fp16=True, use_extensi
 
     # -- Search for the trainer class based on search_in, name of the trainer and base_module -- #
     tr = recursive_find_python_class([join(*search_in)], name, current_module=base_module)
-
+    
     # -------------------- From nnUNet implementation (modifed, but same output) -------------------- #
     if tr is None:
         try:

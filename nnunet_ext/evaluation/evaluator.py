@@ -67,17 +67,19 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
                       mixed_precision, extension, save_csv, transfer_heads, use_vit, use_param_split, ViT_task_specific_ln,
                       do_LSA, do_SPT)
 
-    def evaluate_on(self, folds, tasks, use_head=None, always_use_last_head=False, do_pod=True,
-                    trainer_path=None, output_path=None):
+    def evaluate_on(self, folds, tasks, use_head=None, always_use_last_head=False, do_pod=True, enhanced=False,
+                    trainer_path=None, output_path=None, use_all_data=False):
         r"""This function performs the actual evaluation given the transmitted tasks.
             :param folds: List of integer values specifying the folds on which the evaluation should be performed.
             :param tasks: List with tasks following the Task_XXX structure/name for direct loading.
             :param use_head: A task specifying which head to use --> if it is set to None, the last trained head will be used if necessary.
             :param always_use_last_head: Specifies if only the last head is used for the evaluation.
             :param do_pod: Specifies the POD embedding is used or not --> Only works for our own methods.
+            :param enhanced: Specifies if the enhanced FrozEWC is used or not --> Only works for our nnUNetTrainerFrozEWC trainer.
             :param eval_mode_for_lns: Specifies how the evaluation is performed when using task specific LNs wrt to the LNs (last_lns or corr_lns).
             :param trainer_path: Specifies part to the trainer network including the fold_X being the last folder of the path (only used for parameter search method).
             :param output_path: Specifies part where the eval results are stored excluding the fold_X (only used for parameter search method).
+            :param use_all_data: Specifies if the evaluation is also done on the training data.
         """
         # ---------------------------------------------
         # Evaluate for each task and all provided folds
@@ -121,6 +123,9 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
                 if 'OwnM' in self.network_trainer:
                     trainer_path = join(os.path.sep, *trainer_path.split(os.path.sep)[:-1], 'pod' if do_pod else 'no_pod', 'fold_'+str(t_fold))
                     output_path = join(os.path.sep, *output_path.split(os.path.sep)[:-1], 'pod' if do_pod else 'no_pod', 'last_head' if always_use_last_head else 'corresponding_head')
+                if 'FrozEWC' in self.network_trainer:
+                    trainer_path = join(os.path.sep, *trainer_path.split(os.path.sep)[:-1], 'enhanced' if enhanced else 'no_enhance', 'fold_'+str(t_fold))
+                    output_path = join(os.path.sep, *output_path.split(os.path.sep)[:-1], 'enhanced' if enhanced else 'no_enhance', 'last_head' if always_use_last_head else 'corresponding_head')
 
             # -- Load the trainer for evaluation -- #
             print("Loading trainer and setting the network for evaluation")
@@ -235,6 +240,8 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
             
             # -- Create a new log_file in the evaluation folder based on changed output_folder -- #
             trainer.print_to_log_file("The {} model trained on {} will be used for this evaluation with the {} head.".format(self.network_trainer, ', '.join(self.tasks_list_with_char[0]), use_head))
+            if use_all_data:
+                trainer.print_to_log_file("Be aware that the training data is also used during validation as the flag has been set..")
             trainer.print_to_log_file("The used checkpoint can be found at {}.".format(join(trainer_path, "model_final_checkpoint.model")))
             trainer.print_to_log_file("Start performing evaluation on fold {} for the following tasks: {}.\n".format(t_fold, ', '.join(tasks)))
             start_time = time.time()
@@ -248,15 +255,16 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
                 trainer.mh_network.heads[last_name] = last_head
 
             # -- Run validation of the trainer while updating the head of the model based on the task/use_head -- #
-            trainer._perform_validation(use_tasks=tasks, use_head=use_head, call_for_eval=True, param_search=self.param_split)
+            trainer._perform_validation(use_tasks=tasks, use_head=use_head, call_for_eval=True, param_search=self.param_split, use_all_data=use_all_data)
 
             # -- Update the log file -- #
-            trainer.print_to_log_file("Finished with the evaluation on fold {}. The results can be found at: {} or {}.\n".format(t_fold, join(trainer.output_folder, 'val_metrics_eval.csv'), join(trainer.output_folder, 'val_metrics_eval.json')))
+            trainer.print_to_log_file("Finished with the evaluation on fold {}. The results can be found at: {} or {}.\n".format(t_fold, join(trainer.output_folder, 'tr_val_metrics.csv' if use_all_data else 'val_metrics.csv'),\
+                                                                                                                                         join(trainer.output_folder, 'tr_val_metrics_eval.json' if use_all_data else 'val_metrics_eval.json')))
             
             # -- Update the log file -- #
             trainer.print_to_log_file("Summarizing the results (calculate mean and std)..")
             # -- Load the validation_metrics -- #
-            data = pd.read_csv(join(trainer.output_folder, 'val_metrics_eval.csv'), sep = '\t')
+            data = pd.read_csv(join(trainer.output_folder, 'tr_val_metrics_eval.csv' if use_all_data else 'val_metrics_eval.csv'), sep = '\t')
             # -- Calculate the mean and std values for all tasks per masks and metrics over all subjects -- #
             # -- Extract all relevant information like tasks, metrics and seg_masks -- #
             eval_tasks = data['Task'].unique()
@@ -279,7 +287,7 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
             row['mean +/- std [in %]'] = None
             row['checkpoint'] = join(trainer_path, "model_final_checkpoint.model")
             # -- Define the path for the summary file -- #
-            output_file = join(trainer.output_folder, 'summarized_val_metrics.txt')
+            output_file = join(trainer.output_folder, 'summarized_tr_val_metrics.txt' if use_all_data else 'summarized_val_metrics.txt')
             # -- Loop through the data and calculate the mean and std values -- #
             with open(output_file, 'w') as out:
                 out.write('Evaluation performed after Epoch {}, trained on fold {}.\n\n'.format(trainer.epoch, t_fold))
@@ -306,9 +314,9 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
                     summary = summary.append(row_series, ignore_index=True)
 
             # -- Store the summarized .csv files -- #
-            dumpDataFrameToCsv(summary, trainer.output_folder, 'summarized_val_metrics.csv')
+            dumpDataFrameToCsv(summary, trainer.output_folder, 'summarized_tr_val_metrics.csv' if use_all_data else 'summarized_val_metrics.csv')
             dumpDataFrameToCsv(model_sum, trainer.output_folder, 'model_summary.csv')
 
             # -- Update the log file -- #
-            trainer.print_to_log_file("The summarized results of the evaluation on fold {} can be found at: {} or {}.\n\n".format(t_fold, output_file, join(trainer.output_folder, 'summarized_val_metrics.csv')))
+            trainer.print_to_log_file("The summarized results of the evaluation on fold {} can be found at: {} or {}.\n\n".format(t_fold, output_file, join(trainer.output_folder, 'summarized_tr_val_metrics.csv' if use_all_data else 'summarized_val_metrics.csv')))
             trainer.print_to_log_file("The Evaluation took %.2f seconds." % (time.time() - start_time))

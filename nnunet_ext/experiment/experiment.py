@@ -43,9 +43,10 @@ class Experiment():
     def __init__(self, network, network_trainer, tasks_list_with_char, version=1, vit_type='base', fold=0,
                  plans_identifier=default_plans_identifier, mixed_precision=True, extension='multihead', save_csv=True, val_folder='validation_raw',
                  split_at=None, transfer_heads=False, use_vit=False, ViT_task_specific_ln=False, do_LSA=False, do_SPT=False, do_pod=False,
-                 always_use_last_head=True, npz=False, output_exp=None, output_eval=None, perform_validation=False, param_call=False,
+                 always_use_last_head=True, npz=False, output_exp=None, output_eval=None, perform_validation=False, param_call=False, enhanced=False,
                  unpack_data=True, deterministic=False, save_interval=5, num_epochs=100, fp16=True, find_lr=False, valbest=False, use_param_split=False,
-                 disable_postprocessing_on_folds=False, split_gpu=False, val_disable_overwrite=True, disable_next_stage_pred=False, show_progress_tr_bar=True):
+                 disable_postprocessing_on_folds=False, split_gpu=False, val_disable_overwrite=True, disable_next_stage_pred=False, show_progress_tr_bar=True,
+                 use_all_data=False):
         r"""Constructor for Experiment.
         """
         # -- Define a empty dictionary that is used for backup purposes -- #
@@ -59,6 +60,7 @@ class Experiment():
         self.network_ = network
         self.val_folder = val_folder
         self.unpack_data = unpack_data
+        self.use_all_data = use_all_data
         self.deterministic = deterministic
         self.network_trainer = network_trainer
         self.perform_validation = perform_validation
@@ -70,6 +72,7 @@ class Experiment():
         self.fold = fold
         self.do_pod = do_pod
         self.network = network
+        self.enhanced = enhanced
         self.split_at = split_at
         self.save_csv = save_csv
         self.split_gpu = split_gpu
@@ -413,7 +416,7 @@ class Experiment():
             # -- Do the actual evaluation on the current network -- #
             self.summary = print_to_log_file(self.summary, None, '', 'Doing evaluation for trainer {} (trained on {}) using the data from {}.'.format(self.network_trainer, ', '.join(running_task_list), ', '.join(running_task_list)))
             self.evaluator.evaluate_on([self.fold], self.tasks_list_with_char[0], None, self.always_use_last_head,
-                                       self.do_pod, trainer_path, output_path)
+                                       self.do_pod, self.enhanced, trainer_path, output_path, use_all_data=use_all_data)
             self.summary = print_to_log_file(self.summary, None, '', 'Finished with evaluation. The results can be found in the following folder: {}. \n'.format(join(output_path, 'fold_'+str(self.fold))))
 
             # -- Update the summary wrt to the used split -- #

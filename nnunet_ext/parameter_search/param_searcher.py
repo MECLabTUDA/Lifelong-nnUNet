@@ -22,7 +22,7 @@ class ParamSearcher():
                  search_mode='grid', grid_picks=None, rand_range=None, rand_pick=None, rand_seed=None, always_use_last_head=True, npz=False,
                  perform_validation=False, continue_training=False, unpack_data=True, deterministic=False, save_interval=5, num_epochs=100,
                  fp16=True, find_lr=False, valbest=False, disable_postprocessing_on_folds=False, split_gpu=False, fixate_params=None,
-                 val_disable_overwrite=True, disable_next_stage_pred=False, run_in_parallel=False):
+                 val_disable_overwrite=True, disable_next_stage_pred=False, run_in_parallel=False, enhanced=False):
         r"""Constructor for parameter searcher. Use the constructor of an Experiment since they are very similar.
         """
         # -- Ensure everything is correct transmitted -- #
@@ -43,6 +43,7 @@ class ParamSearcher():
         self.summary = None
         self.main_sum = None
         self.do_pod = do_pod
+        self.enhanced = enhanced
         self.rand_pick = rand_pick
         self.rand_seed = rand_seed
         self.rand_range = rand_range
@@ -58,8 +59,8 @@ class ParamSearcher():
                          'mixed_precision': mixed_precision, 'extension': extension, 'save_interval': save_interval, 'val_folder': val_folder,
                          'split_at': split_at, 'transfer_heads': transfer_heads, 'use_vit': use_vit, 'ViT_task_specific_ln': ViT_task_specific_ln,
                          'do_LSA': do_LSA, 'do_SPT': do_SPT, 'do_pod': do_pod, 'always_use_last_head': always_use_last_head, 'npz': npz, 'use_param_split': True,
-                         'output_exp': '', 'output_eval': '', 'perform_validation': perform_validation, 'show_progress_tr_bar': False,
-                         'unpack_data': unpack_data, 'deterministic': deterministic, 'save_interval': save_interval, 'param_call': True,
+                         'output_exp': '', 'output_eval': '', 'perform_validation': perform_validation, 'show_progress_tr_bar': False, 'enhanced': enhanced,
+                         'unpack_data': unpack_data, 'deterministic': deterministic, 'save_interval': save_interval, 'param_call': True, 'use_all_data': False,
                          'num_epochs': num_epochs, 'fp16': fp16, 'find_lr': find_lr, 'valbest': valbest, 'disable_postprocessing_on_folds': disable_postprocessing_on_folds,
                          'split_gpu': split_gpu, 'val_disable_overwrite': val_disable_overwrite, 'disable_next_stage_pred': disable_next_stage_pred}
 
@@ -78,6 +79,8 @@ class ParamSearcher():
         # -- Within this base folder, we have a folder for the experiments and one for the evaluation results -- #
         if 'OwnM' in self.network_trainer:
             self.output_base = os.path.join(self.output_base, 'pod' if self.do_pod else 'no_pod')
+        if 'FrozEWC' in self.network_trainer:
+            self.output_base = os.path.join(self.output_base, 'enhanced' if self.enhanced else 'no_enhance')
         self.output_exp = os.path.join(self.output_base, 'experiments')
         self.output_eval = os.path.join(self.output_base, 'evaluation')
 

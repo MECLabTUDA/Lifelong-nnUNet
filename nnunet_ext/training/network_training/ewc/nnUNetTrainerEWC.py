@@ -140,7 +140,7 @@ class nnUNetTrainerEWC(nnUNetTrainerMultiHead):
         # -- Update the fisher and param values in the loss function -- #
         self.loss.update_ewc_params(self.fisher, self.params)
 
-    def run_training(self, task, output_folder):
+    def run_training(self, task, output_folder, build_folder=True):
         r"""Perform training using EWC trainer. Simply executes training method of parent class (nnUNetTrainerMultiHead)
             while updating fisher and params dicts.
             NOTE: This class expects that the trainer is already initialized, if not, the calling class will initialize,
@@ -155,7 +155,7 @@ class nnUNetTrainerEWC(nnUNetTrainerMultiHead):
             "The number of tasks in the fisher/param values are not as expected --> should be the same as in the Multi Head network."
 
         # -- Execute the training for the desired epochs -- #
-        ret = super().run_training(task, output_folder)  # Execute training from parent class --> already_trained_on will be updated there
+        ret = super().run_training(task, output_folder, build_folder)  # Execute training from parent class --> already_trained_on will be updated there
         
         # -- Define the fisher and params after the training -- #
         self.fisher[task] = dict()

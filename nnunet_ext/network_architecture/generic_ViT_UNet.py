@@ -2,7 +2,7 @@
 #----------This class represents a Generic ViT_U-Net model based on the ViT and nnU-Net architecture----------#
 ###############################################################################################################
 
-import torch
+import torch, copy
 import numpy as np
 from torch import nn
 from torch.autograd import Variable
@@ -214,7 +214,7 @@ class Generic_ViT_UNet(Generic_UNet):
         self.split_names = ['ViT']
 
 
-    def forward(self, x):
+    def forward(self, x, store_vit_input=False):
         r"""This function represents the forward function of the presented Generic_ViT_UNet architecture.
         """
         #------------------------------------------ Copied from original implementation ------------------------------------------#
@@ -241,6 +241,9 @@ class Generic_ViT_UNet(Generic_UNet):
                 ViT_in = to_cuda(ViT_in, gpu_id=1)
             else:
                 ViT_in = getattr(self, self.prepare[self.version])(skips, x)
+
+            if store_vit_input:
+                self.ViT_in = ViT_in.clone()
 
             # -- Pass the result from conv_blocks through ViT -- #
             x = self.ViT(ViT_in)

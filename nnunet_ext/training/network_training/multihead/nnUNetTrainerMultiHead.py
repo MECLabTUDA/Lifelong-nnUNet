@@ -24,9 +24,9 @@ from nnunet_ext.network_architecture.MultiHead_Module import MultiHead_Module
 from nnunet_ext.network_architecture.generic_ViT_UNet import Generic_ViT_UNet
 from nnunet.training.loss_functions.deep_supervision import MultipleOutputLoss2
 from nnunet_ext.training.network_training.nnViTUNetTrainer import nnViTUNetTrainer
-from nnunet.training.dataloading.dataset_loading import load_dataset, unpack_dataset
 from nnunet.training.data_augmentation.data_augmentation_noDA import get_no_augmentation
 from nnunet.training.data_augmentation.data_augmentation_moreDA import get_moreDA_augmentation
+from nnunet.training.dataloading.dataset_loading import load_dataset, DataLoader3D, DataLoader2D, unpack_dataset
 from nnunet_ext.paths import default_plans_identifier, evaluation_output_dir, preprocessing_output_dir, default_plans_identifier
 
 # -- Add this since default option file_descriptor has a limitation on the number of open files. -- #
@@ -663,7 +663,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # -- Return the result from the parent class -- #
         return res
 
-    def _perform_validation(self, use_tasks=None, use_head=None, call_for_eval=False, param_search=False):
+    def _perform_validation(self, use_tasks=None, use_head=None, call_for_eval=False, param_search=False, use_all_data=False):
         r"""This function performs a full validation on all previous tasks and the current task.
             The Dice and IoU will be calculated and the results will be stored in 'val_metrics.json'.
             use_tasks can be a list of task_ids that should be used for the validation --> can be used when
@@ -681,6 +681,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                                   is used in the context of an evaluation. Further if set to False, the head for validation
                                   will be selected based on the task that the model gets validated on.
             :param param_search: Boolean indicating if this function is called during the parameter search method.
+            :param use_all_data: Boolean indicating if the train and validation data should be used for validation.
             NOTE: Have a look at nnunet_ext/run/run_evaluation.py to see how this function can be 'misused' for evaluation purposes.
         """
         # -- Assert if eval but not eval output dir in path -- #
@@ -725,7 +726,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                                                       "_stage%d" % stage)
                                                 
             # -- Create the corresponding dataloaders for train and val (dataset loading and split performed in function) -- #
-            self.dl_tr, self.dl_val = self.get_basic_generators()
+            self.dl_tr, self.dl_val = self.get_basic_generators(use_all_data)
 
             # -- Unpack the dataset if desired, since we might have to continue training so we have to unpack if desired -- #
             if self.unpack_data:
@@ -746,7 +747,10 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                                                                     use_nondetMultiThreadedAugmenter=False)
 
             # -- Update the log -- #
-            self.print_to_log_file("Performing validation with validation data from task {}.".format(task))
+            if use_all_data:
+                self.print_to_log_file("Performing validation with validation and training data from task {}.".format(task))
+            else:
+                self.print_to_log_file("Performing validation with validation data from task {}.".format(task))
 
             # -- Activate the current task to train on the right model -- #
             # -- Set self.network, since the parent classes all use self.network to train -- #
@@ -766,26 +770,48 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             # --       no heads except one so omit it --> NOTE: The calling function needs to ensure -- #
             # --       that self.network is assembled correctly ! -- #
 
-            # -- For evaluation, no gradients are necessary so do not use them -- #
-            with torch.no_grad():
-                # -- Put current network into evaluation mode -- #
-                self.network.eval()
-                # -- Run an iteration for each batch in validation generator -- #
-                val_gen_copy = tee(self.val_gen, 1)[0] # <-- Duplicate the generator so the names are extracted correctly during the loop
-                
-                # -- Loop through generator based on number of defined batches -- #
-                for _ in range(self.num_val_batches_per_epoch):
-                    # -- First, extract the subject names so we can map the predictions to the names -- #
-                    data = next(val_gen_copy)
-                    self.subject_names_raw.append(data['keys'])
+            if use_all_data:    # --> Use train and val generator
+                with torch.no_grad():
+                     # -- Put current network into evaluation mode -- #
+                    self.network.eval()
+                    for gen in (self.tr_gen, self.val_gen):
+                        # -- Run an iteration for each batch in validation generator -- #
+                        gen_copy = tee(gen, 1)[0] # <-- Duplicate the generator so the names are extracted correctly during the loop
+                        
+                        # -- Loop through generator based on number of defined batches -- #
+                        for _ in range(self.num_val_batches_per_epoch):
+                            # -- First, extract the subject names so we can map the predictions to the names -- #
+                            data = next(gen_copy)
+                            self.subject_names_raw.append(data['keys'])
 
-                    # -- Run iteration without backprop but online_evaluation to be able to get TP, FP, FN for Dice and IoU -- #
-                    if call_for_eval:
-                        # -- Call only this run_iteration since only the one from MultiHead has no_loss flag -- #
-                        _ = self.run_iteration(self.val_gen, False, True, no_loss=True)
-                    else:
-                        _ = self.run_iteration(self.val_gen, False, True)
-                del val_gen_copy
+                            # -- Run iteration without backprop but online_evaluation to be able to get TP, FP, FN for Dice and IoU -- #
+                            if call_for_eval:
+                                # -- Call only this run_iteration since only the one from MultiHead has no_loss flag -- #
+                                _ = self.run_iteration(gen, False, True, no_loss=True)
+                            else:
+                                _ = self.run_iteration(gen, False, True)
+                        del gen_copy
+            else:   # Eval only on val generator
+                # -- For evaluation, no gradients are necessary so do not use them -- #
+                with torch.no_grad():
+                    # -- Put current network into evaluation mode -- #
+                    self.network.eval()
+                    # -- Run an iteration for each batch in validation generator -- #
+                    val_gen_copy = tee(self.val_gen, 1)[0] # <-- Duplicate the generator so the names are extracted correctly during the loop
+                    
+                    # -- Loop through generator based on number of defined batches -- #
+                    for _ in range(self.num_val_batches_per_epoch):
+                        # -- First, extract the subject names so we can map the predictions to the names -- #
+                        data = next(val_gen_copy)
+                        self.subject_names_raw.append(data['keys'])
+
+                        # -- Run iteration without backprop but online_evaluation to be able to get TP, FP, FN for Dice and IoU -- #
+                        if call_for_eval:
+                            # -- Call only this run_iteration since only the one from MultiHead has no_loss flag -- #
+                            _ = self.run_iteration(self.val_gen, False, True, no_loss=True)
+                        else:
+                            _ = self.run_iteration(self.val_gen, False, True)
+                    del val_gen_copy
 
             # -- Calculate Dice and IoU --> self.validation_results is already updated once the evaluation is done -- #
             self.finish_online_evaluation_extended(task)
@@ -795,9 +821,9 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
 
         # -- Save the dictionary as json file in the corresponding output_folder -- #
         if call_for_eval:
-            save_json(self.validation_results, join(self.output_folder, 'val_metrics_eval.json'), sort_keys=False)
+            save_json(self.validation_results, join(self.output_folder, 'tr_val_metrics_eval.json' if use_all_data else 'val_metrics_eval.json'), sort_keys=False)
         else:
-            save_json(self.validation_results, join(self.output_folder, 'val_metrics.json'), sort_keys=False)
+            save_json(self.validation_results, join(self.output_folder, 'tr_val_metrics.json' if use_all_data else 'val_metrics.json'), sort_keys=False)
 
         # -- Save as csv if desired as well -- #
         if self.csv:
@@ -805,9 +831,9 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             val_res = nestedDictToFlatTable(self.validation_results, ['Epoch', 'Task', 'subject_id', 'seg_mask', 'metric', 'value'])
             # -- Dump validation_results as csv file -- #
             if call_for_eval:
-                dumpDataFrameToCsv(val_res, self.output_folder, 'val_metrics_eval.csv')
+                dumpDataFrameToCsv(val_res, self.output_folder, 'tr_val_metrics_eval.csv' if use_all_data else 'val_metrics_eval.csv')
             else:
-                dumpDataFrameToCsv(val_res, self.output_folder, 'val_metrics.csv')
+                dumpDataFrameToCsv(val_res, self.output_folder, 'tr_val_metrics.csv' if use_all_data else 'val_metrics.csv')
 
         # -- Update already_trained_on if not already done before and only if this is not called during evaluation -- #
         if not call_for_eval and not self.already_trained_on[str(self.fold)]['val_metrics_should_exist']:
@@ -843,6 +869,26 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                 pass
 
     #------------------------------------------ Partially copied from original implementation ------------------------------------------#
+    def get_basic_generators(self, use_all_data):
+        self.load_dataset()
+        self.do_split()
+
+        if self.threeD:
+            dl_tr = DataLoader3D(self.dataset_tr, self.basic_generator_patch_size if not use_all_data else self.patch_size,
+                                 self.patch_size, self.batch_size, False, oversample_foreground_percent=self.oversample_foreground_percent,
+                                 pad_mode="constant", pad_sides=self.pad_all_sides, memmap_mode='r')
+            dl_val = DataLoader3D(self.dataset_val, self.patch_size, self.patch_size, self.batch_size, False,
+                                  oversample_foreground_percent=self.oversample_foreground_percent,
+                                  pad_mode="constant", pad_sides=self.pad_all_sides, memmap_mode='r')
+        else:
+            dl_tr = DataLoader2D(self.dataset_tr, self.basic_generator_patch_size if not use_all_data else self.patch_size,
+                                 self.patch_size, self.batch_size, oversample_foreground_percent=self.oversample_foreground_percent,
+                                 pad_mode="constant", pad_sides=self.pad_all_sides, memmap_mode='r')
+            dl_val = DataLoader2D(self.dataset_val, self.patch_size, self.patch_size, self.batch_size,
+                                  oversample_foreground_percent=self.oversample_foreground_percent,
+                                  pad_mode="constant", pad_sides=self.pad_all_sides, memmap_mode='r')
+        return dl_tr, dl_val
+        
     def run_online_evaluation(self, output, target):
         r"""Overwrite the existing one, since for evaluation at every nth epoch we want the tp, fp, fn
             per subject and not per batch over every subject.

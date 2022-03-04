@@ -118,9 +118,6 @@ class Attention(AttentionTimm):
                 nn.init.constant_(m.weight, 1.0)
 
     def forward(self, x):
-        # -- Keep track of attention weights -- #
-        weights = list()
-
         if self.LSA:
             # -- Perform forward function from Attention with LSA --> copied and modified from https://github.com/aanna0701/SPT_LSA_ViT/blob/main/models/vit.py#L75 -- #
             b, _, _, h = *x.shape, self.heads

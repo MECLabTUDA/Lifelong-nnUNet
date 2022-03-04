@@ -11,7 +11,7 @@ This is a general description on how to perform evaluation on trained networks u
 In the following, the command line arguments are presented and further discussed providing some exemplary use cases.
 
 ### Command Line Arguments
-The exact same Command Line Arguments as presented in the [Multi-Head](multihead_training.md) Trainer apply for the EWC Trainer as well. The hyperparameter $\lambda$ for the EWC Loss can be set too using a Command Line Argument.
+The following Command Line Arguments can be set.
 
 | tag_name | description | required | choices | default | 
 |:-:|-|:-:|:-:|:-:|
@@ -22,17 +22,19 @@ The exact same Command Line Arguments as presented in the [Multi-Head](multihead
 | `-trained_on` | Specify a list of task ids the network has trained with to specify the correct path to the networks. Each of these ids must, have a matching folder 'TaskXXX_' in the raw data folder. | yes | -- | -- |
 | `-use_model` or `--use` | Specify a list of task ids that specify the exact network that should be used for evaluation. Each of these ids must, have a matching folder 'TaskXXX_' in the raw. | yes | -- | -- |
 | `-use_head` | Specify which head to use for the evaluation in case the task is not a registered head. When using a non nn-UNet extension, that is not necessary. If this is not set, always the latest trained head will be used. | no | -- | `None` |
-| `-fp32_used` | Specify if mixed precision has been used during training or not. | no | -- | `False` |
+| `--fp32_used` | Specify if mixed precision has been used during training or not. | no | -- | `False` |
 | `-evaluate_on` | Specify a list of task ids the network will be evaluated on. Each of these ids must, have a matching folder 'TaskXXX_' in the raw data folder. | yes | -- | -- |
 | `-d` or `--device` | Try to train the model on the GPU device with <GPU_ID>. Valid IDs: 0, 1, ..., 7. A List of IDs can be provided as well. Default: Only GPU device with ID 0 will be used. | no | -- | `0` |
-| `-store_csv` | Set this flag if the validation data and any other data if applicable should be stored as a .csv file as well. Default: .csv are not created. | no | -- | `False` |
+| `--store_csv` | Set this flag if the validation data and any other data if applicable should be stored as a .csv file as well. Default: .csv are not created. | no | -- | `False` |
 | `--use_vit` | If this is set, the [Generic_ViT_UNet](https://github.com/camgbus/Lifelong-nnUNet/blob/continual_learning/nnunet_ext/network_architecture/generic_ViT_UNet.py#L14) will be used instead of the [Generic_UNet](https://github.com/MIC-DKFZ/nnUNet/blob/master/nnunet/network_architecture/generic_UNet.py#L167). Note that then the flags `-v`, `-v_type`, `use_mult_gpus` and `--use_mult_gpus` should be set accordingly if applicable. | no | -- | `False` |
-| `--task_specific_ln` | If this is set, the Generic_ViT_UNet will have task specific Layer Norms. | no | -- | `False` |
-| `-use_mult_gpus` | If this is set, the ViT model will be placed onto a second GPU. When this is set, more than one GPU needs to be provided when using `-d`. | no | -- | `False` |
+| `--use_mult_gpus` | If this is set, the ViT model will be placed onto a second GPU. When this is set, more than one GPU needs to be provided when using `-d`. | no | -- | `False` |
 | `-v` or `--version` | Select the ViT input building version. Currently there are only three possibilities: `1`, `2` or `3`. For further references with regards to the versions, see the [docs](https://github.com/camgbus/Lifelong-nnUNet/blob/ViT_U-Net/documentation/ViT_U-Net.md). | no | `1`, `2`, `3` | `1` |
 | `-v_type` or `--vit_type` | Specify the ViT architecture. Currently there are only three possibilities: `base`, `large` or `huge`. | no | `base`, `large`, `huge` | `base` |
 | `--no_transfer_heads` | Set this flag if a new head should not be initialized using the last head during training. | no | -- | `False` |
-| `-always_use_last_head` | If this is set, during the evaluation, always the last head will be used, for every dataset the evaluation is performed on. When an extension network was trained with the `-transfer_heads` flag then this should be set, ie. nnUNetTrainerSequential or nnUNetTrainerFreezedViT. Otherwise, the corresponding head to the dataset will be used if available or the last trained head instead. | no | -- | `False` |
+| `--always_use_last_head` | If this is set, during the evaluation, always the last head will be used, for every dataset the evaluation is performed on. When an extension network was trained with the `--no_transfer_heads` flag then this should be set as well. Otherwise, the corresponding head to the dataset will be used if available or the last trained head instead. | no | -- | `False` |
+| `--do_LSA` | Set this flag if Locality Self-Attention has been used for the ViT. | no | -- | `False` |
+| `--do_SPT` | Set this flag if Shifted Patch Tokenization has been used for the ViT. | no | -- | `False` |
+| `--include_training_data` | Set this flag if the evaluation should also be done on the training data. | no | -- | `False` |
 | `-h` or `--help` | Simply shows help on which arguments can and should be used. | -- | -- | -- |
 
 
@@ -82,14 +84,14 @@ Let's assume a [EWC Trainer](ewc_training.md) has been used and instead of the [
                                         [--use_mult_gpus ...]
 ```
 Note that the model is trained on `Task011_XYZ`, `Task012_XYZ` and `Task013_XYZ`, however there does not exist a head for `Task017_XYZ`. The `-use_head` is used to specify that the head of `Task012_XYZ` should be used for the evaluation on `Task017_XYZ`. If this flag is not set, then always the last head will be used, in this setting it would be the one corresponding to `Task013_XYZ`. When using the [Generic_ViT_UNet](https://github.com/camgbus/Lifelong-nnUNet/blob/continual_learning/nnunet_ext/network_architecture/generic_ViT_UNet.py#L14), then all ViT related flags have to be set the same as set during training in order to select the correct model during evaluation.
-In a next use case, the same settings as in the previous one apply, except that the LayerNorm layers of the ViT should be task specific and the network was trained using multiple GPUs:
+In a next use case, the same settings as in the previous one apply, except that the LayerNorm layers of the ViT should be task specific and the network was trained using multiple GPUs. Additionally, the evaluation should be performed on the validation and training data.:
 ```bash
                     ~ $ source ~/.bashrc
                     ~ $ source activate <your_anaconda_env>
 (<your_anaconda_env>) $ nnUNet_evaluate 3d_fullres nnUNetTrainerEWC -trained_on 11 12 13 -f all
                                         -use_model 11 12 13 -evaluate_on 11 13 17 -d <GPU_ID> --store_csv
-                                        --use_vit -v 1 -v_type base --use_mult_gpus --task_specific_ln    
-                                        [--always_use_last_head ...]                    
+                                        --use_vit -v 1 -v_type base --use_mult_gpus --task_specific_ln     
+                                        --include_training_data [--always_use_last_head ...]                    
 ```
 
 so last but not least, one might also want to evaluate for the specified models always using the same head. In the exception

@@ -3,10 +3,8 @@
 #----------training versions. Implementation inspired by original implementation.-----------------------#
 #########################################################################################################
 
-import copy
 import numpy as np
-import warnings
-import os, argparse, nnunet_ext
+import os, argparse, copy, warnings, nnunet_ext
 from nnunet.network_architecture.generic_UNet import Generic_UNet
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet.training.model_restore import recursive_find_python_class
@@ -23,9 +21,11 @@ trainer_keys = list()
 for ext in extension_keys:
     trainer_name = [x[:-3] for x in os.listdir(os.path.join(nnunet_ext.__path__[0], "training", "network_training", ext)) if '.py' in x]
     trainer_keys.extend(trainer_name)
-# -- Sort based on the string but do this only on the lower keys  -- #
-extension_keys.sort(key=lambda x: x.lower()), trainer_keys.sort(key=lambda x: x.lower())
+
+# -- Sort based on the sum of ordinal number per lowered string -- #
+extension_keys.sort(key=lambda x: sum([ord(y) for y in x.lower()])), trainer_keys.sort(key=lambda x: sum([ord(y) for y in x.lower()]))
 sorted_pairs = zip(extension_keys, trainer_keys)
+
 # NOTE: sorted_pairs does not include the nnViTUNetTrainer!
 
 # -- Import the trainer classes and keep track of them -- #
@@ -181,7 +181,7 @@ def run_training(extension='multihead'):
                                 ' Default: 0.25, ie. 25% of each previous task will be considered.')
     
     # -- Add arguments for ewc methods -- #
-    if extension in ['ewc', 'ewc_vit', 'ewc_unet', 'ewc_ln', 'ownm1', 'ownm2', 'ownm3', 'ownm4']:
+    if extension in ['ewc', 'ewc_vit', 'ewc_unet', 'ewc_ln', 'froz_ewc', 'froz_ewc_final', 'ownm1', 'ownm2', 'ownm3', 'ownm4']:
         parser.add_argument('-ewc_lambda', action='store', type=float, nargs=1, required=False, default=0.4,
                             help='Specify the importance of the previous tasks for the EWC method.'
                                 ' This number represents the lambda value in the loss function calculation as proposed in the paper.'
@@ -234,6 +234,11 @@ def run_training(extension='multihead'):
         parser.add_argument('--no_pod', required=False, default=False, action="store_true",
                             help='Set this flag if the POD embedding should not be included in the loss calculation.'
                                 ' Default: POD embedding will be included.')
+
+    if extension in ['froz_ewc']:
+        parser.add_argument('--enhanced', required=False, default=False, action="store_true",
+                            help='Set this flag if the EWC loss should be changed during the frozen training process (ewc_lambda*e^{-1/3}). '
+                                 ' Default: The EWC loss will not be altered.')
 
     # -------------------------------
     # Extract arguments from parser
@@ -358,7 +363,7 @@ def run_training(extension='multihead'):
 
     # -- Extract ewc arguments -- #
     ewc_lambda = None  # --> So the dictionary arguments can be build without an error even if not ewc desired ..
-    if extension in ['ewc', 'ewc_vit', 'ewc_ln', 'ewc_unet', 'ownm1', 'ownm2', 'ownm3', 'ownm4']:
+    if extension in ['ewc', 'ewc_vit', 'ewc_ln', 'ewc_unet', 'froz_ewc', 'froz_ewc_final', 'ownm1', 'ownm2', 'ownm3', 'ownm4']:
         # -- Extract ewc_lambda -- #
         ewc_lambda = args.ewc_lambda
         if isinstance(ewc_lambda, list):
@@ -464,6 +469,10 @@ def run_training(extension='multihead'):
     if extension in ['ownm1', 'ownm2', 'ownm3', 'ownm4']:
         do_pod = not args.no_pod
 
+    enhanced = False
+    if extension in ['froz_ewc']:
+        assert use_vit, "The nnUNetTrainerFrozEWC can only be used with a ViT_U-Net.."
+        enhanced = args.enhanced
     
     # -------------------------------
     # Transform tasks to task names
@@ -510,6 +519,7 @@ def run_training(extension='multihead'):
     reh_args = {'samples_in_perc': samples, 'seed': seed, **basic_exts}
     plop_args = {'pod_lambda': pod_lambda, 'pod_scales': pod_scales, **basic_exts}
     rw_args = {'rw_lambda': rw_lambda, 'rw_alpha': rw_alpha, 'fisher_update_after': update_fisher_every, **basic_exts}
+    froz_ewc_args = {'enhanced':enhanced, **ewc_args}
     ownm1_args = {'ewc_lambda': ewc_lambda, 'pod_lambda': pod_lambda, 'pod_scales': pod_scales, 'do_pod': do_pod, 'mib_lkd': mib_lkd, 'mib_alpha': mib_alpha, **basic_exts}
     ownm3_args = {'do_LSA': do_LSA, 'do_SPT': do_SPT, **ownm1_args, **basic_exts}
     ownm4_args = {'ewc_lambda': ewc_lambda, 'pod_lambda': pod_lambda, 'pod_scales': pod_scales, 'do_pod': do_pod, 'pseudo_alpha': pseudo_alpha, **basic_exts}
@@ -522,7 +532,8 @@ def run_training(extension='multihead'):
               'nnUNetTrainerSequential': basic_exts, 'nnUNetTrainerRehearsal': reh_args,
               'nnUNetTrainerMiB': mib_args, 'nnUNetTrainerEWC': ewc_args, 'nnUNetTrainerLWF': lwf_args,
               'nnUNetTrainerPLOP': plop_args, 'nnUNetTrainerV2': basic_args, 'nnViTUNetTrainer': basic_vit,
-              'nnUNetTrainerPOD': plop_args, 'nnUNetTrainerOwnM1': ownm1_args, 'nnUNetTrainerOwnM2': ownm1_args,
+              'nnUNetTrainerPOD': plop_args, 'nnUNetTrainerFrozEWC': froz_ewc_args,# 'nnUNetTrainerFrozEWCFinal': ewc_args,
+              'nnUNetTrainerOwnM1': ownm1_args, 'nnUNetTrainerOwnM2': ownm1_args,
               'nnUNetTrainerOwnM3': ownm3_args, 'nnUNetTrainerOwnM4': ownm4_args}
 
     
@@ -947,6 +958,18 @@ def main_frozen_vit():
         freezing the ViT module after training on the first task.
     """
     run_training(extension='frozen_vit')
+
+# -- Main function for setup execution of Frozen ViT method -- #
+def main_froz_ewc():
+    r"""Run training for Elastic Weight Consolidation Trainer while freezing the ViT every 2nd task.
+    """
+    run_training(extension='froz_ewc')
+
+# -- Main function for setup execution of Frozen ViT method -- #
+def main_froz_ewc_final():
+    r"""Run training for Elastic Weight Consolidation Trainer while freezing the ViT every 2nd task.
+    """
+    run_training(extension='froz_ewc_final')
 
 # -- Main function for setup execution of LwF method -- #
 def main_lwf():
