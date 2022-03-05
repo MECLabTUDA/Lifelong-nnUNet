@@ -5,7 +5,6 @@
 
 import numpy as np
 import os, copy, torch
-from pandas import to_datetime
 from itertools import tee
 from torch.cuda.amp import autocast
 from collections import OrderedDict
@@ -599,9 +598,6 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         data = data_dict['data']
         target = data_dict['target']
 
-        # -- Track the subjects if desired for validation, the list gets emptied after validation is done -- #
-        self.subject_names_raw.append(data_dict['keys'])
-
         data = maybe_to_torch(data)
         target = maybe_to_torch(target)
 
@@ -685,7 +681,6 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                                   is used in the context of an evaluation. Further if set to False, the head for validation
                                   will be selected based on the task that the model gets validated on.
             :param param_search: Boolean indicating if this function is called during the parameter search method.
-            :param use_all_data: Boolean indicating if the train and validation data should be used for validation.
             NOTE: Have a look at nnunet_ext/run/run_evaluation.py to see how this function can be 'misused' for evaluation purposes.
         """
         # -- Assert if eval but not eval output dir in path -- #
@@ -751,10 +746,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                                                                     use_nondetMultiThreadedAugmenter=False)
 
             # -- Update the log -- #
-            if use_all_data:
-                self.print_to_log_file("Performing validation with validation and training data from task {}.".format(task))
-            else:
-                self.print_to_log_file("Performing validation with validation data from task {}.".format(task))
+            self.print_to_log_file("Performing validation with validation data from task {}.".format(task))
 
             # -- Activate the current task to train on the right model -- #
             # -- Set self.network, since the parent classes all use self.network to train -- #
@@ -773,49 +765,59 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             # -- ELSE: nn-UNet is used to perform evaluation, ie. external call, so there are -- #
             # --       no heads except one so omit it --> NOTE: The calling function needs to ensure -- #
             # --       that self.network is assembled correctly ! -- #
-            
-            # -- Add validation subject names to list -- #
-            unique_subject_names = self.dl_val.list_of_keys
-            if use_all_data:    # --> Use train and val generator
-                unique_subject_names.extend(self.dl_tr.list_of_keys)
-                with torch.no_grad():
-                     # -- Put current network into evaluation mode -- #
-                    self.network.eval()
-                    for gen in (self.tr_gen, self.val_gen):
+
+            # -- For evaluation, no gradients are necessary so do not use them -- #
+            with torch.no_grad():
+                # -- Put current network into evaluation mode -- #
+                self.network.eval()
+
+                if use_all_data:
+                    for gen in [self.tr_gen, self.val_gen]:
+                        # -- Run an iteration for each batch in validation generator -- #
+                        gen_copy = tee(gen, 1)[0] # <-- Duplicate the generator so the names are extracted correctly during the loop
+                        
                         # -- Loop through generator based on number of defined batches -- #
                         for _ in range(self.num_val_batches_per_epoch):
+                            # -- First, extract the subject names so we can map the predictions to the names -- #
+                            data = next(gen_copy)
+                            self.subject_names_raw.append(data['keys'])
+
                             # -- Run iteration without backprop but online_evaluation to be able to get TP, FP, FN for Dice and IoU -- #
                             if call_for_eval:
                                 # -- Call only this run_iteration since only the one from MultiHead has no_loss flag -- #
                                 _ = self.run_iteration(gen, False, True, no_loss=True)
                             else:
                                 _ = self.run_iteration(gen, False, True)
-            else:   # Eval only on val generator
-                # -- For evaluation, no gradients are necessary so do not use them -- #
-                with torch.no_grad():
-                    # -- Put current network into evaluation mode -- #
-                    self.network.eval()
+                        del gen_copy 
+                else:
+                    # -- Run an iteration for each batch in validation generator -- #
+                    val_gen_copy = tee(self.val_gen, 1)[0] # <-- Duplicate the generator so the names are extracted correctly during the loop
+                    
                     # -- Loop through generator based on number of defined batches -- #
                     for _ in range(self.num_val_batches_per_epoch):
-                        self.num_batches_per_epoch
+                        # -- First, extract the subject names so we can map the predictions to the names -- #
+                        data = next(val_gen_copy)
+                        self.subject_names_raw.append(data['keys'])
+
                         # -- Run iteration without backprop but online_evaluation to be able to get TP, FP, FN for Dice and IoU -- #
                         if call_for_eval:
                             # -- Call only this run_iteration since only the one from MultiHead has no_loss flag -- #
                             _ = self.run_iteration(self.val_gen, False, True, no_loss=True)
                         else:
                             _ = self.run_iteration(self.val_gen, False, True)
+                    del val_gen_copy 
 
             # -- Calculate Dice and IoU --> self.validation_results is already updated once the evaluation is done -- #
-            self.finish_online_evaluation_extended(task, unique_subject_names)
+            self.finish_online_evaluation_extended(task)
 
         # -- Put current network into train mode again -- #
         self.network.train()
 
         # -- Save the dictionary as json file in the corresponding output_folder -- #
         if call_for_eval:
-            save_json(self.validation_results, join(self.output_folder, 'tr_val_metrics_eval.json' if use_all_data else 'val_metrics_eval.json'), sort_keys=False)
+            save_json(self.validation_results, join(self.output_folder, 'val_metrics_eval.json'), sort_keys=False)
         else:
-            save_json(self.validation_results, join(self.output_folder, 'tr_val_metrics.json' if use_all_data else 'val_metrics.json'), sort_keys=False)
+            save_json(self.validation_results, join(self.output_folder, 'val_metrics.json'), sort_keys=False)
 
         # -- Save as csv if desired as well -- #
         if self.csv:
@@ -823,9 +825,9 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             val_res = nestedDictToFlatTable(self.validation_results, ['Epoch', 'Task', 'subject_id', 'seg_mask', 'metric', 'value'])
             # -- Dump validation_results as csv file -- #
             if call_for_eval:
-                dumpDataFrameToCsv(val_res, self.output_folder, 'tr_val_metrics_eval.csv' if use_all_data else 'val_metrics_eval.csv')
+                dumpDataFrameToCsv(val_res, self.output_folder, 'val_metrics_eval.csv')
             else:
-                dumpDataFrameToCsv(val_res, self.output_folder, 'tr_val_metrics.csv' if use_all_data else 'val_metrics.csv')
+                dumpDataFrameToCsv(val_res, self.output_folder, 'val_metrics.csv')
 
         # -- Update already_trained_on if not already done before and only if this is not called during evaluation -- #
         if not call_for_eval and not self.already_trained_on[str(self.fold)]['val_metrics_should_exist']:

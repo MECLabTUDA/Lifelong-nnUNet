@@ -407,7 +407,7 @@ class Experiment():
             # -- Do the actual evaluation on the current network -- #
             self.summary = print_to_log_file(self.summary, None, '', 'Doing evaluation for trainer {} (trained on {}) using the data from {}.'.format(self.network_trainer, ', '.join(running_task_list), ', '.join(running_task_list)))
             self.evaluator.evaluate_on([self.fold], self.tasks_list_with_char[0], None, self.always_use_last_head,
-                                       self.do_pod, self.enhanced, trainer_path, output_path, use_all_data=use_all_data)
+                                       self.do_pod, self.enhanced, trainer_path, output_path, use_all_data=self.use_all_data)
             self.summary = print_to_log_file(self.summary, None, '', 'Finished with evaluation. The results can be found in the following folder: {}. \n'.format(join(output_path, 'fold_'+str(self.fold))))
 
             # -- Update the summary wrt to the used split -- #

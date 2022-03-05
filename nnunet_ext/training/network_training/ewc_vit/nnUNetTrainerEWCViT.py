@@ -54,18 +54,21 @@ class nnUNetTrainerEWCViT(nnUNetTrainerEWC):
             use ViT related parameters in our EWC Loss.
         """
         # -- Run iteration as usual -- #
-        loss = super(nnUNetTrainerMultiHead, self).run_iteration(data_generator, do_backprop, run_online_evaluation)
-        
-        # -- After running one iteration and calculating the loss, update the parameters of the loss for the next iteration -- #
-        # -- NOTE: The gradients DO exist even after the loss detaching of the super function, however the loss function -- #
-        # --       does not need them, since they are only necessary for the Fisher values that are calculated once the -- #
-        # --       training is done performing an epoch with no optimizer steps --> see after_train() for that -- #
-        # -- Update the loss in such a way that only ViT parameters are considered and transmitted -- #
-        parameters = [(name, param) for name, param in self.network.named_parameters() if 'ViT' in name]
-        self.loss.update_network_params(parameters)
+        l = super(nnUNetTrainerMultiHead, self).run_iteration(data_generator, do_backprop, run_online_evaluation)
         
         # -- Return the loss -- #
-        return loss
+        if not no_loss:
+            # -- After running one iteration and calculating the loss, update the parameters of the loss for the next iteration -- #
+            # -- NOTE: The gradients DO exist even after the loss detaching of the super function, however the loss function -- #
+            # --       does not need them, since they are only necessary for the Fisher values that are calculated once the -- #
+            # --       training is done performing an epoch with no optimizer steps --> see after_train() for that -- #
+            # -- Update the loss in such a way that only ViT parameters are considered and transmitted -- #
+            parameters = [(name, param) for name, param in self.network.named_parameters() if 'ViT' in name]
+            self.loss.update_network_params(parameters)
+            
+            if detach:
+                l = l.detach().cpu().numpy()
+            return l
 
     def after_train(self):
         r"""This function needs to be executed once the training of the current task is finished.

@@ -62,9 +62,13 @@ class nnUNetTrainerRehearsal(nnUNetTrainerMultiHead):
                           version, split_gpu, transfer_heads, ViT_task_specific_ln, do_LSA, do_SPT)
 
     #------------------------------------------ Partially copied from original implementation ------------------------------------------#
-    def get_basic_generators(self):
+    def get_basic_generators(self, use_all_data):
         r"""Calculate the joined dataset for the rehearsal training task.
         """
+        if use_all_data:    # In case of evaluation
+            dl_tr, dl_val = super().get_basic_generators(use_all_data)
+            return dl_tr, dl_val
+        
         # -- Set the random seed based on self.seed -- #
         random.seed(self.seed)
 
