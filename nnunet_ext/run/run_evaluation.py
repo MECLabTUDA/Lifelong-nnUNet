@@ -10,19 +10,13 @@ from nnunet_ext.utilities.helpful_functions import join_texts_with_char
 from nnunet_ext.paths import evaluation_output_dir, default_plans_identifier
 from nnunet.utilities.task_name_id_conversion import convert_id_to_task_name
 
-
+EXT_MAP = dict()
 # -- Extract all extensional trainers in a more generic way -- #
 extension_keys = [x for x in os.listdir(os.path.join(nnunet_ext.__path__[0], "training", "network_training")) if 'py' not in x]
-trainer_keys = list()
 for ext in extension_keys:
-    trainer_name = [x[:-3] for x in os.listdir(os.path.join(nnunet_ext.__path__[0], "training", "network_training", ext)) if '.py' in x]
-    trainer_keys.extend(trainer_name)
-
-# -- Sort based on the sum of ordinal number per lowered string -- #
-extension_keys.sort(key=lambda x: sum([ord(y) for y in x.lower()])), trainer_keys.sort(key=lambda x: sum([ord(y) for y in x.lower()]))
-
-# -- Build mapping for network_trainer to corresponding extension name -- #
-EXT_MAP = dict(zip(trainer_keys, extension_keys))
+    trainer_name = [x[:-3] for x in os.listdir(os.path.join(nnunet_ext.__path__[0], "training", "network_training", ext)) if '.py' in x][0]
+    # trainer_keys.extend(trainer_name)
+    EXT_MAP[trainer_name] = ext
 # -- Add standard trainers as well -- #
 EXT_MAP['nnViTUNetTrainer'] = None
 EXT_MAP['nnUNetTrainerV2'] = 'standard'

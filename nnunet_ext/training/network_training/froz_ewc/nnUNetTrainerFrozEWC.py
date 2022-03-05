@@ -15,7 +15,7 @@ class nnUNetTrainerFrozEWC(nnUNetTrainerEWC):
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
                  identifier=default_plans_identifier, extension='froz_ewc', ewc_lambda=0.4, tasks_list_with_char=None, mixed_precision=True,
                  save_csv=True, del_log=False, use_vit=False, vit_type='base', version=1, split_gpu=False, transfer_heads=False,
-                 ViT_task_specific_ln=False, do_LSA=False, do_SPT=False, network=None, use_param_split=False, enhanced=False):
+                 ViT_task_specific_ln=False, do_LSA=False, do_SPT=False, enhanced=False, network=None, use_param_split=False):
         r"""Constructor of frozen EWC trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets. This method uses the
             EWC on the whole network, whereas every second task, the ViT network is frozen and not thus updated nor regularized.
             If enhanced is set, the EWC weight will be changed the following way for frozen runs: ewc_lambda*e^{-1/3}

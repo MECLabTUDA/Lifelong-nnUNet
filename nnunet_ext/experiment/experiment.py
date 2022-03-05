@@ -13,27 +13,18 @@ from nnunet.training.model_restore import recursive_find_python_class
 from nnunet_ext.run.default_configuration import get_default_configuration
 from nnunet_ext.training.model_restore import recursive_find_python_class_file
 
+TRAINER_MAP = dict()
+
 # -- Import all extensional trainers in a more generic way -- #
 extension_keys = [x for x in os.listdir(os.path.join(nnunet_ext.__path__[0], "training", "network_training")) if 'py' not in x]
-trainer_keys = list()
 for ext in extension_keys:
-    trainer_name = [x[:-3] for x in os.listdir(os.path.join(nnunet_ext.__path__[0], "training", "network_training", ext)) if '.py' in x]
-    trainer_keys.extend(trainer_name)
-# -- Sort based on the string but do this only on the lower keys  -- #
-extension_keys.sort(key=lambda x: x.lower()), trainer_keys.sort(key=lambda x: x.lower())
-sorted_pairs = zip(extension_keys, trainer_keys)
-# NOTE: sorted_pairs does not include the nnViTUNetTrainer!
-
-# -- Import the trainer classes and keep track of them -- #
-TRAINER_MAP = dict()
-for ext, tr in sorted_pairs:
+    trainer_name = [x[:-3] for x in os.listdir(os.path.join(nnunet_ext.__path__[0], "training", "network_training", ext)) if '.py' in x][0]
     search_in = (nnunet_ext.__path__[0], "training", "network_training", ext)
     base_module = 'nnunet_ext.training.network_training.' + ext
-    trainer_class = recursive_find_python_class([join(*search_in)], tr, current_module=base_module)
-    # -- Track the classes based on their trainer strings and the extension as well -- #
-    # -- Build mapping for extension to corresponding class -- #
-    TRAINER_MAP[tr] = trainer_class
+    trainer_class = recursive_find_python_class([join(*search_in)], trainer_name, current_module=base_module)
+    TRAINER_MAP[trainer_name] = trainer_class
     TRAINER_MAP[ext] = trainer_class
+# NOTE: Does not include the nnViTUNetTrainer!
 
 
 class Experiment():

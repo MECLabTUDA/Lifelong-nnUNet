@@ -5,6 +5,7 @@
 
 import numpy as np
 import os, copy, torch
+from pandas import to_datetime
 from itertools import tee
 from torch.cuda.amp import autocast
 from collections import OrderedDict
@@ -598,6 +599,9 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         data = data_dict['data']
         target = data_dict['target']
 
+        # -- Track the subjects if desired for validation, the list gets emptied after validation is done -- #
+        self.subject_names_raw.append(data_dict['keys'])
+
         data = maybe_to_torch(data)
         target = maybe_to_torch(target)
 
@@ -771,10 +775,9 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             # --       that self.network is assembled correctly ! -- #
             
             # -- Add validation subject names to list -- #
-            self.subject_names_raw.extend(self.dl_val.list_of_keys)
+            unique_subject_names = self.dl_val.list_of_keys
             if use_all_data:    # --> Use train and val generator
-                # -- Add training subject names as well -- #
-                self.subject_names_raw.extend(self.dl_tr.list_of_keys)
+                unique_subject_names.extend(self.dl_tr.list_of_keys)
                 with torch.no_grad():
                      # -- Put current network into evaluation mode -- #
                     self.network.eval()
@@ -794,15 +797,16 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                     self.network.eval()
                     # -- Loop through generator based on number of defined batches -- #
                     for _ in range(self.num_val_batches_per_epoch):
+                        self.num_batches_per_epoch
                         # -- Run iteration without backprop but online_evaluation to be able to get TP, FP, FN for Dice and IoU -- #
                         if call_for_eval:
                             # -- Call only this run_iteration since only the one from MultiHead has no_loss flag -- #
                             _ = self.run_iteration(self.val_gen, False, True, no_loss=True)
                         else:
                             _ = self.run_iteration(self.val_gen, False, True)
-                    
+
             # -- Calculate Dice and IoU --> self.validation_results is already updated once the evaluation is done -- #
-            self.finish_online_evaluation_extended(task)
+            self.finish_online_evaluation_extended(task, unique_subject_names)
 
         # -- Put current network into train mode again -- #
         self.network.train()
@@ -916,7 +920,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                 self.online_eval_fp.append(fp_hard.detach().cpu().numpy())
                 self.online_eval_fn.append(fn_hard.detach().cpu().numpy())
     
-    def finish_online_evaluation_extended(self, task):
+    def finish_online_evaluation_extended(self, task, unique_subject_names=None):
         r"""Calculate the Dice Score and IoU (Intersection over Union) on the validation dataset during training.
             The metrics are calculated for every subject and for every label in the masks, except for background.
             NOTE: The function name is different from the original one, since it is used in another context
@@ -932,7 +936,11 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         
         # -- Sum the values for tp, fp and fn per subject to get exactly one value per subject in the end -- #
         # -- Extract the unique names -- #
-        subject_names = np.unique(self.subject_names_raw)
+        if unique_subject_names is None:
+            # -- Extract them on your own based on predictions -- #
+            subject_names = np.unique(self.subject_names_raw)
+        else:
+            subject_names = unique_subject_names
         
         # -- Sum the values per subject name based on the idxs -- #
         tp = list()
@@ -955,7 +963,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             fp.append(np.array(self.online_eval_fp)[subject_idxs].sum(axis=0))
             fn.append(np.array(self.online_eval_fn)[subject_idxs].sum(axis=0))
 
-        # -- Assign the correct values to corresponding lists and remove the three generated lists
+        # -- Assign the correct values to corresponding lists and remove the three generated lists -- #
         self.online_eval_tp, self.online_eval_fp, self.online_eval_fn = tp, fp, fn
         del tp, fp, fn
 
@@ -998,7 +1006,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         self.online_eval_tp = []
         self.online_eval_fp = []
         self.online_eval_fn = []
-        self.subject_names_raw = [] # <-- Subject names necessary to map IoU and dice per subject
+        self.subject_names_raw = [] # <-- Subject names necessary to map IoU and Dice per subject
     #------------------------------------------ Partially copied from original implementation ------------------------------------------#
 
     def validate(self, do_mirroring: bool = True, use_sliding_window: bool = True,

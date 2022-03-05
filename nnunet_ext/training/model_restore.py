@@ -77,7 +77,6 @@ def restore_model(pkl_file, checkpoint=None, train=False, fp16=True, use_extensi
             tr = recursive_find_python_class([search_in], name, current_module="meddec.model_training")
         except ImportError:
             pass
-        
     if tr is None:
         raise RuntimeError("Could not find the model trainer specified in checkpoint in nnunet.trainig.network_training. If it "
                            "is not located there, please move it or change the code of restore_model. Your model "
