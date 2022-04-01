@@ -69,11 +69,15 @@ class MultipleOutputLossEWC(MultipleOutputLoss2):
                     or (self.match_case and not self.match_true and all(m_name not in name for m_name in self.match))\
                     or (not self.match_case):                
                         # -- Extract corresponding fisher and param values -- #
-                        fisher_value = self.fisher[task][name]
-                        param_value = self.params[task][name]
+                        # fisher_value = self.fisher[task][name]
+                        # param_value = self.params[task][name]
+                        param_ = to_cuda(param, gpu_id=loss.get_device())
+                        fisher_value = to_cuda(self.fisher[task][name], gpu_id=loss.get_device())
+                        param_value = to_cuda(self.params[task][name], gpu_id=loss.get_device())
+                        # loss = to_cuda(loss, gpu_id=param.get_device())
                         
                         # -- loss = loss_{t} + ewc_lambda/2 * \sum_{i} F_{i}(param_{i} - param_{t-1, i})**2 -- #
-                        loss += self.ewc_lambda/2 * (fisher_value * (param - param_value).pow(2)).sum()
+                        loss += self.ewc_lambda/2 * (fisher_value * (param_ - param_value).pow(2)).sum()
                 
         # -- Return the updated loss value -- #
         return loss
@@ -115,12 +119,17 @@ class MultipleOutputLossRW(MultipleOutputLossEWC):
                 or (self.match_case and not self.match_true and all(m_name not in name for m_name in self.match))\
                 or (not self.match_case):                
                     # -- Extract corresponding fisher and param values -- #
-                    fisher_value = self.fisher[task][name]
-                    param_value = self.params[task][name]
-                    importance = self.parameter_importance[task][name]
+                    # fisher_value = self.fisher[task][name]
+                    # param_value = self.params[task][name]
+                    # importance = self.parameter_importance[task][name]
+                        
+                    param_ = to_cuda(param, gpu_id=loss.get_device())
+                    fisher_value = to_cuda(self.fisher[task][name], gpu_id=loss.get_device())
+                    param_value = to_cuda(self.params[task][name], gpu_id=loss.get_device())
+                    importance = to_cuda(self.parameter_importance[task][name], gpu_id=loss.get_device())
                     
                     # -- loss = loss_{t} + ewc_lambda * \sum_{i} (F_{i} + S(param_{i})) * (param_{i} - param_{t-1, i})**2 -- #
-                    loss += self.ewc_lambda * ((fisher_value + importance) * (param - param_value).pow(2)).sum()
+                    loss += self.ewc_lambda * ((fisher_value + importance) * (param_ - param_value).pow(2)).sum()
                 
         # -- Return the updated loss value -- #
         return loss

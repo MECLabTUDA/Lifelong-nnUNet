@@ -75,10 +75,22 @@ class nnUNetTrainerEWC(nnUNetTrainerMultiHead):
             # -- Put data on GPU since the data is moved to CPU before it is stored -- #
             for task in self.fisher.keys():
                 for key in self.fisher[task].keys():
-                    to_cuda(self.fisher[task][key])
+                    self.fisher[task][key] = to_cuda(self.fisher[task][key], gpu_id=0)
             for task in self.params.keys():
                 for key in self.params[task].keys():
-                    to_cuda(self.params[task][key])
+                    self.params[task][key] = to_cuda(self.params[task][key], gpu_id=0)
+            # for task in self.fisher.keys():
+            #     for key in self.fisher[task].keys():
+            #         if self.split_gpu and 'ViT' in key:
+            #             self.fisher[task][key] = to_cuda(self.fisher[task][key], gpu_id=1)
+            #         else:
+            #             self.fisher[task][key] = to_cuda(self.fisher[task][key], gpu_id=0)
+            # for task in self.params.keys():
+            #     for key in self.params[task].keys():
+            #         if self.split_gpu and 'ViT' in key:
+            #             self.params[task][key] = to_cuda(self.params[task][key], gpu_id=1)
+            #         else:
+            #             self.params[task][key] = to_cuda(self.params[task][key], gpu_id=0)
 
         # -- Define the path where the fisher and param values should be stored/restored -- #
         self.ewc_data_path = join(self.trained_on_path, 'ewc_data')
@@ -98,10 +110,22 @@ class nnUNetTrainerEWC(nnUNetTrainerMultiHead):
             # -- Put data on GPU since the data is moved to CPU before it is stored -- #
             for task in self.fisher.keys():
                 for key in self.fisher[task].keys():
-                    to_cuda(self.fisher[task][key])
+                    self.fisher[task][key] = to_cuda(self.fisher[task][key], gpu_id=0)
             for task in self.params.keys():
                 for key in self.params[task].keys():
-                    to_cuda(self.params[task][key])
+                    self.params[task][key] = to_cuda(self.params[task][key], gpu_id=0)
+            # for task in self.fisher.keys():
+            #     for key in self.fisher[task].keys():
+            #         if self.split_gpu and 'ViT' in key:
+            #             self.fisher[task][key] = to_cuda(self.fisher[task][key], gpu_id=1)
+            #         else:
+            #             self.fisher[task][key] = to_cuda(self.fisher[task][key], gpu_id=0)
+            # for task in self.params.keys():
+            #     for key in self.params[task].keys():
+            #         if self.split_gpu and 'ViT' in key:
+            #             self.params[task][key] = to_cuda(self.params[task][key], gpu_id=1)
+            #         else:
+            #             self.params[task][key] = to_cuda(self.params[task][key], gpu_id=0)
         
         # -- Reset self.loss from MultipleOutputLoss2 to DC_and_CE_loss so the EWC Loss can be initialized properly -- #
         self.loss = DC_and_CE_loss({'batch_dice': self.batch_dice, 'smooth': 1e-5, 'do_bg': False}, {})
@@ -130,12 +154,24 @@ class nnUNetTrainerEWC(nnUNetTrainerMultiHead):
             self.print_to_log_file("I am using EWC loss now")
         
         # -- Put data on GPU since the data is moved to CPU before it is stored -- #
-        for task in self.fisher.keys():
-            for key in self.fisher[task].keys():
-                to_cuda(self.fisher[task][key])
-        for task in self.params.keys():
-            for key in self.params[task].keys():
-                to_cuda(self.params[task][key])
+            for task in self.fisher.keys():
+                for key in self.fisher[task].keys():
+                    self.fisher[task][key] = to_cuda(self.fisher[task][key], gpu_id=0)
+            for task in self.params.keys():
+                for key in self.params[task].keys():
+                    self.params[task][key] = to_cuda(self.params[task][key], gpu_id=0)
+        # for task in self.fisher.keys():
+        #     for key in self.fisher[task].keys():
+        #         if self.split_gpu and 'ViT' in key:
+        #             self.fisher[task][key] = to_cuda(self.fisher[task][key], gpu_id=1)
+        #         else:
+        #             self.fisher[task][key] = to_cuda(self.fisher[task][key], gpu_id=0)
+        # for task in self.params.keys():
+        #     for key in self.params[task].keys():
+        #         if self.split_gpu and 'ViT' in key:
+        #             self.params[task][key] = to_cuda(self.params[task][key], gpu_id=1)
+        #         else:
+        #             self.params[task][key] = to_cuda(self.params[task][key], gpu_id=0)
 
         # -- Update the fisher and param values in the loss function -- #
         self.loss.update_ewc_params(self.fisher, self.params)

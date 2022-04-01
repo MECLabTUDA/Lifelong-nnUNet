@@ -162,7 +162,7 @@ def run_param_search():
                         help='Set this flag if Locality Self-Attention should be used for the ViT.')
     parser.add_argument('--do_SPT', action='store_true', default=False,
                         help='Set this flag if Shifted Patch Tokenization should be used for the ViT.')
-    parser.add_argument('--enhanced', required=False, default=False, action="store_true",
+    parser.add_argument('--adaptive', required=False, default=False, action="store_true",
                         help='Set this flag if the EWC loss should be changed during the frozen training process (ewc_lambda*e^{-1/3}). '
                              ' Default: The EWC loss will not be altered. --> Makes only sense with our nnUNetTrainerFrozEWC trainer.')
 
@@ -179,7 +179,7 @@ def run_param_search():
     valbest = args.valbest
     use_vit = args.use_vit
     do_pod = not args.no_pod
-    enhanced = args.enhanced
+    adaptive = args.adaptive
     plans_identifier = args.p
     mixed_precision = not fp32
     val_folder = args.val_folder
@@ -341,7 +341,7 @@ def run_param_search():
                   'mixed_precision': mixed_precision, 'use_vit': use_vit, 'vit_type': vit_type, 'version': version, 'num_epochs': num_epochs,
                   'split_gpu': split_gpu, 'transfer_heads': transfer_heads, 'ViT_task_specific_ln': ViT_task_specific_ln, 'fold': fold,
                   'do_LSA': do_LSA, 'do_SPT': do_SPT, 'do_pod': do_pod, 'search_mode': search_mode, 'grid_picks': grid_picks, 'rand_range': rand_range,
-                  'rand_pick': rand_pick, 'rand_seed': rand_seed, 'always_use_last_head': always_use_last_head, 'enhanced': enhanced,
+                  'rand_pick': rand_pick, 'rand_seed': rand_seed, 'always_use_last_head': always_use_last_head, 'adaptive': adaptive,
                   'perform_validation': perform_validation, 'fixate_params': fixate_params, 'run_in_parallel': run_in_parallel, **unet_args}
     
     # -- Create the ParamSearcher -- #

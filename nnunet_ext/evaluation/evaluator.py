@@ -67,7 +67,7 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
                       mixed_precision, extension, save_csv, transfer_heads, use_vit, use_param_split, ViT_task_specific_ln,
                       do_LSA, do_SPT)
 
-    def evaluate_on(self, folds, tasks, use_head=None, always_use_last_head=False, do_pod=True, enhanced=False,
+    def evaluate_on(self, folds, tasks, use_head=None, always_use_last_head=False, do_pod=True, adaptive=False,
                     trainer_path=None, output_path=None, use_all_data=False):
         r"""This function performs the actual evaluation given the transmitted tasks.
             :param folds: List of integer values specifying the folds on which the evaluation should be performed.
@@ -75,7 +75,7 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
             :param use_head: A task specifying which head to use --> if it is set to None, the last trained head will be used if necessary.
             :param always_use_last_head: Specifies if only the last head is used for the evaluation.
             :param do_pod: Specifies the POD embedding is used or not --> Only works for our own methods.
-            :param enhanced: Specifies if the enhanced FrozEWC is used or not --> Only works for our nnUNetTrainerFrozEWC trainer.
+            :param adaptive: Specifies if the adaptive FrozEWC is used or not --> Only works for our nnUNetTrainerFrozEWC trainer.
             :param eval_mode_for_lns: Specifies how the evaluation is performed when using task specific LNs wrt to the LNs (last_lns or corr_lns).
             :param trainer_path: Specifies part to the trainer network including the fold_X being the last folder of the path (only used for parameter search method).
             :param output_path: Specifies part where the eval results are stored excluding the fold_X (only used for parameter search method).
@@ -124,8 +124,8 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
                     trainer_path = join(os.path.sep, *trainer_path.split(os.path.sep)[:-1], 'pod' if do_pod else 'no_pod', 'fold_'+str(t_fold))
                     output_path = join(os.path.sep, *output_path.split(os.path.sep)[:-1], 'pod' if do_pod else 'no_pod', 'last_head' if always_use_last_head else 'corresponding_head')
                 if 'FrozEWC' in self.network_trainer:
-                    trainer_path = join(os.path.sep, *trainer_path.split(os.path.sep)[:-1], 'enhanced' if enhanced else 'no_enhance', 'fold_'+str(t_fold))
-                    output_path = join(os.path.sep, *output_path.split(os.path.sep)[:-1], 'enhanced' if enhanced else 'no_enhance', 'last_head' if always_use_last_head else 'corresponding_head')
+                    trainer_path = join(os.path.sep, *trainer_path.split(os.path.sep)[:-1], 'adaptive' if adaptive else 'no_adaptive', 'fold_'+str(t_fold))
+                    output_path = join(os.path.sep, *output_path.split(os.path.sep)[:-1], 'adaptive' if adaptive else 'no_adaptive', 'last_head' if always_use_last_head else 'corresponding_head')
 
             # -- Load the trainer for evaluation -- #
             print("Loading trainer and setting the network for evaluation")

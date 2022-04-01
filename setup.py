@@ -48,14 +48,9 @@ setup(name='nnunet_ext',
               'nnUNet_train_ewc_unet = nnunet_ext.run.run_training:main_ewc_unet',             # Use for EWC on nnUNet layers
               'nnUNet_train_ewc_vit = nnunet_ext.run.run_training:main_ewc_vit',               # Use for EWC on ViT layers
               'nnUNet_train_froz_ewc = nnunet_ext.run.run_training:main_froz_ewc',             # Use for EWC and frozen ViT (every 2nd task)
-              'nnUNet_train_froz_ewc_final = nnunet_ext.run.run_training:main_froz_ewc_final', # Use for EWC and frozen ViT (every 2nd task)
               'nnUNet_train_frozen_nonln = nnunet_ext.run.run_training:main_frozen_nonln',     # Use for freezing all layers except LN
               'nnUNet_train_frozen_unet = nnunet_ext.run.run_training:main_frozen_unet',       # Use for freezing all nnUNet layers
               'nnUNet_train_frozen_vit = nnunet_ext.run.run_training:main_frozen_vit',         # Use for freezing all ViT layers
-              'nnUNet_train_ownm1 = nnunet_ext.run.run_training:main_ownm1',                   # Use for own methods training
-              'nnUNet_train_ownm2 = nnunet_ext.run.run_training:main_ownm2',                   # Use for own methods training
-              'nnUNet_train_ownm3 = nnunet_ext.run.run_training:main_ownm3',                   # Use for own methods training
-              'nnUNet_train_ownm4 = nnunet_ext.run.run_training:main_ownm4',                   # Use for own methods training
           ],
       },
       keywords=['deep learning', 'image segmentation', 'medical image analysis',

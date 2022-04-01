@@ -703,6 +703,13 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # --       is nothing to restore at the end. -- #
         # -- For each previously trained task perform the validation on the full validation set -- #
         running_task_list = list()
+
+        # -- For evaluation purposes, reduce the batch size by half to avoid cuda OOM -- #
+        batch_backup = self.batch_size
+        self.batch_size //= 2
+        # -- Define the number of iterations during evaluation. If batch was even then times 2 otherwise times 3 -- #
+        nr_batches = self.num_val_batches_per_epoch*2 if batch_backup % 2 == 0 else self.num_val_batches_per_epoch*3
+
         # -- Put current network into evaluation mode -- #
         self.network.eval()
         for idx, task in enumerate(tasks):
@@ -777,7 +784,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                         gen_copy = tee(gen, 1)[0] # <-- Duplicate the generator so the names are extracted correctly during the loop
                         
                         # -- Loop through generator based on number of defined batches -- #
-                        for _ in range(self.num_val_batches_per_epoch):
+                        for _ in range(nr_batches):   # As we reduced batch_size by half, remember ?
                             # -- First, extract the subject names so we can map the predictions to the names -- #
                             data = next(gen_copy)
                             self.subject_names_raw.append(data['keys'])
@@ -794,7 +801,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                     val_gen_copy = tee(self.val_gen, 1)[0] # <-- Duplicate the generator so the names are extracted correctly during the loop
                     
                     # -- Loop through generator based on number of defined batches -- #
-                    for _ in range(self.num_val_batches_per_epoch):
+                    for _ in range(nr_batches):   # As we reduced batch_size by half, remember ?
                         # -- First, extract the subject names so we can map the predictions to the names -- #
                         data = next(val_gen_copy)
                         self.subject_names_raw.append(data['keys'])
@@ -809,6 +816,22 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
 
             # -- Calculate Dice and IoU --> self.validation_results is already updated once the evaluation is done -- #
             self.finish_online_evaluation_extended(task)
+
+        # -- After evaluation restore batch size -- #
+        self.batch_size = batch_backup
+        del batch_backup
+
+        # -- Re-build dataloaders etc. with correct batch_size when this is done during training.. -- #
+        if not call_for_eval:
+            self.dl_tr, self.dl_val = self.get_basic_generators()
+            self.tr_gen, self.val_gen = get_moreDA_augmentation(self.dl_tr, self.dl_val,
+                                                                self.data_aug_params['patch_size_for_spatialtransform'],
+                                                                self.data_aug_params,
+                                                                deep_supervision_scales=self.deep_supervision_scales,
+                                                                pin_memory=self.pin_memory,
+                                                                use_nondetMultiThreadedAugmenter=False)
+            # -- Everything else is set as we evaluated on the current task just now -- #
+
 
         # -- Put current network into train mode again -- #
         self.network.train()
@@ -861,6 +884,9 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                     os.remove(join(self.trained_on_path, self.extension+'_trained_on.pkl'))
             except OSError:
                 pass
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     #------------------------------------------ Partially copied from original implementation ------------------------------------------#
     def get_basic_generators(self, use_all_data=False):

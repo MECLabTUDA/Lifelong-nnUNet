@@ -3,6 +3,7 @@
 /storage/*
 /.vscode/*
 /.pytest_cache/*
+/additional/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

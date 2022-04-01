@@ -66,9 +66,7 @@ class nnUNetTrainerEWCLN(nnUNetTrainerEWC):
             parameters = [(name, param) for name, param in self.network.named_parameters() if 'ViT' in name]
             self.loss.update_network_params(parameters)
             
-            if detach:
-                l = l.detach().cpu().numpy()
-            return l
+        return l
 
     def after_train(self):
         r"""This function needs to be executed once the training of the current task is finished.

@@ -225,7 +225,7 @@ def run_training(extension='multihead'):
                                 ' Default: POD embedding will be included.')
 
     if extension in ['froz_ewc']:
-        parser.add_argument('--enhanced', required=False, default=False, action="store_true",
+        parser.add_argument('--adaptive', required=False, default=False, action="store_true",
                             help='Set this flag if the EWC loss should be changed during the frozen training process (ewc_lambda*e^{-1/3}). '
                                  ' Default: The EWC loss will not be altered.')
 
@@ -458,10 +458,10 @@ def run_training(extension='multihead'):
     if extension in ['ownm1', 'ownm2', 'ownm3', 'ownm4']:
         do_pod = not args.no_pod
 
-    enhanced = False
+    adaptive = False
     if extension in ['froz_ewc']:
         assert use_vit, "The nnUNetTrainerFrozEWC can only be used with a ViT_U-Net.."
-        enhanced = args.enhanced
+        adaptive = args.adaptive
     
     # -------------------------------
     # Transform tasks to task names
@@ -508,7 +508,7 @@ def run_training(extension='multihead'):
     reh_args = {'samples_in_perc': samples, 'seed': seed, **basic_exts}
     plop_args = {'pod_lambda': pod_lambda, 'pod_scales': pod_scales, **basic_exts}
     rw_args = {'rw_lambda': rw_lambda, 'rw_alpha': rw_alpha, 'fisher_update_after': update_fisher_every, **basic_exts}
-    froz_ewc_args = {'enhanced':enhanced, **ewc_args}
+    froz_ewc_args = {'adaptive':adaptive, **ewc_args}
     ownm1_args = {'ewc_lambda': ewc_lambda, 'pod_lambda': pod_lambda, 'pod_scales': pod_scales, 'do_pod': do_pod, 'mib_lkd': mib_lkd, 'mib_alpha': mib_alpha, **basic_exts}
     ownm3_args = {'do_LSA': do_LSA, 'do_SPT': do_SPT, **ownm1_args, **basic_exts}
     ownm4_args = {'ewc_lambda': ewc_lambda, 'pod_lambda': pod_lambda, 'pod_scales': pod_scales, 'do_pod': do_pod, 'pseudo_alpha': pseudo_alpha, **basic_exts}
@@ -954,12 +954,6 @@ def main_froz_ewc():
     """
     run_training(extension='froz_ewc')
 
-# -- Main function for setup execution of Frozen ViT method -- #
-def main_froz_ewc_final():
-    r"""Run training for Elastic Weight Consolidation Trainer while freezing the ViT every 2nd task.
-    """
-    run_training(extension='froz_ewc_final')
-
 # -- Main function for setup execution of LwF method -- #
 def main_lwf():
     r"""Run training for Learning Without Forgetting Trainer.
@@ -971,30 +965,6 @@ def main_mib():
     r"""Run training for MiB Trainer: https://arxiv.org/pdf/2002.00718.pdf.
     """
     run_training(extension='mib')
-
-# -- Main function for setup execution of OwnMethod 1 -- #
-def main_ownm1():
-    r"""Run training for OwnMethod1 Trainer.
-    """
-    run_training(extension='ownm1')
-
-# -- Main function for setup execution of OwnMethod 2 -- #
-def main_ownm2():
-    r"""Run training for OwnMethod2 Trainer.
-    """
-    run_training(extension='ownm2')
-
-# -- Main function for setup execution of OwnMethod 3 -- #
-def main_ownm3():
-    r"""Run training for OwnMethod3 Trainer.
-    """
-    run_training(extension='ownm3')
-
-# -- Main function for setup execution of OwnMethod 4 -- #
-def main_ownm4():
-    r"""Run training for OwnMethod4 Trainer.
-    """
-    run_training(extension='ownm4')
 
 # -- Main function for setup execution of PLOP method -- #
 def main_plop():

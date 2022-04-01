@@ -15,10 +15,10 @@ class nnUNetTrainerFrozEWC(nnUNetTrainerEWC):
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
                  identifier=default_plans_identifier, extension='froz_ewc', ewc_lambda=0.4, tasks_list_with_char=None, mixed_precision=True,
                  save_csv=True, del_log=False, use_vit=False, vit_type='base', version=1, split_gpu=False, transfer_heads=False,
-                 ViT_task_specific_ln=False, do_LSA=False, do_SPT=False, enhanced=False, network=None, use_param_split=False):
+                 ViT_task_specific_ln=False, do_LSA=False, do_SPT=False, adaptive=False, network=None, use_param_split=False):
         r"""Constructor of frozen EWC trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets. This method uses the
             EWC on the whole network, whereas every second task, the ViT network is frozen and not thus updated nor regularized.
-            If enhanced is set, the EWC weight will be changed the following way for frozen runs: ewc_lambda*e^{-1/3}
+            If adaptive is set, the EWC weight will be changed the following way for frozen runs: ewc_lambda*e^{-1/3}
         """
         # -- Initialize using parent class -- #
         super().__init__(split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic,
@@ -33,16 +33,16 @@ class nnUNetTrainerFrozEWC(nnUNetTrainerEWC):
         except:
             pass
 
-        # -- Update the folder names including indicating if enhanced is used or not -- #
+        # -- Update the folder names including indicating if adaptive is used or not -- #
         fold_n = self.output_folder.split(os.path.sep)[-1]
-        if enhanced and 'enhanced' not in self.output_folder:
-            self.output_folder = join(os.path.sep, *self.output_folder.split(os.path.sep)[:-1], 'enhanced', fold_n)
-        if enhanced and 'enhanced' not in self.trained_on_path:
-            self.trained_on_path = join(self.trained_on_path, 'enhanced')
-        if not enhanced and 'no_enhance' not in self.output_folder:
-            self.output_folder = join(os.path.sep, *self.output_folder.split(os.path.sep)[:-1], 'no_enhance', fold_n)
-        if not enhanced and 'no_enhance' not in self.trained_on_path:
-            self.trained_on_path = join(self.trained_on_path, 'no_enhance')
+        if adaptive and 'adaptive' not in self.output_folder:
+            self.output_folder = join(os.path.sep, *self.output_folder.split(os.path.sep)[:-1], 'adaptive', fold_n)
+        if adaptive and 'adaptive' not in self.trained_on_path:
+            self.trained_on_path = join(self.trained_on_path, 'adaptive')
+        if not adaptive and 'no_adaptive' not in self.output_folder:
+            self.output_folder = join(os.path.sep, *self.output_folder.split(os.path.sep)[:-1], 'no_adaptive', fold_n)
+        if not adaptive and 'no_adaptive' not in self.trained_on_path:
+            self.trained_on_path = join(self.trained_on_path, 'no_adaptive')
 
         # -- Create the folder if necessary -- #
         maybe_mkdir_p(self.trained_on_path)
@@ -51,14 +51,14 @@ class nnUNetTrainerFrozEWC(nnUNetTrainerEWC):
         self.init_args = (split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
                           deterministic, fp16, save_interval, self.already_trained_on, use_progress, identifier, extension,
                           ewc_lambda, tasks_list_with_char, mixed_precision, save_csv, del_log, use_vit, self.vit_type, version,
-                          split_gpu, transfer_heads, ViT_task_specific_ln, do_LSA, do_SPT, enhanced)
+                          split_gpu, transfer_heads, ViT_task_specific_ln, do_LSA, do_SPT, adaptive)
 
         # -- Store if the user wants to modify the EWC weight during frozen runs -- #
-        self.enhanced = enhanced
+        self.adaptive = adaptive
 
         # -- Update the path were the fisher and param values are stored to avoid conflicts -- #   
-        if self.enhanced: 
-            self.ewc_data_path = join(self.trained_on_path, 'ewc_data_froz_ewc_enhanced')
+        if self.adaptive: 
+            self.ewc_data_path = join(self.trained_on_path, 'ewc_data_froz_ewc_adaptive')
         else:           
             self.ewc_data_path = join(self.trained_on_path, 'ewc_data_froz_ewc')
 
@@ -70,10 +70,10 @@ class nnUNetTrainerFrozEWC(nnUNetTrainerEWC):
         
         # -- Update self.trainer_path -- #
         if prev_trainer_path is not None and not call_for_eval:
-            if self.enhanced:
-                self.trainer_path = join(os.path.sep, *self.trainer_path.split(os.sep)[:-1], 'enhanced', "fold_%s" % str(self.fold))
+            if self.adaptive:
+                self.trainer_path = join(os.path.sep, *self.trainer_path.split(os.sep)[:-1], 'adaptive', "fold_%s" % str(self.fold))
             else:
-                self.trainer_path = join(os.path.sep, *self.trainer_path.split(os.sep)[:-1], 'no_enhance', "fold_%s" % str(self.fold))
+                self.trainer_path = join(os.path.sep, *self.trainer_path.split(os.sep)[:-1], 'no_adaptive', "fold_%s" % str(self.fold))
         else:   # If for eval, then this is a nnUNetTrainerV2 whereas the path is not build as implemented in _build_output_path
             self.trainer_path = prev_trainer_path
 
@@ -83,17 +83,17 @@ class nnUNetTrainerFrozEWC(nnUNetTrainerEWC):
             The ViT however is only frozen every second task and thus regularized when unfrozen.
         """
         # -- Execute the training for the desired epochs -- #
-        if self.enhanced:
-            output_folder = join(self._build_output_path(output_folder, False), 'enhanced', "fold_%s" % str(self.fold))
+        if self.adaptive:
+            output_folder = join(self._build_output_path(output_folder, False), 'adaptive', "fold_%s" % str(self.fold))
         else:
-            output_folder = join(self._build_output_path(output_folder, False), 'no_enhance', "fold_%s" % str(self.fold))
+            output_folder = join(self._build_output_path(output_folder, False), 'no_adaptive', "fold_%s" % str(self.fold))
 
         if len(self.mh_network.heads) % 2 == 1:
             if task in self.mh_network.heads:        # Uneven number of heads, so no freezing
                 self.print_to_log_file(f"Unfreeze the ViT for task {task}..")
                 # -- Unfreeze the whole ViT module -- #
                 self.freeze_ViT(False)
-                if self.enhanced:
+                if self.adaptive:
                     # -- Reset the ewc value for the unfrozen_training -- #
                     self.loss.ewc_lambda = self.ewc_lambda
                     self.print_to_log_file(f"Using EWC loss weight: {self.ewc_lambda}..")
@@ -102,7 +102,7 @@ class nnUNetTrainerFrozEWC(nnUNetTrainerEWC):
                 self.print_to_log_file(f"Freeze the ViT for task {task}..")
                 # -- Freeze the whole ViT module -- #
                 self.freeze_ViT(True)
-                if self.enhanced:
+                if self.adaptive:
                     # -- Reset the ewc value for the frozen_training using our formula -- #
                     self.loss.ewc_lambda = self.ewc_lambda * math.exp(-1/3) # --> reduce the weight of the EWC term so we can learn more when ViT is frozen
                     self.print_to_log_file(f"Reducing EWC loss weight from {self.ewc_lambda} to {self.loss.ewc_lambda}..")
@@ -112,7 +112,7 @@ class nnUNetTrainerFrozEWC(nnUNetTrainerEWC):
                 self.print_to_log_file(f"Freeze the ViT for task {task}..")
                 # -- Freeze the whole ViT module -- #
                 self.freeze_ViT(True)
-                if self.enhanced:
+                if self.adaptive:
                     # -- Reset the ewc value for the frozen_training using our formula -- #
                     self.loss.ewc_lambda = self.ewc_lambda * math.exp(-1/3) # --> reduce the weight of the EWC term so we can learn more when ViT is frozen
                     self.print_to_log_file(f"Reducing EWC loss weight from {self.ewc_lambda} to {self.loss.ewc_lambda}..")
@@ -121,7 +121,7 @@ class nnUNetTrainerFrozEWC(nnUNetTrainerEWC):
                 self.print_to_log_file(f"Unfreeze the ViT for task {task}..")
                 # -- Unfreeze the whole ViT module -- #
                 self.freeze_ViT(False)
-                if self.enhanced:
+                if self.adaptive:
                     # -- Reset the ewc value for the unfrozen_training -- #
                     self.loss.ewc_lambda = self.ewc_lambda
                     self.print_to_log_file(f"Using EWC loss weight: {self.ewc_lambda}..")

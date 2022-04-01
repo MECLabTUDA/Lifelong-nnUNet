@@ -241,8 +241,9 @@ class nnUNetTrainerRW(nnUNetTrainerMultiHead):
                     if param.grad is not None:
                         # -- Get parameter difference from old param and current param t -- #
                         delta = param.grad.detach() * (self.prev_param[name].to(param.device) - param.detach())
+                        delta = delta.to(0)
                         # -- Calculate score denominator -- #
-                        den = 0.5 * self.fisher[self.task][name] * (param.detach() - self.prev_param[name].to(param.device)).pow(2) + EPSILON
+                        den = 0.5 * self.fisher[self.task][name] * (param.detach() - self.prev_param[name].to(param.device)).pow(2).to(0) + EPSILON
                         # -- Score: delat(L) / 0.5*F_t*delta(param)^2 --> only positive or zero values -- #
                         scores = (delta / den)
                         scores[scores < 0] = 0  # Ensure no negative values
@@ -256,7 +257,7 @@ class nnUNetTrainerRW(nnUNetTrainerMultiHead):
             for name, param in self.network.named_parameters():
                 # -- F_t = alpha * F_t + (1-alpha) * F_t-1
                 if param.grad is not None:
-                    f_t = param.grad.data.clone().pow(2)
+                    f_t = param.grad.data.clone().pow(2).to(0)
                     f_to = self.fisher[self.task][name] if self.fisher[self.task][name] is not None else torch.tensor([0], device='cuda:0')
                     self.fisher[self.task][name] = (self.alpha * f_t) + ((1 - self.alpha) * f_to)
         
