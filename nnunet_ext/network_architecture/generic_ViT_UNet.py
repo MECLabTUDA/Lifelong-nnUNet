@@ -26,7 +26,7 @@ class Generic_ViT_UNet(Generic_UNet):
                  upscale_logits=False, convolutional_pooling=False, convolutional_upsampling=False,
                  max_num_features=None, basic_block=ConvDropoutNormNonlin, seg_output_use_bias=False,
                  vit_version='V1', vit_type='base', split_gpu=False, ViT_task_specific_ln=False, first_task_name=None,
-                 do_LSA=False, do_SPT=False):
+                 do_LSA=False, do_SPT=False, FeatScale=False, AttnScale=False):
         r"""This function represents the constructor of the Generic_ViT_UNet architecture. It basically uses the
             Generic_UNet class from the nnU-Net Framework as initialization since the presented architecture is
             based on this network. The vit_type needs to be set, which can be one of three possibilities:
@@ -184,7 +184,9 @@ class Generic_ViT_UNet(Generic_UNet):
             'task_specific_ln': ViT_task_specific_ln,
             'task_name': first_task_name,
             'is_LSA': do_LSA,
-            'is_SPT': do_SPT
+            'is_SPT': do_SPT,
+            'FeatScale': FeatScale,
+            'AttnScale': AttnScale
             }
 
         # -- Initialize ViT generically -- #

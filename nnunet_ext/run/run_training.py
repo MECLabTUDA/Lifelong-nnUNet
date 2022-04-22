@@ -152,10 +152,16 @@ def run_training(extension='multihead'):
                         help='Set this flag if Locality Self-Attention should be used for the ViT.')
     parser.add_argument('--do_SPT', action='store_true', default=False,
                         help='Set this flag if Shifted Patch Tokenization should be used for the ViT.')
+    parser.add_argument('--FeatScale', action='store_true', default=False,
+                        help='Set this flag if Feature Scale should be used for the ViT.')
+    parser.add_argument('--AttnScale', action='store_true', default=False,
+                        help='Set this flag if Attention Scale should be used for the ViT.')
     parser.add_argument('--no_transfer_heads', required=False, default=False, action="store_true",
                         help='Set this flag if a new head should not be initialized using the last head'
                             ' during training, ie. the very first head from the initialization of the class is used.'
                             ' Default: The previously trained head is used as initialization of the new head.')
+    parser.add_argument('--no_val', required=False, default=False, action="store_true",
+                        help='Set this flag if the final validation of the nnU-Net should be omitted.')
     
     # -- Add arguments for rehearsal method -- #
     if extension == 'rehearsal':
@@ -170,7 +176,7 @@ def run_training(extension='multihead'):
                                 ' Default: 0.25, ie. 25% of each previous task will be considered.')
     
     # -- Add arguments for ewc methods -- #
-    if extension in ['ewc', 'ewc_vit', 'ewc_unet', 'ewc_ln', 'froz_ewc', 'froz_ewc_final', 'ownm1', 'ownm2', 'ownm3', 'ownm4']:
+    if extension in ['ewc', 'ewc_vit', 'ewc_unet', 'ewc_ln', 'froz_ewc', 'froz_ewc_final']:
         parser.add_argument('-ewc_lambda', action='store', type=float, nargs=1, required=False, default=0.4,
                             help='Specify the importance of the previous tasks for the EWC method.'
                                 ' This number represents the lambda value in the loss function calculation as proposed in the paper.'
@@ -195,7 +201,7 @@ def run_training(extension='multihead'):
                                 ' Default: lwf_temperature = 2.0')
 
     # -- Add arguments for PLOP method -- #
-    if extension in ['plop', 'pod', 'ownm1', 'ownm2', 'ownm3', 'ownm4']:
+    if extension in ['plop', 'pod']:
         parser.add_argument('-pod_lambda', action='store', type=float, nargs=1, required=False, default=1e-2,
                             help='Specify the lambda weighting for the distillation loss.'
                                 ' Default: pod_lambda = 0.01')
@@ -204,25 +210,13 @@ def run_training(extension='multihead'):
                                 ' Default: pod_scales = 3')
     
     # -- Add arguments for MiB method -- #
-    if extension in ['mib', 'ownm1', 'ownm2', 'ownm3']:
+    if extension in ['mib']:
         parser.add_argument('-mib_alpha', action='store', type=float, nargs=1, required=False, default=0.9,
                             help='Specify the mib_alpha parameter to hard-ify the soft-labels.'
                                 ' Default: mib_alpha = 0.9')
         parser.add_argument('-mib_lkd', action='store', type=float, nargs=1, required=False, default=1,
                             help='Specify the weighting of the KL loss.'
                                 ' Default: mib_lkd = 1')
-
-    # -- Add arguments for own method -- #
-    if extension in ['ownm4']:
-        parser.add_argument('-pseudo_alpha', action='store', type=float, nargs=1, required=False, default=3.0,
-                            help='Specify the pseudo_alpha parameter to be used during pseudo-labeling.'
-                                ' Default: pseudo_alpha = 3.0')
-
-    # -- Add arguments for own method -- #
-    if extension in ['ownm1', 'ownm2', 'ownm3', 'ownm4']:
-        parser.add_argument('--no_pod', required=False, default=False, action="store_true",
-                            help='Set this flag if the POD embedding should not be included in the loss calculation.'
-                                ' Default: POD embedding will be included.')
 
     if extension in ['froz_ewc']:
         parser.add_argument('--adaptive', required=False, default=False, action="store_true",
@@ -247,6 +241,7 @@ def run_training(extension='multihead'):
     fp32 = args.fp32
     run_mixed_precision = not fp32
     val_folder = args.val_folder
+    do_val = not args.no_val
     continue_training = args.continue_training
 
     # -- Extract the arguments specific for all trainers from argument parser -- #
@@ -284,6 +279,10 @@ def run_training(extension='multihead'):
     # -- LSA and SPT flags -- #
     do_LSA = args.do_LSA
     do_SPT = args.do_SPT
+
+    # -- Scaling flags -- #
+    FeatScale = args.FeatScale
+    AttnScale = args.AttnScale
     
     num_epochs = args.num_epochs    # The number of epochs to train for each task
     if isinstance(num_epochs, list):    # When the num_epochs get returned as a list, extract the number to avoid later appearing errors
@@ -352,7 +351,7 @@ def run_training(extension='multihead'):
 
     # -- Extract ewc arguments -- #
     ewc_lambda = None  # --> So the dictionary arguments can be build without an error even if not ewc desired ..
-    if extension in ['ewc', 'ewc_vit', 'ewc_ln', 'ewc_unet', 'froz_ewc', 'froz_ewc_final', 'ownm1', 'ownm2', 'ownm3', 'ownm4']:
+    if extension in ['ewc', 'ewc_vit', 'ewc_ln', 'ewc_unet', 'froz_ewc', 'froz_ewc_final']:
         # -- Extract ewc_lambda -- #
         ewc_lambda = args.ewc_lambda
         if isinstance(ewc_lambda, list):
@@ -409,7 +408,7 @@ def run_training(extension='multihead'):
 
     # -- Extract PLOP arguments -- #
     pod_lambda, pod_scales = None, None  # --> So the dictionary arguments can be build without an error even if not plop desired ..
-    if extension in ['plop', 'pod', 'ownm1', 'ownm2', 'ownm3', 'ownm4']:
+    if extension in ['plop', 'pod']:
         # -- Extract pos lambda for dist_loss -- #
         pod_lambda = args.pod_lambda
         if isinstance(pod_lambda, list):
@@ -426,7 +425,7 @@ def run_training(extension='multihead'):
 
     # -- Extract MiB arguments -- #
     mib_alpha, mib_lkd = None, None  # --> So the dictionary arguments can be build without an error even if not plop desired ..
-    if extension in ['mib', 'ownm1', 'ownm2', 'ownm3']:
+    if extension in ['mib']:
         # -- Extract mib lambda for dist_loss -- #
         mib_alpha = args.mib_alpha
         if isinstance(mib_alpha, list):
@@ -442,22 +441,6 @@ def run_training(extension='multihead'):
                   "changed from previous one..")
 
     # -- Extract own arguments -- #
-    pseudo_alpha = None  # --> So the dictionary arguments can be build without an error even if not plop desired ..
-    if extension in ['ownm4']:
-        # -- Extract pseudo lambda for dist_loss -- #
-        pseudo_alpha = args.pseudo_alpha
-        if isinstance(pseudo_alpha, list):
-            pseudo_alpha = pseudo_alpha[0]
-
-        # -- Notify the user that the mib_alpha and mib_lkd should not have been changed if -c is activated -- #
-        if continue_training:
-            print("Note: It will be continued with previous training, be sure that the provided pseudo_alpha has not "
-                  "changed from previous one..")
-
-    do_pod = True
-    if extension in ['ownm1', 'ownm2', 'ownm3', 'ownm4']:
-        do_pod = not args.no_pod
-
     adaptive = False
     if extension in ['froz_ewc']:
         assert use_vit, "The nnUNetTrainerFrozEWC can only be used with a ViT_U-Net.."
@@ -496,12 +479,12 @@ def run_training(extension='multihead'):
     # -- Create all argument dictionaries that are used for function calls to make it more generic -- #
     basic_args = {'unpack_data': decompress_data, 'deterministic': deterministic, 'fp16': run_mixed_precision}  
     basic_vit =  {'vit_type': vit_type, 'version': version, 'split_gpu': split_gpu, 'do_LSA': do_LSA, 'do_SPT': do_SPT,
-                  **basic_args}
+                  'FeatScale':FeatScale, 'AttnScale':AttnScale,**basic_args}
     basic_exts = {'save_interval': save_interval, 'identifier': init_identifier, 'extension': extension,
                   'tasks_list_with_char': copy.deepcopy(tasks_list_with_char), 'save_csv': save_csv, 'use_param_split': False,
                   'mixed_precision': run_mixed_precision, 'use_vit': use_vit, 'vit_type': vit_type, 'version': version,
                   'split_gpu': split_gpu, 'transfer_heads': transfer_heads, 'ViT_task_specific_ln': ViT_task_specific_ln,
-                  'do_LSA': do_LSA, 'do_SPT': do_SPT, **basic_args}
+                  'do_LSA': do_LSA, 'do_SPT': do_SPT, 'FeatScale':FeatScale, 'AttnScale':AttnScale, **basic_args}
     ewc_args = {'ewc_lambda': ewc_lambda, **basic_exts}
     mib_args = {'mib_lkd': mib_lkd, 'mib_alpha': mib_alpha, **basic_exts}
     lwf_args = {'lwf_temperature': lwf_temperature, **basic_exts}
@@ -509,10 +492,6 @@ def run_training(extension='multihead'):
     plop_args = {'pod_lambda': pod_lambda, 'pod_scales': pod_scales, **basic_exts}
     rw_args = {'rw_lambda': rw_lambda, 'rw_alpha': rw_alpha, 'fisher_update_after': update_fisher_every, **basic_exts}
     froz_ewc_args = {'adaptive':adaptive, **ewc_args}
-    ownm1_args = {'ewc_lambda': ewc_lambda, 'pod_lambda': pod_lambda, 'pod_scales': pod_scales, 'do_pod': do_pod, 'mib_lkd': mib_lkd, 'mib_alpha': mib_alpha, **basic_exts}
-    ownm3_args = {'do_LSA': do_LSA, 'do_SPT': do_SPT, **ownm1_args, **basic_exts}
-    ownm4_args = {'ewc_lambda': ewc_lambda, 'pod_lambda': pod_lambda, 'pod_scales': pod_scales, 'do_pod': do_pod, 'pseudo_alpha': pseudo_alpha, **basic_exts}
-    
     # -- Join the dictionaries into a dictionary with the corresponding class name -- #
     args_f = {'nnUNetTrainerRW': rw_args, 'nnUNetTrainerMultiHead': basic_exts,
               'nnUNetTrainerFrozenViT': basic_exts, 'nnUNetTrainerEWCViT': ewc_args,
@@ -521,9 +500,7 @@ def run_training(extension='multihead'):
               'nnUNetTrainerSequential': basic_exts, 'nnUNetTrainerRehearsal': reh_args,
               'nnUNetTrainerMiB': mib_args, 'nnUNetTrainerEWC': ewc_args, 'nnUNetTrainerLWF': lwf_args,
               'nnUNetTrainerPLOP': plop_args, 'nnUNetTrainerV2': basic_args, 'nnViTUNetTrainer': basic_vit,
-              'nnUNetTrainerPOD': plop_args, 'nnUNetTrainerFrozEWC': froz_ewc_args,# 'nnUNetTrainerFrozEWCFinal': ewc_args,
-              'nnUNetTrainerOwnM1': ownm1_args, 'nnUNetTrainerOwnM2': ownm1_args,
-              'nnUNetTrainerOwnM3': ownm3_args, 'nnUNetTrainerOwnM4': ownm4_args}
+              'nnUNetTrainerPOD': plop_args, 'nnUNetTrainerFrozEWC': froz_ewc_args}
 
     
     # ---------------------------------------------
@@ -563,6 +540,10 @@ def run_training(extension='multihead'):
                     folder_n += 'SPT'
                 if do_LSA:
                     folder_n += 'LSA' if len(folder_n) == 0 else '_LSA'
+                if FeatScale:
+                    folder_n += 'FeatScale' if len(folder_n) == 0 else '_FeatScale'
+                if AttnScale:
+                    folder_n += 'AttnScale' if len(folder_n) == 0 else '_AttnScale'
                 if len(folder_n) == 0:
                     folder_n = 'traditional'
                 # -- Build base_path -- #
@@ -856,13 +837,14 @@ def run_training(extension='multihead'):
                     else:
                         trainer.load_final_checkpoint(train=False)
 
-                # # -- Evaluate the trainers network -- #
-                # trainer.network.eval()
+                if do_val:
+                    # -- Evaluate the trainers network -- #
+                    trainer.network.eval()
 
-                # # -- Perform validation using the trainer -- #
-                # trainer.validate(save_softmax=args.npz, validation_folder_name=val_folder,
-                #                  run_postprocessing_on_folds=not disable_postprocessing_on_folds,
-                #                  overwrite=args.val_disable_overwrite)
+                    # -- Perform validation using the trainer -- #
+                    trainer.validate(save_softmax=args.npz, validation_folder_name=val_folder,
+                                    run_postprocessing_on_folds=not disable_postprocessing_on_folds,
+                                    overwrite=args.val_disable_overwrite)
 
             # -- If the models for each sequence should not be stored, delete the last model and only keep the current finished one -- #
             # -- NOTE: If the previous trainer was a nnU-Net, i.e. not an extension, then do not remove it -- #

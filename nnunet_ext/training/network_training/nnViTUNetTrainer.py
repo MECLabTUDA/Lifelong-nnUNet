@@ -5,11 +5,11 @@
 
 import os, torch
 import torch.nn as nn
+from nnunet_ext.utilities.helpful_functions import *
 from nnunet.utilities.nd_softmax import softmax_helper
 from nnunet.network_architecture.initialization import InitWeights_He
 from nnunet.training.network_training.nnUNetTrainerV2 import nnUNetTrainerV2
 from nnunet_ext.network_architecture.generic_ViT_UNet import Generic_ViT_UNet
-from nnunet_ext.utilities.helpful_functions import get_ViT_LSA_SPT_folder_name
 
 # -- Add this since default option file_descriptor has a limitation on the number of open files. -- #
 # -- Default config might cause the runtime error: RuntimeError: received 0 items of ancdata -- #
@@ -19,7 +19,7 @@ class nnViTUNetTrainer(nnUNetTrainerV2): # Inherit default trainer class for 2D,
     def __init__(self, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, use_progress=True, version=1,
                  vit_type='base', split_gpu=False, ViT_task_specific_ln=False, first_task_name=None, do_LSA=False,
-                 do_SPT=False):
+                 do_SPT=False, FeatScale=False, AttnScale=False):
         r"""Constructor of ViT_U-Net Trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
         """
         # -- Set ViT task specific flags -- #
@@ -34,6 +34,9 @@ class nnViTUNetTrainer(nnUNetTrainerV2): # Inherit default trainer class for 2D,
 
         # -- LSA and SPT flags -- #
         self.LSA, self.SPT = do_LSA, do_SPT
+
+        # -- FeatScale and AttnScale flags -- #
+        self.featscale, self.attnscale = FeatScale, AttnScale
 
         # -- Update the output_folder accordingly -- #
         if self.version not in output_folder:
@@ -52,7 +55,7 @@ class nnViTUNetTrainer(nnUNetTrainerV2): # Inherit default trainer class for 2D,
                 output_folder = os.path.join(output_folder, 'not_task_specific')
 
         # -- Add the LSA and SPT before the fold -- #
-        folder_n = get_ViT_LSA_SPT_folder_name(self.LSA, self.SPT)
+        folder_n = get_ViT_LSA_SPT_scale_folder_name(self.LSA, self.SPT, self.featscale, self.attnscale)
         # -- Add to the path -- #
         if folder_n != output_folder.split(os.path.sep)[-1] and folder_n not in output_folder:
             output_folder = os.path.join(output_folder, folder_n)
@@ -74,7 +77,7 @@ class nnViTUNetTrainer(nnUNetTrainerV2): # Inherit default trainer class for 2D,
         # -- Update self.init_tasks so the storing works properly -- #
         self.init_args = (plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
                           deterministic, fp16, save_interval, use_progress, version, self.vit_type, split_gpu,
-                          ViT_task_specific_ln, first_task_name, do_LSA, do_SPT)
+                          ViT_task_specific_ln, first_task_name, do_LSA, do_SPT, FeatScale, AttnScale)
 
     def process_plans(self, plans):
         r"""Modify the original function. This just reduces the batch_size by half.
@@ -115,14 +118,14 @@ class nnViTUNetTrainer(nnUNetTrainerV2): # Inherit default trainer class for 2D,
         #------------------------------------------ Copied from original implementation ------------------------------------------#
         
         self.network = Generic_ViT_UNet(self.num_input_channels, self.base_num_features, self.num_classes, 
-                                    len(self.net_num_pool_op_kernel_sizes), self.patch_size.tolist(),
-                                    self.conv_per_stage, 2, conv_op, norm_op, norm_op_kwargs, dropout_op,
-                                    dropout_op_kwargs,
-                                    net_nonlin, net_nonlin_kwargs, True, False, lambda x: x, InitWeights_He(1e-2),
-                                    self.net_num_pool_op_kernel_sizes, self.net_conv_kernel_sizes, False, True, True,
-                                    vit_version=self.version, vit_type=self.vit_type, split_gpu=self.split_gpu,
-                                    ViT_task_specific_ln=self.ViT_task_specific_ln, first_task_name=self.first_task_name,
-                                    do_LSA=self.LSA, do_SPT=self.SPT)
+                                        len(self.net_num_pool_op_kernel_sizes), self.patch_size.tolist(),
+                                        self.conv_per_stage, 2, conv_op, norm_op, norm_op_kwargs, dropout_op,
+                                        dropout_op_kwargs,
+                                        net_nonlin, net_nonlin_kwargs, True, False, lambda x: x, InitWeights_He(1e-2),
+                                        self.net_num_pool_op_kernel_sizes, self.net_conv_kernel_sizes, False, True, True,
+                                        vit_version=self.version, vit_type=self.vit_type, split_gpu=self.split_gpu,
+                                        ViT_task_specific_ln=self.ViT_task_specific_ln, first_task_name=self.first_task_name,
+                                        do_LSA=self.LSA, do_SPT=self.SPT, FeatScale=self.featscale, AttnScale=self.attnscale)
         
         # -- Set the task to use --> user can not register new task here since this is a simple one time Trainer, not a Sequential one or so -- #
         if self.ViT_task_specific_ln:

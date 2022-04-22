@@ -282,10 +282,10 @@ def commDiv(a, b):
     result = []
     for i in range(1, n+1):
         if n % i == 0:
-            result.append(i)         
+            result.append(i)
     return result
 
-def get_ViT_LSA_SPT_folder_name(do_LSA, do_SPT):
+def get_ViT_LSA_SPT_scale_folder_name(do_LSA, do_SPT, FeatScale, AttnScale):
     r"""Use this function when the ViT_U-Net is used and the output folder needs to be build.
     """
     # -- Specify the folder name based on do_LSA and do_SPT -- #
@@ -294,6 +294,10 @@ def get_ViT_LSA_SPT_folder_name(do_LSA, do_SPT):
         folder_n += 'SPT'
     if do_LSA:
         folder_n += 'LSA' if len(folder_n) == 0 else '_LSA'
+    if FeatScale:
+        folder_n += 'FeatScale' if len(folder_n) == 0 else '_FeatScale'
+    if AttnScale:
+        folder_n += 'AttnScale' if len(folder_n) == 0 else '_AttnScale'
     if len(folder_n) == 0:
         folder_n = 'traditional'
     # -- Return the folder name -- #

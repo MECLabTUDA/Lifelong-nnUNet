@@ -4,7 +4,7 @@
 #########################################################################################################
 
 import os, torch
-from nnunet_ext.utilities.helpful_functions import get_ViT_LSA_SPT_folder_name
+from nnunet_ext.utilities.helpful_functions import *
 from nnunet_ext.training.network_training.nnViTUNetTrainer import nnViTUNetTrainer
 from nnunet.training.network_training.nnUNetTrainerV2_CascadeFullRes import nnUNetTrainerV2CascadeFullRes
 
@@ -16,7 +16,8 @@ class nnViTUNetTrainerCascadeFullRes(nnUNetTrainerV2CascadeFullRes): # Inherit d
     def __init__(self, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
                  unpack_data=True, deterministic=True, previous_trainer="nnViTUNetTrainer",
                  fp16=False, save_interval=5, use_progress=True, version=1, vit_type='base', split_gpu=False,
-                 ViT_task_specific_ln=False, first_task_name=None, do_LSA=False, do_SPT=False):
+                 ViT_task_specific_ln=False, first_task_name=None, do_LSA=False, do_SPT=False,
+                 FeatScale=False, AttnScale=False):
         r"""Constructor of ViT_U-Net Trainer for full resolution cascaded nnU-Nets.
         """
         # -- Set ViT task specific flags -- #
@@ -49,7 +50,7 @@ class nnViTUNetTrainerCascadeFullRes(nnUNetTrainerV2CascadeFullRes): # Inherit d
                 output_folder = os.path.join(output_folder, 'not_task_specific')
 
         # -- Add the LSA and SPT before the fold -- #
-        folder_n = get_ViT_LSA_SPT_folder_name(self.LSA, self.SPT)
+        folder_n = get_ViT_LSA_SPT_scale_folder_name(self.LSA, self.SPT, self.featscale, self.attnscale)
         # -- Add to the path -- #
         if folder_n != output_folder.split(os.path.sep)[-1] and folder_n not in output_folder:
             output_folder = os.path.join(output_folder, folder_n)
@@ -72,7 +73,8 @@ class nnViTUNetTrainerCascadeFullRes(nnUNetTrainerV2CascadeFullRes): # Inherit d
         # -- Update self.init_tasks so the storing works properly -- #
         self.init_args = (plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
                           deterministic, previous_trainer, fp16, save_interval, use_progress, version,
-                          self.vit_type, split_gpu, ViT_task_specific_ln, first_task_name, do_LSA, do_SPT)
+                          self.vit_type, split_gpu, ViT_task_specific_ln, first_task_name, do_LSA, do_SPT,
+                          FeatScale, AttnScale)
 
     def process_plans(self, plans):
         r"""Modify the original function. This just reduces the batch_size by half.

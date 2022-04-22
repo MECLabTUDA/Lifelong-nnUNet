@@ -90,13 +90,14 @@ def run_evaluation():
                         help='If this is set, during the evaluation, always the last head will be used, '+
                              'for every dataset the evaluation is performed on. When an extension network was trained with '+
                              'the -transfer_heads flag then this should be set, i.e. nnUNetTrainerSequential or nnUNetTrainerFrozendViT.')
-    parser.add_argument('--no_pod', action='store_true', default=False,
-                        help='This will only be considered if our own trainers are used. If set, this flag indicates that the POD '+
-                             'embedding has not been used.')
     parser.add_argument('--do_LSA', action='store_true', default=False,
                         help='Set this flag if Locality Self-Attention should be used for the ViT.')
     parser.add_argument('--do_SPT', action='store_true', default=False,
                         help='Set this flag if Shifted Patch Tokenization should be used for the ViT.')
+    parser.add_argument('--FeatScale', action='store_true', default=False,
+                        help='Set this flag if Feature Scale should be used for the ViT.')
+    parser.add_argument('--AttnScale', action='store_true', default=False,
+                        help='Set this flag if Attention Scale should be used for the ViT.')
     parser.add_argument('--adaptive', required=False, default=False, action="store_true",
                         help='Set this flag if the EWC loss has been changed during the frozen training process (ewc_lambda*e^{-1/3}). '
                              ' Default: The EWC loss will not be altered. --> Makes only sense with our nnUNetTrainerFrozEWC trainer.')
@@ -128,7 +129,6 @@ def run_evaluation():
     cuda = args.device
     mixed_precision = not args.fp32_used
     transfer_heads = not args.no_transfer_heads
-    do_pod = not args.no_pod
     adaptive = args.adaptive
 
     # -- Extract ViT specific flags to as well -- #
@@ -144,6 +144,10 @@ def run_evaluation():
     # -- LSA and SPT flags -- #
     do_LSA = args.do_LSA
     do_SPT = args.do_SPT
+
+    # -- Scaling flags -- #
+    FeatScale = args.FeatScale
+    AttnScale = args.AttnScale
     
     # -- Assert if device value is ot of predefined range and create string to set cuda devices -- #
     for idx, c in enumerate(cuda):
@@ -216,8 +220,8 @@ def run_evaluation():
     # ---------------------------------------------
     evaluator = Evaluator(network, network_trainer, (tasks_for_folder, char_to_join_tasks), (use_model_w_tasks, char_to_join_tasks), 
                           version, vit_type, plans_identifier, mixed_precision, EXT_MAP[network_trainer], save_csv, transfer_heads,
-                          use_vit, False, ViT_task_specific_ln, do_LSA, do_SPT)
-    evaluator.evaluate_on(fold, evaluate_on_tasks, use_head, always_use_last_head, do_pod=do_pod, adaptive=adaptive, use_all_data=use_all_data)
+                          use_vit, False, ViT_task_specific_ln, do_LSA, do_SPT, FeatScale, AttnScale)
+    evaluator.evaluate_on(fold, evaluate_on_tasks, use_head, always_use_last_head, adaptive=adaptive, use_all_data=use_all_data)
 
 # -- Main function for setup execution -- #
 def main():

@@ -78,7 +78,7 @@ class PatchEmbed(PatchEmbed2D):
 
         return x
 
-class Attention(AttentionTimm):
+class VanillaAttention(AttentionTimm):
     def __init__(self, dim, num_heads=8, qkv_bias=False, attn_drop=0., proj_drop=0., is_LSA=False, num_patches=16):
         # -- Do not modify the attention module if not LSA -- #
         qkv_bias = False if is_LSA else qkv_bias    # --> Overwrite this; in LSA bias is false, see https://github.com/aanna0701/SPT_LSA_ViT/blob/main/models/vit.py#L61
@@ -94,7 +94,6 @@ class Attention(AttentionTimm):
             project_out = not (num_heads == 1 and head_dim == dim)
             self.num_patches = num_patches
             self.heads = num_heads
-            # self.scale = head_dim ** -0.5
             self.dim = dim
             self.inner_dim = inner_dim
             self.attend = nn.Softmax(dim = -1)
@@ -150,12 +149,72 @@ class Attention(AttentionTimm):
             x = self.proj_drop(x)
         return x, weights
 
-class Block(nn.Module):
+class ScaleAttention(VanillaAttention):
+    def __init__(self, dim, num_heads=8, qkv_bias=False, attn_drop=0., proj_drop=0., is_LSA=False, num_patches=16):
+        # -- Initialize same as any Attention -- #
+        super().__init__(dim, num_heads, qkv_bias, attn_drop, proj_drop, is_LSA, num_patches)
+
+        # -- Just add the lamb parameter -- #
+        self.lamb = nn.Parameter(torch.zeros(num_heads), requires_grad=True)
+
+    def forward(self, x):
+        if self.LSA:    # <-- Test this, i.e. set LSA and AttnScale!!!
+            B, N, C = x.shape
+            # -- Perform forward function from Attention with LSA --> copied and modified from https://github.com/aanna0701/SPT_LSA_ViT/blob/main/models/vit.py#L75 -- #
+            b, _, _, h = *x.shape, self.heads
+            qkv = self.qkv(x).chunk(3, dim = -1)
+            q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h = h), qkv)
+
+            scale = self.scale
+            dots = torch.mul(einsum('b h i d, b h j d -> b h i j', q, k), scale.unsqueeze(0).unsqueeze(-1).unsqueeze(-1).expand((b, h, 1, 1)))
+            dots[:, :, self.mask[:, 0], self.mask[:, 1]] = -987654321
+
+            attn = self.attend(dots)
+            weights = attn
+
+            # -- Relevant part for AttentionScale method -- #
+            attn_d = torch.ones(attn.shape[-2:], device=attn.device) / N    # [l, l]
+            attn_d = attn_d[None, None, ...]                                # [B, N, l, l]
+            attn_h = attn - attn_d                                          # [B, N, l, l]
+            attn_h = attn_h * (1. + self.lamb[None, :, None, None])         # [B, N, l, l]
+            attn = attn_d + attn_h                                          # [B, N, l, l]
+            attn = self.attn_drop(attn)
+
+            out = einsum('b h i j, b h j d -> b h i d', attn, v)     
+            out = rearrange(out, 'b h n d -> b n (h d)')
+            x = self.to_out(out)
+        else:
+            # -- Vanilla Attention with AttentionScale method -- #
+            B, N, C = x.shape
+            qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+            q, k, v = qkv[0], qkv[1], qkv[2]   # make torchscript happy (cannot use tensor as tuple)
+
+            attn = (q @ k.transpose(-2, -1)) * self.scale
+            attn = attn.softmax(dim=-1)
+            weights = attn
+            attn = self.attn_drop(attn)
+
+            # -- Relevant part for AttentionScale method -- #
+            attn_d = torch.ones(attn.shape[-2:], device=attn.device) / N    # [l, l]
+            attn_d = attn_d[None, None, ...]                                # [B, N, l, l]
+            attn_h = attn - attn_d                                          # [B, N, l, l]
+            attn_h = attn_h * (1. + self.lamb[None, :, None, None])         # [B, N, l, l]
+            attn = attn_d + attn_h                                          # [B, N, l, l]
+            attn = self.attn_drop(attn)
+
+            x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+            x = self.proj(x)
+            x = self.proj_drop(x)
+        
+        # -- Return x and the attention weights -- #
+        return x, weights
+
+class VanillaBlock(nn.Module):
     r"""Modify the blocks so we can have task specific LNs.
     """
     def __init__(self, dim, num_heads, mlp_ratio=4., qkv_bias=False, drop=0., attn_drop=0.,
                  drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm, task_specific_ln=False, task_name=None,
-                 is_LSA=False, num_patches=16):
+                 is_LSA=False, num_patches=16, attnscale=False):
         # -- Initialize -- #
         super().__init__()
         
@@ -169,8 +228,12 @@ class Block(nn.Module):
         else:
             self.norm1 = norm_layer(dim)
         
-        self.attn = Attention(dim, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=drop,\
-                              is_LSA=is_LSA, num_patches=num_patches)
+        if attnscale:
+            self.attn = ScaleAttention(dim, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=drop,\
+                                       is_LSA=is_LSA, num_patches=num_patches)
+        else:
+            self.attn = VanillaAttention(dim, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=drop,\
+                                         is_LSA=is_LSA, num_patches=num_patches)
         # NOTE: drop path for stochastic depth, we shall see if this is better than dropout here
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
         
@@ -197,15 +260,64 @@ class Block(nn.Module):
             x = x + self.drop_path(self.mlp(self.norm2(x)))
         return x, weights
 
+class FeatureBlock(VanillaBlock):
+    r"""Modify the traditional blocks according to Feature Scale method from https://arxiv.org/pdf/2203.05962.pdf.
+    """
+    def __init__(self, dim, num_heads, mlp_ratio=4., qkv_bias=False, drop=0., attn_drop=0.,
+                 drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm, task_specific_ln=False, task_name=None,
+                 is_LSA=False, num_patches=16, attnscale=False):
+        # -- Initialize using traditional Blocks-- #
+        super().__init__(dim, num_heads, mlp_ratio, qkv_bias, drop, attn_drop, drop_path, act_layer, norm_layer,
+                         task_specific_ln, task_name, is_LSA, num_patches, attnscale)
+        
+        # -- Feature Scale difference to main Blocks -- #
+        self.lamb1 = nn.Parameter(torch.zeros(dim), requires_grad=True)
+        self.lamb2 = nn.Parameter(torch.zeros(dim), requires_grad=True)
+
+    def freq_decompose(self, x):
+        r"""New function for feature Scale method."""
+        x_d = torch.mean(x, -2, keepdim=True) # [bs, 1, dim]
+        x_h = x - x_d # high freq [bs, len, dim]
+        return x_d, x_h
+
+    def forward(self, x):
+        r"""If task_specific_ln is used, don't forget to call ViT.use_task(..) to select the correct LNs for the blocks.
+            Updated forward function according to Feature Scale method.
+        """
+        # -- Pass through attention module -- #
+        if self.task_specific_ln:
+            assert self.use_task_name is not None and isinstance(self.use_task_name, str), "When using task specific LNs, than please set a task_name for the forward call using ViT.use_task(..).."
+            x_, weights = self.attn(self.norm1[self.use_task_name].to(x.device.index)(x))
+        else:
+            x_, weights = self.attn(self.norm1(x))
+
+        # -- Add corresponding parts for feature scale -- #
+        x_d, x_h = self.freq_decompose(x_)
+        x_d = x_d * self.lamb1
+        x_h = x_h * self.lamb2
+        x_ = x_ + x_d + x_h
+        x = x + self.drop_path(x_ + x_d + x_h)
+
+        # -- Send through MLP head -- #
+        if self.task_specific_ln:
+            x = x + self.drop_path(self.mlp(self.norm2[self.use_task_name].to(x.device.index)(x)))
+        else:
+            x = x + self.drop_path(self.mlp(self.norm2(x)))
+             
+        # -- Return result with attention weights -- #
+        return x, weights
+
 class Encoder(nn.Module):
     r"""This class' sole purpose is to keep track of the attention weights.
     """
-    def __init__(self, depth, dpr, **configs):
+    def __init__(self, depth, dpr, featscale=False, **configs):
         super(Encoder, self).__init__()
         self.layer = nn.ModuleList()
         for i in range(depth):
-            # self.layer.append(Block(drop_path=dpr[i], **configs))
-            layer = Block(drop_path=dpr[i], **configs)
+            if featscale:
+                layer = FeatureBlock(drop_path=dpr[i], **configs)
+            else:
+                layer = VanillaBlock(drop_path=dpr[i], **configs)
             self.layer.append(copy.deepcopy(layer))
 
     def forward(self, hidden_states):
@@ -222,7 +334,7 @@ class VisionTransformer(VisionTransformer2D):
     def __init__(self, ViT_2d: bool, img_size=224, patch_size=16, img_depth=None, in_chans=3, num_classes=1000, embed_dim=768, depth=12,
                  num_heads=12, mlp_ratio=4., qkv_bias=True, representation_size=None, distilled=False,
                  drop_rate=0., attn_drop_rate=0., drop_path_rate=0., embed_layer=PatchEmbed, norm_layer=partial(nn.LayerNorm, eps=1e-6),
-                 act_layer=nn.GELU, weight_init='', task_specific_ln=False, task_name=None, is_LSA=False, is_SPT=False):
+                 act_layer=nn.GELU, weight_init='', task_specific_ln=False, task_name=None, is_LSA=False, is_SPT=False, FeatScale=False, AttnScale=False):
         r"""This function represents the constructor of ViT. The user has to specify if a 2D ViT (from timm module)
             should be provided or a 3D one. If so, all parameters and arguments need to have the correct dimensions,
             otherwise the initialization might fail (best case scenario) or the results/training process is not as
@@ -232,6 +344,8 @@ class VisionTransformer(VisionTransformer2D):
             During the forward, the desired task needs to be mentioned as well.
             We also provide the Shifted Patch Tokenization (SPT) and Locality Self-Attention (LSA) modification presented in
             https://arxiv.org/pdf/2112.13492v1.pdf from https://github.com/aanna0701/SPT_LSA_ViT.
+            We also provide the Feature Scale and Attention Scale modification presented in https://arxiv.org/pdf/2203.05962.pdf
+            and https://github.com/VITA-Group/ViT-Anti-Oversmoothing.
         """
         # -- We do not accept task_specific in combination with LSA or SPT or both -- #
         if task_specific_ln:
@@ -241,6 +355,10 @@ class VisionTransformer(VisionTransformer2D):
         # -- LSA and SPT flags -- #
         self.LSA = is_LSA
         self.SPT = is_SPT
+
+        # -- Feature Scale and Attention Scale flags -- #
+        self.featscale = FeatScale
+        self.attnscale = AttnScale
 
         # -- Attribute that stores attention weights -- #
         self.attn_weights = None
@@ -283,22 +401,13 @@ class VisionTransformer(VisionTransformer2D):
             self.patch_embed = ShiftedPatchTokenization(init_size, init_patch, init_channel, self.embed_dim, init_patch[0],\
                                                         is_pe=True, img_depth=None if ViT_2d else img_depth[0])
 
-        # -- If LSA is desired, create all new blocks with the LSA Attention method -- #
-        # if self.LSA:
-        # -- Recreate the blocks if the user wants LSA method -- #
+        # -- Recreate the blocks -- #
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
         num_patches = self.patch_embed.num_patches
         self.blocks = Encoder(depth, dim=embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, drop=drop_rate,
                               attn_drop=attn_drop_rate, dpr=dpr, norm_layer=self.norm_layer, act_layer=self.act_layer,\
-                              is_LSA=self.LSA, num_patches=num_patches)
-            # self.blocks = nn.Sequential(*[
-            #     Block(
-            #         dim=embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, drop=drop_rate,
-            #         attn_drop=attn_drop_rate, drop_path=dpr[i], norm_layer=self.norm_layer, act_layer=self.act_layer,\
-            #         is_LSA=True, num_patches=num_patches)
-            #     for i in range(depth)])
+                              is_LSA=self.LSA, num_patches=num_patches, featscale=self.featscale, attnscale=self.attnscale)
         
-
         # -- Remove and create a new self.norm if user wants task_specific_ln -- #
         if self.task_specific_ln:    # --> If not task specific, we don't have anything to do
             # -- Create a new ModuleDict -- #
@@ -310,13 +419,8 @@ class VisionTransformer(VisionTransformer2D):
             dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
             self.blocks = Encoder(depth, dim=embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, drop=drop_rate,
                                   attn_drop=attn_drop_rate, dpr=dpr, norm_layer=self.norm_layer, act_layer=self.act_layer,
-                                  task_specific_ln=self.task_specific_ln, task_name=task_name, is_LSA=self.LSA)
-            # self.blocks = nn.Sequential(*[
-            #     Block(
-            #         dim=embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, drop=drop_rate,
-            #         attn_drop=attn_drop_rate, drop_path=dpr[i], norm_layer=self.norm_layer, act_layer=self.act_layer,
-            #         task_specific_ln=self.task_specific_ln, task_name=task_name)
-            #     for i in range(depth)])
+                                  task_specific_ln=self.task_specific_ln, task_name=task_name, is_LSA=self.LSA, featscale=self.featscale,
+                                  attnscale=self.attnscale)
             
             init_size = init_size[1:] if len(init_size) == 3 else init_size
             self.patch_embed = embed_layer(img_size=init_size, patch_size=init_patch, in_chans=init_channel, embed_dim=embed_dim, norm_layer=norm_layer,\

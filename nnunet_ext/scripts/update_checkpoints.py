@@ -54,13 +54,17 @@ def modify_checkpoints():
                         help='Set this flag if Locality Self-Attention should be used for the ViT.')
     parser.add_argument('--do_SPT', action='store_true', default=False,
                         help='Set this flag if Shifted Patch Tokenization should be used for the ViT.')
+    parser.add_argument('--FeatScale', action='store_true', default=False,
+                        help='Set this flag if Feature Scale should be used for the ViT.')
+    parser.add_argument('--AttnScale', action='store_true', default=False,
+                        help='Set this flag if Attention Scale should be used for the ViT.')
     parser.add_argument('--no_transfer_heads', required=False, default=False, action="store_true",
                         help='Set this flag if a new head should not be initialized using the last head'
                             ' during training, ie. the very first head from the initialization of the class is used.'
                             ' Default: The previously trained head is used as initialization of the new head.')
-    parser.add_argument('--no_pod', required=False, default=False, action="store_true",
-                        help='Set this flag if the POD embedding has been included in the loss calculation (only for our own methods).'
-                            ' Default: POD embedding has been included.')
+    parser.add_argument('--adaptive', required=False, default=False, action="store_true",
+                        help='Set this flag if the EWC loss has been changed during the frozen training process (ewc_lambda*e^{-1/3}). '
+                             ' Default: The EWC loss will not be altered. --> Makes only sense with our nnUNetTrainerFrozEWC trainer.')
     parser.add_argument('-r', action='store_true', default=False,
                         help='Use this if all subfolders should be scanned for checkpoints. If this is set, '+
                              'all other flags for specifying one simple model will not be considered then.')
@@ -83,6 +87,7 @@ def modify_checkpoints():
 
     # -- ViT related arguments -- #
     use_vit = args.use_vit
+    adaptive = args.adaptive
     vit_type = args.vit_type
     if isinstance(vit_type, list):    # When the vit_type gets returned as a list, extract the type to avoid later appearing errors
         vit_type = vit_type[0].lower()
@@ -96,9 +101,12 @@ def modify_checkpoints():
     transfer_heads = not args.no_transfer_heads
 
     # -- LSA and SPT flags -- #
-    do_pod = not args.no_pod
     do_LSA = args.do_LSA
     do_SPT = args.do_SPT
+
+    # -- Scaling flags -- #
+    FeatScale = args.FeatScale
+    AttnScale = args.AttnScale
     
     # -- If the tasks are None, then set them as an empty list so the loop will not fail -- #
     assert tasks is not None, "Please set the -trained_on flag.."
@@ -177,6 +185,10 @@ def modify_checkpoints():
                         folder_n += 'SPT'
                     if do_LSA:
                         folder_n += 'LSA' if len(folder_n) == 0 else '_LSA'
+                    if FeatScale:
+                        folder_n += 'FeatScale' if len(folder_n) == 0 else '_FeatScale'
+                    if AttnScale:
+                        folder_n += 'AttnScale' if len(folder_n) == 0 else '_AttnScale'
                     if len(folder_n) == 0:
                         folder_n = 'traditional'
                     # -- Build folder -- #
@@ -189,8 +201,8 @@ def modify_checkpoints():
                 folder = join(folder, 'fold_'+str(f))
 
                 # -- Re-Modify trainer path for own methods if necessary -- #
-                if 'OwnM' in trainer:
-                    folder = join(os.path.sep, *folder.split(os.path.sep)[:-1], 'pod' if do_pod else 'no_pod', 'fold_'+str(f))
+                if 'FrozEWC' in trainer:
+                    folder = join(os.path.sep, *folder.split(os.path.sep)[:-1], 'adaptive' if adaptive else 'no_adaptive', 'fold_'+str(f))
             else:   # --> nnUNet
                 folder = join(model_base_folder, trainer+'__'+plans_identifier)
 

@@ -28,7 +28,8 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
     """
     def __init__(self, network, network_trainer, tasks_list_with_char, model_list_with_char, version=1, vit_type='base',
                  plans_identifier=default_plans_identifier, mixed_precision=True, extension='multihead', save_csv=True,
-                 transfer_heads=False, use_vit=False, use_param_split=False, ViT_task_specific_ln=False, do_LSA=False, do_SPT=False):
+                 transfer_heads=False, use_vit=False, use_param_split=False, ViT_task_specific_ln=False, do_LSA=False, do_SPT=False,
+                 FeatScale=False, AttnScale=False):
         r"""Constructor for evaluator.
         """
         # -- Set all the relevant attributes -- #
@@ -53,28 +54,30 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
         # -- Create the variable indicating which ViT Architecture to use, base, large or huge and if to use it -- #
         self.LSA = do_LSA
         self.SPT = do_SPT
+        self.featscale= FeatScale
+        self.attnscale = AttnScale
         self.use_vit = use_vit
         self.vit_type = vit_type.lower()
         self.ViT_task_specific_ln = ViT_task_specific_ln
 
     def reinitialize(self, network, network_trainer, tasks_list_with_char, model_list_with_char, version=1, vit_type='base',
                      plans_identifier=default_plans_identifier, mixed_precision=True, extension='multihead', save_csv=True,
-                     transfer_heads=False, use_vit=False, use_param_split=False, ViT_task_specific_ln=False, do_LSA=False, do_SPT=False):
+                     transfer_heads=False, use_vit=False, use_param_split=False, ViT_task_specific_ln=False, do_LSA=False, do_SPT=False,
+                     FeatScale=False, AttnScale=False):
         r"""This function changes the network and trainer so no new Evaluator needs to be created.
         """
         # -- Just perform initialization again -- #
         self.__init__(network, network_trainer, tasks_list_with_char, model_list_with_char, version, vit_type, plans_identifier,
                       mixed_precision, extension, save_csv, transfer_heads, use_vit, use_param_split, ViT_task_specific_ln,
-                      do_LSA, do_SPT)
+                      do_LSA, do_SPT, FeatScale, AttnScale)
 
-    def evaluate_on(self, folds, tasks, use_head=None, always_use_last_head=False, do_pod=True, adaptive=False,
+    def evaluate_on(self, folds, tasks, use_head=None, always_use_last_head=False, adaptive=False,
                     trainer_path=None, output_path=None, use_all_data=False):
         r"""This function performs the actual evaluation given the transmitted tasks.
             :param folds: List of integer values specifying the folds on which the evaluation should be performed.
             :param tasks: List with tasks following the Task_XXX structure/name for direct loading.
             :param use_head: A task specifying which head to use --> if it is set to None, the last trained head will be used if necessary.
             :param always_use_last_head: Specifies if only the last head is used for the evaluation.
-            :param do_pod: Specifies the POD embedding is used or not --> Only works for our own methods.
             :param adaptive: Specifies if the adaptive FrozEWC is used or not --> Only works for our nnUNetTrainerFrozEWC trainer.
             :param eval_mode_for_lns: Specifies how the evaluation is performed when using task specific LNs wrt to the LNs (last_lns or corr_lns).
             :param trainer_path: Specifies part to the trainer network including the fold_X being the last folder of the path (only used for parameter search method).
@@ -89,7 +92,7 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
             # -- Build the paths if they are not provided --> Only provide the paths if you know what you're doing .. -- #
             if trainer_path is None or output_path is None:
                 # -- Extract the folder name in case we have a ViT -- #
-                folder_n = get_ViT_LSA_SPT_folder_name(self.LSA, self.SPT)
+                folder_n = get_ViT_LSA_SPT_scale_folder_name(self.LSA, self.SPT, self.featscale, self.attnscale)
 
                 # -- Build the trainer_path first -- #
                 if 'nnUNetTrainerV2' in self.network_trainer:   # always_last_head makes no sense here, there is only one head
@@ -120,9 +123,6 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
                                             'last_head' if always_use_last_head else 'corresponding_head')
 
                 # -- Re-Modify trainer path for own methods if necessary -- #
-                if 'OwnM' in self.network_trainer:
-                    trainer_path = join(os.path.sep, *trainer_path.split(os.path.sep)[:-1], 'pod' if do_pod else 'no_pod', 'fold_'+str(t_fold))
-                    output_path = join(os.path.sep, *output_path.split(os.path.sep)[:-1], 'pod' if do_pod else 'no_pod', 'last_head' if always_use_last_head else 'corresponding_head')
                 if 'FrozEWC' in self.network_trainer:
                     trainer_path = join(os.path.sep, *trainer_path.split(os.path.sep)[:-1], 'adaptive' if adaptive else 'no_adaptive', 'fold_'+str(t_fold))
                     output_path = join(os.path.sep, *output_path.split(os.path.sep)[:-1], 'adaptive' if adaptive else 'no_adaptive', 'last_head' if always_use_last_head else 'corresponding_head')

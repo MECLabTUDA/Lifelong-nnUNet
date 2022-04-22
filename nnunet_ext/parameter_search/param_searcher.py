@@ -18,7 +18,7 @@ class ParamSearcher():
     """
     def __init__(self, network, network_trainer, tasks_list_with_char, version=1, vit_type='base', fold=0,
                  plans_identifier=default_plans_identifier, mixed_precision=True, extension='multihead', val_folder='validation_raw',
-                 split_at=None, transfer_heads=False, use_vit=False, ViT_task_specific_ln=False, do_LSA=False, do_SPT=False, do_pod=False,
+                 split_at=None, transfer_heads=False, use_vit=False, ViT_task_specific_ln=False, do_LSA=False, do_SPT=False, FeatScale=False, AttnScale=False,
                  search_mode='grid', grid_picks=None, rand_range=None, rand_pick=None, rand_seed=None, always_use_last_head=True, npz=False,
                  perform_validation=False, continue_training=False, unpack_data=True, deterministic=False, save_interval=5, num_epochs=100,
                  fp16=True, find_lr=False, valbest=False, disable_postprocessing_on_folds=False, split_gpu=False, fixate_params=None,
@@ -42,7 +42,6 @@ class ParamSearcher():
         # -- Set all parameter search relevant attributes -- #
         self.summary = None
         self.main_sum = None
-        self.do_pod = do_pod
         self.adaptive = adaptive
         self.rand_pick = rand_pick
         self.rand_seed = rand_seed
@@ -58,7 +57,7 @@ class ParamSearcher():
                          'version': version, 'vit_type': vit_type, 'fold': fold, 'plans_identifier': plans_identifier,
                          'mixed_precision': mixed_precision, 'extension': extension, 'save_interval': save_interval, 'val_folder': val_folder,
                          'split_at': split_at, 'transfer_heads': transfer_heads, 'use_vit': use_vit, 'ViT_task_specific_ln': ViT_task_specific_ln,
-                         'do_LSA': do_LSA, 'do_SPT': do_SPT, 'do_pod': do_pod, 'always_use_last_head': always_use_last_head, 'npz': npz, 'use_param_split': True,
+                         'do_LSA': do_LSA, 'do_SPT': do_SPT, 'FeatScale':FeatScale, 'AttnScale':AttnScale, 'always_use_last_head': always_use_last_head, 'npz': npz, 'use_param_split': True,
                          'output_exp': '', 'output_eval': '', 'perform_validation': perform_validation, 'show_progress_tr_bar': False, 'adaptive': adaptive,
                          'unpack_data': unpack_data, 'deterministic': deterministic, 'save_interval': save_interval, 'param_call': True, 'use_all_data': False,
                          'num_epochs': num_epochs, 'fp16': fp16, 'find_lr': find_lr, 'valbest': valbest, 'disable_postprocessing_on_folds': disable_postprocessing_on_folds,
@@ -77,8 +76,6 @@ class ParamSearcher():
         self.output_base = nnUNetTrainerMultiHead._build_output_path(self, self.output_base, False)
         
         # -- Within this base folder, we have a folder for the experiments and one for the evaluation results -- #
-        if 'OwnM' in self.network_trainer:
-            self.output_base = os.path.join(self.output_base, 'pod' if self.do_pod else 'no_pod')
         if 'FrozEWC' in self.network_trainer:
             self.output_base = os.path.join(self.output_base, 'adaptive' if self.adaptive else 'no_enhance')
         self.output_exp = os.path.join(self.output_base, 'experiments')

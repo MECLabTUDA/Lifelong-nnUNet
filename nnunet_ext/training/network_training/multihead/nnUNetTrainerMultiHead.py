@@ -41,7 +41,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
                  identifier=default_plans_identifier, extension='multihead', tasks_list_with_char=None, mixed_precision=True,
                  save_csv=True, del_log=False, use_vit=False, vit_type='base', version=1, split_gpu=False, transfer_heads=False,
-                 ViT_task_specific_ln=False, do_LSA=False, do_SPT=False, network=None, use_param_split=False):
+                 ViT_task_specific_ln=False, do_LSA=False, do_SPT=False, FeatScale=False, AttnScale=False, network=None, use_param_split=False):
         r"""Constructor of Multi Head Trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
             The transfer_heads flag is used when adding a new head, if True, the state_dict from the last head will be used
             instead of the one from the initialization. This is the basic transfer learning (difference between MH and SEQ folder structure).
@@ -66,6 +66,8 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         self.transfer_heads = transfer_heads
         # -- LSA and SPT flags -- #
         self.LSA, self.SPT = do_LSA, do_SPT
+        # -- FeatScale and AttnScale flags -- #
+        self.featscale, self.attnscale = FeatScale, AttnScale
         # -- Update the output_folder path accordingly -- #
         output_folder = self._build_output_path(output_folder, False)
         
@@ -188,7 +190,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         self.init_args = (split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
                           deterministic, fp16, save_interval, self.already_trained_on, use_progress, identifier, extension,
                           tasks_list_with_char, mixed_precision, save_csv, del_log, use_vit, self.vit_type, version, split_gpu,
-                          transfer_heads, ViT_task_specific_ln, do_LSA, do_SPT)
+                          transfer_heads, ViT_task_specific_ln, do_LSA, do_SPT, FeatScale, AttnScale)
 
     def do_split(self):
         r"""Modify the original function. This enables the loading of the split
@@ -351,7 +353,8 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                                                    num_classes=self.num_classes, num_pool=len(self.net_num_pool_op_kernel_sizes),\
                                                    patch_size=patch_size.tolist(), vit_version=self.version, vit_type=self.vit_type,\
                                                    split_gpu=self.split_gpu, ViT_task_specific_ln=self.ViT_task_specific_ln,\
-                                                   first_task_name=self.tasks_list_with_char[0][0], do_LSA=self.LSA, do_SPT=self.SPT)
+                                                   first_task_name=self.tasks_list_with_char[0][0], do_LSA=self.LSA, do_SPT=self.SPT,\
+                                                   FeatScale=self.featscale, AttnScale=self.attnscale)
             else:
                 # -- Initialize from beginning and start training, since no model is provided -- #
                 super().initialize_network() # --> This updates the corresponding variables automatically since we inherit this class
@@ -426,7 +429,8 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                                                num_classes=self.num_classes, num_pool=len(self.net_num_pool_op_kernel_sizes),\
                                                patch_size=self.patch_size.tolist(), vit_version=self.version, vit_type=self.vit_type,\
                                                split_gpu=self.split_gpu, ViT_task_specific_ln=self.ViT_task_specific_ln,\
-                                               first_task_name=self.tasks_list_with_char[0][0], do_LSA=self.LSA, do_SPT=self.SPT)
+                                               first_task_name=self.tasks_list_with_char[0][0], do_LSA=self.LSA, do_SPT=self.SPT,\
+                                               FeatScale=self.featscale, AttnScale=self.attnscale)
         else:
             self.mh_network = self.trainer_model.mh_network
 
@@ -1312,7 +1316,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # -- Specify if this is a ViT Architecture or not, since the paths are different -- #
         if self.use_vit:
             # -- Extract the folder name in case we have a ViT -- #
-            folder_n = get_ViT_LSA_SPT_folder_name(self.LSA, self.SPT)
+            folder_n = get_ViT_LSA_SPT_scale_folder_name(self.LSA, self.SPT, self.featscale, self.attnscale)
 
             # -- Update the output_folder accordingly -- #
             if self.version != output_folder.split(os.path.sep)[-1] and self.version not in output_folder:

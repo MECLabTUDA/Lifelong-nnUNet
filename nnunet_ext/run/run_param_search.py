@@ -155,13 +155,14 @@ def run_param_search():
                         help='Set this flag if a new head should not be initialized using the last head'
                             ' during training, ie. the very first head from the initialization of the class is used.'
                             ' Default: The previously trained head is used as initialization of the new head.')
-    parser.add_argument('--no_pod', action='store_true', default=False,
-                        help='This will only be considered if our own trainers are used. If set, this flag indicates that the POD '+
-                             'embedding should not been used.')
     parser.add_argument('--do_LSA', action='store_true', default=False,
                         help='Set this flag if Locality Self-Attention should be used for the ViT.')
     parser.add_argument('--do_SPT', action='store_true', default=False,
                         help='Set this flag if Shifted Patch Tokenization should be used for the ViT.')
+    parser.add_argument('--FeatScale', action='store_true', default=False,
+                        help='Set this flag if Feature Scale should be used for the ViT.')
+    parser.add_argument('--AttnScale', action='store_true', default=False,
+                        help='Set this flag if Attention Scale should be used for the ViT.')
     parser.add_argument('--adaptive', required=False, default=False, action="store_true",
                         help='Set this flag if the EWC loss should be changed during the frozen training process (ewc_lambda*e^{-1/3}). '
                              ' Default: The EWC loss will not be altered. --> Makes only sense with our nnUNetTrainerFrozEWC trainer.')
@@ -178,7 +179,6 @@ def run_param_search():
     find_lr = args.find_lr
     valbest = args.valbest
     use_vit = args.use_vit
-    do_pod = not args.no_pod
     adaptive = args.adaptive
     plans_identifier = args.p
     mixed_precision = not fp32
@@ -213,6 +213,10 @@ def run_param_search():
     # -- LSA and SPT flags -- #
     do_LSA = args.do_LSA
     do_SPT = args.do_SPT
+
+    # -- Scaling flags -- #
+    FeatScale = args.FeatScale
+    AttnScale = args.AttnScale
 
     # -- Extract the arguments specific for all trainers from argument parser -- #
     fold = args.fold[0] if isinstance(args.fold, list) else args.fold
@@ -337,10 +341,10 @@ def run_param_search():
                   'plans_identifier': plans_identifier, 'val_folder': val_folder, 'disable_postprocessing_on_folds': disable_postprocessing_on_folds,
                   'val_disable_overwrite': val_disable_overwrite, 'disable_next_stage_pred': disable_next_stage_pred}
     param_args = {'save_interval': save_interval, 'extension': EXT_MAP[network_trainer], 'split_at': split,
-                  'tasks_list_with_char': copy.deepcopy(tasks_list_with_char), 'continue_training': continue_training, 'do_pod': do_pod,
+                  'tasks_list_with_char': copy.deepcopy(tasks_list_with_char), 'continue_training': continue_training,
                   'mixed_precision': mixed_precision, 'use_vit': use_vit, 'vit_type': vit_type, 'version': version, 'num_epochs': num_epochs,
                   'split_gpu': split_gpu, 'transfer_heads': transfer_heads, 'ViT_task_specific_ln': ViT_task_specific_ln, 'fold': fold,
-                  'do_LSA': do_LSA, 'do_SPT': do_SPT, 'do_pod': do_pod, 'search_mode': search_mode, 'grid_picks': grid_picks, 'rand_range': rand_range,
+                  'do_LSA': do_LSA, 'do_SPT': do_SPT, 'FeatScale':FeatScale, 'AttnScale':AttnScale, 'search_mode': search_mode, 'grid_picks': grid_picks, 'rand_range': rand_range,
                   'rand_pick': rand_pick, 'rand_seed': rand_seed, 'always_use_last_head': always_use_last_head, 'adaptive': adaptive,
                   'perform_validation': perform_validation, 'fixate_params': fixate_params, 'run_in_parallel': run_in_parallel, **unet_args}
     
