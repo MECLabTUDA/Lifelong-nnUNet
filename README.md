@@ -6,7 +6,7 @@ This repository extends the popular [nnUNet](https://github.com/MIC-DKFZ/nnUNet)
 
 You can monitor the performance throughout the training process, as illustrated below for the task of hippocampus segmentation, and output continual learning metrics such as backward (BWT) and forward transfer (FWT).
 
-![Trajectory_hippocampus_three](https://user-images.githubusercontent.com/34241665/167387183-ef2ee7f4-01d4-4749-ba22-07017b8150af.png)
+![Trajectory_hippocampus_three](https://user-images.githubusercontent.com/34241665/167387183-ef2ee7f4-01d4-4749-ba22-07017b8150af.png|width=100px)
 
 The supported nnUNet version is specified in the [requirements.txt](requirements.txt) file. Please note that, at times, files are replicated from this version and adapted as needed. If you wish to use a newer nnUNet version, please make sure that all adapted files are consistent with that version. For the current `continual_learning` branch, this does not apply, ie. no files are replicated.
 
@@ -73,7 +73,7 @@ Refer to [this file](documentation/setting_up_paths.md) for a description of how
 
 In certain cases you may wish to change the meaning of certain labels or merge different labels in order to harmonize label structures between datasets. Please refer to [this file](documentation/change_mask_labels.md) for instructions on how to do this.
 
-![aligning_label_chars](https://user-images.githubusercontent.com/34241665/167389637-09eeb24d-7a34-43cf-8dc1-baf76b8dd17d.png)
+![aligning_label_chars](https://user-images.githubusercontent.com/34241665/167389637-09eeb24d-7a34-43cf-8dc1-baf76b8dd17d.png|width=100px)
 
 
 ## License
