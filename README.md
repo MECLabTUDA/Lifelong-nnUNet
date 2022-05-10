@@ -2,7 +2,7 @@
 
 This repository extends the popular [nnUNet](https://github.com/MIC-DKFZ/nnUNet) framework with methods that allow for **safer on-the-wild use**. This includes functionality for **continual learning** and **out-of-distribution detection**. With only one line of code, you can now train a model sequentially with different datasets.
 
-![static_continual_horizontal](https://user-images.githubusercontent.com/34241665/167388880-f496a195-2018-4a1c-84c6-4badad6cb6c2.png)
+<img src="https://user-images.githubusercontent.com/34241665/167388880-f496a195-2018-4a1c-84c6-4badad6cb6c2.png" width="700" />
 
 You can monitor the performance throughout the training process, as illustrated below for the task of hippocampus segmentation, and output continual learning metrics such as *backward* and *forward transfer*.
 
@@ -68,6 +68,11 @@ Following environment variables must be set for all Lifelong-nnUNet branches:
 
 Refer to [this file](documentation/setting_up_paths.md) for a description of how to set these.
 
+## Benchmark results
+
+In our preprint [Lifelong nnUNet: a framework for standardized medical continual learning](https://www.researchsquare.com/article/rs-1582100/v1), we summarize benchmark results for three medical imaging use cases: segmentation of the prostate and hippocampus on MRIs and of pulmonary embolism in chest CTs.
+
+<img src="https://user-images.githubusercontent.com/34241665/167640164-097836f5-acdf-4025-9d56-938b473d0c78.png" width="600" />
 
 ## Mapping Datasets to Other Labels
 
