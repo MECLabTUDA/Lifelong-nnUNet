@@ -9,6 +9,12 @@ import zarr
 
 
 def save_compressed_all(load_dir, save_dir, mode):
+    """
+    Compresses all Nifti files in a directory.
+    :param load_dir: The absolute path to load directory.
+    :param save_dir: The absolute path to save directory.
+    :param mode: The compression mode. Either '8' (np.uint8), '16' (np.uint16) or '32' (or np.float32)
+    """
     names = _load_filepaths(load_dir, return_path=False, return_extension=False)
 
     for name in tqdm(names):
@@ -16,7 +22,23 @@ def save_compressed_all(load_dir, save_dir, mode):
 
 
 def save_compressed(load_filepath, save_filepath, mode):
+    """
+    Compresses a single Nifti file.
+    :param load_filepath: The absolute filepath to load the file.
+    :param save_filepath: The absolute filepath to save the file.
+    :param mode: The compression mode. Either '8' (np.uint8), '16' (np.uint16) or '32' (or np.float32)
+    """
     image, spacing, affine, header = _load_nifti(load_filepath, return_meta=True)
+    compress_and_save(image, save_filepath, mode)
+
+
+def compress_and_save(image, save_filepath, mode):
+    """
+    Compresses an image and saves it.
+    :param image: The image.
+    :param save_filepath: The absolute filepath to save the file.
+    :param mode: The compression mode. Either '8' (np.uint8), '16' (np.uint16) or '32' (or np.float32)
+    """
     image = image.astype(np.float32)
 
     image_min = np.min(image)
@@ -34,7 +56,9 @@ def save_compressed(load_filepath, save_filepath, mode):
         compressed_max = image_max
         image = image.astype(np.float32)
     else:
-        raise RuntimeError("Compression mode '{}' is not supported. Mode needs to be either '8' (np.uint8), '16' (np.uint16) or '32' (np.float32).".format(mode))
+        raise RuntimeError(
+            "Compression mode '{}' is not supported. Mode needs to be either '8' (np.uint8), '16' (np.uint16) or '32' (np.float32).".format(
+                mode))
 
     image_zarr = zarr.open(save_filepath, mode='w', shape=image.shape, chunks=(128, 128, 128), dtype=image.dtype)
     image_zarr[...] = image
@@ -46,6 +70,11 @@ def save_compressed(load_filepath, save_filepath, mode):
 
 
 def load_compressed(load_filepath):
+    """
+    Loads a compressed image in Zarr format, decompresses it and returns the decompressed image.
+    :param load_filepath: The absolute filepath to load the file.
+    :return The decompressed image
+    """
     image_zarr = zarr.open(load_filepath, mode='r', dtype=np.float32)
     image_min = float(image_zarr.attrs['image_min'])
     image_max = float(image_zarr.attrs['image_max'])
