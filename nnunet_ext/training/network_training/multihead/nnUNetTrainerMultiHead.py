@@ -41,7 +41,9 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
                  identifier=default_plans_identifier, extension='multihead', tasks_list_with_char=None, mixed_precision=True,
                  save_csv=True, del_log=False, use_vit=False, vit_type='base', version=1, split_gpu=False, transfer_heads=False,
-                 ViT_task_specific_ln=False, do_LSA=False, do_SPT=False, FeatScale=False, AttnScale=False, network=None, use_param_split=False):
+                 ViT_task_specific_ln=False, do_LSA=False, do_SPT=False, FeatScale=False, AttnScale=False,
+                 filter_rate=0.35, filter_with='high_basic', nth_filter=10, useFFT=False, f_map_type='none', conv_smooth=None,
+                 network=None, use_param_split=False):
         r"""Constructor of Multi Head Trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
             The transfer_heads flag is used when adding a new head, if True, the state_dict from the last head will be used
             instead of the one from the initialization. This is the basic transfer learning (difference between MH and SEQ folder structure).
@@ -68,6 +70,18 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         self.LSA, self.SPT = do_LSA, do_SPT
         # -- FeatScale and AttnScale flags -- #
         self.featscale, self.attnscale = FeatScale, AttnScale
+        # -- FFT flag to replace MSA -- #
+        self.useFFT = useFFT
+        self.f_map_type = f_map_type
+        self.fourrier_mapping = f_map_type is not 'none' and f_map_type is not None
+        
+        # -- Define filtering flags when used with ViT -- #
+        self.filter_rate = filter_rate
+        self.filter_with = filter_with
+        self.nth_filter = nth_filter
+        
+        self.conv_smooth = conv_smooth
+        
         # -- Update the output_folder path accordingly -- #
         output_folder = self._build_output_path(output_folder, False)
         
@@ -182,6 +196,9 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # -- Define flag for evaluation (per batch or per subject) -- #
         self.eval_batch = True
 
+        # -- Flag to keep track of iterations per epoch -- #
+        self.iteration = 0
+
         # -- Set the flag if the param_split should be used instead of the general split -- #
         # -- Only set this to True if the parameter search method is used -- #
         self.param_split = use_param_split
@@ -190,7 +207,8 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         self.init_args = (split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
                           deterministic, fp16, save_interval, self.already_trained_on, use_progress, identifier, extension,
                           tasks_list_with_char, mixed_precision, save_csv, del_log, use_vit, self.vit_type, version, split_gpu,
-                          transfer_heads, ViT_task_specific_ln, do_LSA, do_SPT, FeatScale, AttnScale)
+                          transfer_heads, ViT_task_specific_ln, do_LSA, do_SPT, FeatScale, AttnScale, filter_rate, filter_with,
+                          nth_filter, useFFT, f_map_type, conv_smooth)
 
     def do_split(self):
         r"""Modify the original function. This enables the loading of the split
@@ -354,7 +372,9 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                                                    patch_size=patch_size.tolist(), vit_version=self.version, vit_type=self.vit_type,\
                                                    split_gpu=self.split_gpu, ViT_task_specific_ln=self.ViT_task_specific_ln,\
                                                    first_task_name=self.tasks_list_with_char[0][0], do_LSA=self.LSA, do_SPT=self.SPT,\
-                                                   FeatScale=self.featscale, AttnScale=self.attnscale)
+                                                   FeatScale=self.featscale, AttnScale=self.attnscale, useFFT=self.useFFT,\
+                                                   fourrier_mapping=self.fourrier_mapping, f_map_type=self.f_map_type,\
+                                                   conv_smooth=self.conv_smooth)
             else:
                 # -- Initialize from beginning and start training, since no model is provided -- #
                 super().initialize_network() # --> This updates the corresponding variables automatically since we inherit this class
@@ -430,7 +450,9 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                                                patch_size=self.patch_size.tolist(), vit_version=self.version, vit_type=self.vit_type,\
                                                split_gpu=self.split_gpu, ViT_task_specific_ln=self.ViT_task_specific_ln,\
                                                first_task_name=self.tasks_list_with_char[0][0], do_LSA=self.LSA, do_SPT=self.SPT,\
-                                               FeatScale=self.featscale, AttnScale=self.attnscale)
+                                               FeatScale=self.featscale, AttnScale=self.attnscale, useFFT=self.useFFT,\
+                                               fourrier_mapping=self.fourrier_mapping, f_map_type=self.f_map_type,\
+                                               conv_smooth=self.conv_smooth)
         else:
             self.mh_network = self.trainer_model.mh_network
 
@@ -562,6 +584,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         self.trainer_model = None
         
         # -- Run the training from parent class -- #
+        self.iteration = 0
         ret = super().run_training()
 
         # -- Reset the val_metrics_exist flag since the training is finished and restoring will fail otherwise -- #
@@ -613,7 +636,10 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
 
         if self.fp16:
             with autocast():
-                output = self.network(data)
+                if self.filter_with is not None and self.iteration % self.nth_filter == 0:
+                    output = self.network(data, fft_filter=self.filter_with, filter_rate=self.filter_rate)
+                else:
+                    output = self.network(data)
                 del data
                 if not no_loss:
                     l = self.loss(output, target)
@@ -625,7 +651,10 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                 self.amp_grad_scaler.step(self.optimizer)
                 self.amp_grad_scaler.update()
         else:
-            output = self.network(data)
+            if self.filter_with is not None and self.iteration % self.nth_filter == 0:
+                output = self.network(data, fft_filter=self.filter_with, filter_rate=self.filter_rate)
+            else:
+                output = self.network(data)
             del data
             if not no_loss:
                 l = self.loss(output, target)
@@ -639,6 +668,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             self.run_online_evaluation(output, target)
 
         del target
+        self.iteration += 1
         
         # -- Update the Multi Head Network after one iteration only if backprop is performed (during training) -- #
         if do_backprop:
@@ -1316,7 +1346,9 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # -- Specify if this is a ViT Architecture or not, since the paths are different -- #
         if self.use_vit:
             # -- Extract the folder name in case we have a ViT -- #
-            folder_n = get_ViT_LSA_SPT_scale_folder_name(self.LSA, self.SPT, self.featscale, self.attnscale)
+            folder_n = get_ViT_LSA_SPT_scale_folder_name(self.LSA, self.SPT, self.featscale, self.attnscale,
+                                                         self.filter_with, self.nth_filter, self.filter_rate,
+                                                         self.useFFT, self.f_map_type, self.conv_smooth)
 
             # -- Update the output_folder accordingly -- #
             if self.version != output_folder.split(os.path.sep)[-1] and self.version not in output_folder:

@@ -98,6 +98,26 @@ def run_evaluation():
                         help='Set this flag if Feature Scale should be used for the ViT.')
     parser.add_argument('--AttnScale', action='store_true', default=False,
                         help='Set this flag if Attention Scale should be used for the ViT.')
+    parser.add_argument('--FFT', action='store_true', default=False,
+                        help='Set this flag if MSA should be replaced with FFT Blocks (every 2nd layer only).')
+    parser.add_argument("-FFT_filter", action='store', type=str, nargs=1, default=None, choices=['high_basic', 'high_advanced'],
+                        help='Specify if and which FFT filtering will be performed (has nothing to do with --FFT). high_basic applies a simple high pass filter,'
+                            +'whereas high_advanced is a more sophisticated version.')
+    parser.add_argument('-filter_every', action='store', type=int, nargs=1, required=False, default=10,
+                        help='Specify the interval after which batch iteration FFT filtering will be applied.'
+                            ' Default: If FFT_filter is set, the filtering will be done every 10th batch iteration.')
+    parser.add_argument('-filter_rate', action='store', type=float, nargs=1, required=False, default=0.31,
+                        help='Specify the amount of skipped FFT information during the high_basic filtering.'
+                            ' Default: If FFT_filter is set to high_basic, 31 percent of low-pass information is skipped.')
+    parser.add_argument('-f_map_type', action='store', type=str, nargs=1, required=False, default='none', choices=['none', 'basic', 'gauss_1', 'gauss_10', 'gauss_100'],
+                        help='Specify if fourrier feature mapping should be used before the ViTs MLP module along with the type.'
+                            ' Note that the argument none makes literally no modification. Default: No mapping will be performed.')
+    parser.add_argument('-replace_every', action='store', type=int, nargs=1, required=False, default=None,
+                        help='Specify after which amount of MSA a Convolutional smoothing should be used instead.')
+    parser.add_argument('-do_n_blocks', action='store', type=int, nargs=1, required=False, default=None,
+                        help='Specify the amount of Convolutional smoothing blocks.')
+    parser.add_argument('-smooth_temp', action='store', type=float, nargs=1, required=False, default=10,
+                        help='Specify the smoothing temperature for Convolutional smoothing blocks. Default: 10.')
     parser.add_argument('--adaptive', required=False, default=False, action="store_true",
                         help='Set this flag if the EWC loss has been changed during the frozen training process (ewc_lambda*e^{-1/3}). '
                              ' Default: The EWC loss will not be altered. --> Makes only sense with our nnUNetTrainerFrozEWC trainer.')
@@ -148,6 +168,18 @@ def run_evaluation():
     # -- Scaling flags -- #
     FeatScale = args.FeatScale
     AttnScale = args.AttnScale
+    useFFT = args.FFT
+    f_map_type = args.f_map_type[0] if isinstance(args.f_map_type, list) else args.f_map_type
+
+    conv_smooth = [args.replace_every[0] if isinstance(args.replace_every, list) else args.replace_every,
+                   args.do_n_blocks[0] if isinstance(args.do_n_blocks, list) else args.do_n_blocks,
+                   args.smooth_temp[0] if isinstance(args.smooth_temp, list) else args.smooth_temp]
+    conv_smooth = None if conv_smooth[0] is None or conv_smooth[1] is None else conv_smooth
+    
+    # -- Filtering specific arguments -- #
+    FFT_filter = args.FFT_filter[0] if isinstance(args.FFT_filter, list) else args.FFT_filter
+    filter_every = args.filter_every[0] if isinstance(args.filter_every, list) else args.filter_every
+    filter_rate = args.filter_rate[0] if isinstance(args.filter_rate, list) else args.filter_rate
     
     # -- Assert if device value is ot of predefined range and create string to set cuda devices -- #
     for idx, c in enumerate(cuda):
@@ -220,7 +252,8 @@ def run_evaluation():
     # ---------------------------------------------
     evaluator = Evaluator(network, network_trainer, (tasks_for_folder, char_to_join_tasks), (use_model_w_tasks, char_to_join_tasks), 
                           version, vit_type, plans_identifier, mixed_precision, EXT_MAP[network_trainer], save_csv, transfer_heads,
-                          use_vit, False, ViT_task_specific_ln, do_LSA, do_SPT, FeatScale, AttnScale)
+                          use_vit, False, ViT_task_specific_ln, do_LSA, do_SPT, FeatScale, AttnScale, filter_rate, FFT_filter, filter_every,
+                          useFFT, f_map_type, conv_smooth)
     evaluator.evaluate_on(fold, evaluate_on_tasks, use_head, always_use_last_head, adaptive=adaptive, use_all_data=use_all_data)
 
 # -- Main function for setup execution -- #

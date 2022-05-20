@@ -37,7 +37,7 @@ class Experiment():
                  always_use_last_head=True, npz=False, output_exp=None, output_eval=None, perform_validation=False, param_call=False, adaptive=False,
                  unpack_data=True, deterministic=False, save_interval=5, num_epochs=100, fp16=True, find_lr=False, valbest=False, use_param_split=False,
                  disable_postprocessing_on_folds=False, split_gpu=False, val_disable_overwrite=True, disable_next_stage_pred=False, show_progress_tr_bar=True,
-                 use_all_data=False):
+                 use_all_data=False, filter_rate=0.35, filter_with='high_basic', nth_filter=10, useFFT=False, f_map_type=None, conv_smooth=None):
         r"""Constructor for Experiment.
         """
         # -- Define a empty dictionary that is used for backup purposes -- #
@@ -67,6 +67,7 @@ class Experiment():
         self.save_csv = save_csv
         self.split_gpu = split_gpu
         self.extension = extension
+        self.f_map_type = f_map_type
         self.num_epochs = num_epochs
         self.param_call = param_call
         self.save_interval = save_interval
@@ -85,9 +86,13 @@ class Experiment():
         # -- Create the variable indicating which ViT Architecture to use, base, large or huge and if to use it -- #
         self.LSA = do_LSA
         self.SPT = do_SPT
+        self.useFFT = useFFT
         self.use_vit = use_vit
         self.featscale= FeatScale
         self.attnscale = AttnScale
+        self.filter_rate = filter_rate
+        self.filter_with = filter_with
+        self.nth_filter = nth_filter
         self.vit_type = vit_type.lower()
         self.version = 'V' + str(version)
         self.ViT_task_specific_ln = ViT_task_specific_ln
@@ -104,7 +109,9 @@ class Experiment():
                            'tasks_list_with_char': copy.deepcopy(self.tasks_list_with_char), 'save_csv': self.save_csv, 'use_progress': self.use_progress_bar,
                            'mixed_precision': self.mixed_precision, 'use_vit': self.use_vit, 'vit_type': self.vit_type, 'version': str(version),
                            'split_gpu': self.split_gpu, 'transfer_heads': self.transfer_heads, 'ViT_task_specific_ln': self.ViT_task_specific_ln,
-                           'do_LSA': self.LSA, 'do_SPT': self.SPT, 'FeatScale':FeatScale, 'AttnScale':AttnScale, 'use_param_split': use_param_split, **basic_args}
+                           'do_LSA': self.LSA, 'do_SPT': self.SPT, 'FeatScale': FeatScale, 'AttnScale': AttnScale, 'use_param_split': use_param_split,
+                           'filter_with': filter_with, 'nth_filter': nth_filter, 'filter_rate': filter_rate, 'useFFT': useFFT, 'f_map_type': f_map_type,
+                           'conv_smooth': conv_smooth, **basic_args}
         
         # -- Check that the hyperparameters match -- #
         trainer_file_to_import = recursive_find_python_class_file([join(nnunet_ext.__path__[0], "training", "network_training", self.extension)],
@@ -114,9 +121,10 @@ class Experiment():
         # -- Now create the Evaluator -- #
         self.basic_eval_args = {'network': self.network, 'network_trainer': self.network_trainer, 'tasks_list_with_char': self.tasks_list_with_char,
                                 'version': self.version, 'vit_type': self.vit_type, 'plans_identifier': self.plans_identifier, 'mixed_precision': self.mixed_precision,
-                                'extension': self.extension, 'save_csv': True, 'transfer_heads': self.transfer_heads, 'use_vit': self.use_vit,
+                                'extension': self.extension, 'save_csv': True, 'transfer_heads': self.transfer_heads, 'use_vit': self.use_vit, 'useFFT': useFFT,
                                 'use_param_split': self.param_split, 'ViT_task_specific_ln': self.ViT_task_specific_ln, 'do_LSA': self.LSA, 'do_SPT': self.SPT,
-                                'FeatScale':FeatScale, 'AttnScale':AttnScale}
+                                'FeatScale': FeatScale, 'AttnScale': AttnScale, 'filter_with': filter_with, 'nth_filter': nth_filter, 'filter_rate': filter_rate,
+                                'f_map_type': f_map_type, 'conv_smotth': conv_smooth}
         self.evaluator = Evaluator(model_list_with_char = (self.tasks_list_with_char[0][0], self.tasks_list_with_char[1]), **self.basic_eval_args)
 
     def run_experiment(self, exp_id, settings, settings_in_folder_name, gpu_ids, continue_tr=False):

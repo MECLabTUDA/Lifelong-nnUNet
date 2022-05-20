@@ -20,14 +20,15 @@ class nnUNetTrainerMiB(nnUNetTrainerMultiHead):
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
                  identifier=default_plans_identifier, extension='mib', mib_alpha=1., mib_lkd=10, tasks_list_with_char=None,
                  mixed_precision=True, save_csv=True, del_log=False, use_vit=False, vit_type='base', version=1, split_gpu=False,
-                 transfer_heads=True, ViT_task_specific_ln=False, do_LSA=False, do_SPT=False, FeatScale=False, AttnScale=False, network=None, use_param_split=False):
+                 transfer_heads=True, ViT_task_specific_ln=False, do_LSA=False, do_SPT=False, FeatScale=False, AttnScale=False,
+                 filter_rate=0.35, filter_with='high_basic', nth_filter=10, network=None, use_param_split=False):
         r"""Constructor of MiB trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
         """
         # -- Initialize using parent class -- #
         super().__init__(split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic,
                          fp16, save_interval, already_trained_on, use_progress, identifier, extension, tasks_list_with_char,
                          mixed_precision, save_csv, del_log, use_vit, vit_type, version, split_gpu, transfer_heads,
-                         ViT_task_specific_ln, do_LSA, do_SPT, FeatScale, AttnScale, network, use_param_split)
+                         ViT_task_specific_ln, do_LSA, do_SPT, FeatScale, AttnScale, filter_rate, filter_with, nth_filter, network, use_param_split)
         
         # -- Set the alpha and kl variable for the MiB Loss calculation during training -- #
         self.alpha = mib_alpha
@@ -54,7 +55,8 @@ class nnUNetTrainerMiB(nnUNetTrainerMultiHead):
         self.init_args = (split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
                           deterministic, fp16, save_interval, already_trained_on, use_progress, identifier, extension,
                           mib_alpha, mib_lkd, tasks_list_with_char, mixed_precision, save_csv, del_log, use_vit, self.vit_type,
-                          version, split_gpu, transfer_heads, ViT_task_specific_ln, do_LSA, do_SPT, FeatScale, AttnScale)
+                          version, split_gpu, transfer_heads, ViT_task_specific_ln, do_LSA, do_SPT, FeatScale, AttnScale,
+                          filter_rate, filter_with, nth_filter)
 
     def initialize(self, training=True, force_load_plans=False, num_epochs=500, prev_trainer_path=None, call_for_eval=False):
         r"""Overwrite the initialize function so the correct Loss function for the MiB method can be set.

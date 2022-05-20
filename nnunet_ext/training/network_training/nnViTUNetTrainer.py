@@ -19,7 +19,7 @@ class nnViTUNetTrainer(nnUNetTrainerV2): # Inherit default trainer class for 2D,
     def __init__(self, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, use_progress=True, version=1,
                  vit_type='base', split_gpu=False, ViT_task_specific_ln=False, first_task_name=None, do_LSA=False,
-                 do_SPT=False, FeatScale=False, AttnScale=False):
+                 do_SPT=False, FeatScale=False, AttnScale=False, useFFT=False, f_map_type='none', conv_smooth=None):
         r"""Constructor of ViT_U-Net Trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
         """
         # -- Set ViT task specific flags -- #
@@ -37,6 +37,12 @@ class nnViTUNetTrainer(nnUNetTrainerV2): # Inherit default trainer class for 2D,
 
         # -- FeatScale and AttnScale flags -- #
         self.featscale, self.attnscale = FeatScale, AttnScale
+        
+        # -- FFT flag to replace MSA -- #
+        self.useFFT = useFFT
+        self.f_map_type = f_map_type
+        
+        self.conv_smooth = conv_smooth
 
         # -- Update the output_folder accordingly -- #
         if self.version not in output_folder:
@@ -55,7 +61,7 @@ class nnViTUNetTrainer(nnUNetTrainerV2): # Inherit default trainer class for 2D,
                 output_folder = os.path.join(output_folder, 'not_task_specific')
 
         # -- Add the LSA and SPT before the fold -- #
-        folder_n = get_ViT_LSA_SPT_scale_folder_name(self.LSA, self.SPT, self.featscale, self.attnscale)
+        folder_n = get_ViT_LSA_SPT_scale_folder_name(self.LSA, self.SPT, self.featscale, self.attnscale, self.useFFT, self.f_map_type, self.conv_smooth)
         # -- Add to the path -- #
         if folder_n != output_folder.split(os.path.sep)[-1] and folder_n not in output_folder:
             output_folder = os.path.join(output_folder, folder_n)
@@ -77,7 +83,8 @@ class nnViTUNetTrainer(nnUNetTrainerV2): # Inherit default trainer class for 2D,
         # -- Update self.init_tasks so the storing works properly -- #
         self.init_args = (plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
                           deterministic, fp16, save_interval, use_progress, version, self.vit_type, split_gpu,
-                          ViT_task_specific_ln, first_task_name, do_LSA, do_SPT, FeatScale, AttnScale)
+                          ViT_task_specific_ln, first_task_name, do_LSA, do_SPT, FeatScale, AttnScale, useFFT,
+                          f_map_type, conv_smooth)
 
     def process_plans(self, plans):
         r"""Modify the original function. This just reduces the batch_size by half.
@@ -125,7 +132,8 @@ class nnViTUNetTrainer(nnUNetTrainerV2): # Inherit default trainer class for 2D,
                                         self.net_num_pool_op_kernel_sizes, self.net_conv_kernel_sizes, False, True, True,
                                         vit_version=self.version, vit_type=self.vit_type, split_gpu=self.split_gpu,
                                         ViT_task_specific_ln=self.ViT_task_specific_ln, first_task_name=self.first_task_name,
-                                        do_LSA=self.LSA, do_SPT=self.SPT, FeatScale=self.featscale, AttnScale=self.attnscale)
+                                        do_LSA=self.LSA, do_SPT=self.SPT, FeatScale=self.featscale, AttnScale=self.attnscale,\
+                                        useFFT=self.useFFT, conv_smooth=self.conv_smooth)
         
         # -- Set the task to use --> user can not register new task here since this is a simple one time Trainer, not a Sequential one or so -- #
         if self.ViT_task_specific_ln:

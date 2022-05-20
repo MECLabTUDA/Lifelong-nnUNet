@@ -32,14 +32,14 @@ class nnUNetTrainerLWF(nnUNetTrainerMultiHead):
                  identifier=default_plans_identifier, extension='lwf', lwf_temperature=2.0, tasks_list_with_char=None,
                  mixed_precision=True, save_csv=True, del_log=False, use_vit=False, vit_type='base', version=1, split_gpu=False,
                  transfer_heads=False, ViT_task_specific_ln=False, do_LSA=False, do_SPT=False, FeatScale=False, AttnScale=False,
-                 network=None, use_param_split=False):
+                 filter_rate=0.35, filter_with='high_basic', nth_filter=10, network=None, use_param_split=False):
         r"""Constructor of LwF trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
         """
         # -- Initialize using parent class -- #
         super().__init__(split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic,
                          fp16, save_interval, already_trained_on, use_progress, identifier, extension, tasks_list_with_char,
                          mixed_precision, save_csv, del_log, use_vit, vit_type, version, split_gpu, transfer_heads,
-                         ViT_task_specific_ln, do_LSA, do_SPT, FeatScale, AttnScale, network, use_param_split)
+                         ViT_task_specific_ln, do_LSA, do_SPT, FeatScale, AttnScale, filter_rate, filter_with, nth_filter, network, use_param_split)
         
         # -- Set the temperature variable for the LWF Loss calculation during training -- #
         self.lwf_temperature = lwf_temperature
@@ -71,7 +71,8 @@ class nnUNetTrainerLWF(nnUNetTrainerMultiHead):
         self.init_args = (split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
                           deterministic, fp16, save_interval, already_trained_on, use_progress, identifier, extension,
                           lwf_temperature, tasks_list_with_char, mixed_precision, save_csv, del_log, use_vit, self.vit_type,
-                          version, split_gpu, transfer_heads, ViT_task_specific_ln, do_LSA, do_SPT, FeatScale, AttnScale)
+                          version, split_gpu, transfer_heads, ViT_task_specific_ln, do_LSA, do_SPT, FeatScale, AttnScale,
+                          filter_rate, filter_with, nth_filter)
 
         # -- Define a variable for the original and LwF loss -- #
         self.loss_orig = None

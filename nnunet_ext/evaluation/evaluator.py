@@ -29,13 +29,15 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
     def __init__(self, network, network_trainer, tasks_list_with_char, model_list_with_char, version=1, vit_type='base',
                  plans_identifier=default_plans_identifier, mixed_precision=True, extension='multihead', save_csv=True,
                  transfer_heads=False, use_vit=False, use_param_split=False, ViT_task_specific_ln=False, do_LSA=False, do_SPT=False,
-                 FeatScale=False, AttnScale=False):
+                 FeatScale=False, AttnScale=False, filter_rate=0.35, filter_with='high_basic', nth_filter=10, useFFT=False,
+                 f_map_type=None, conv_smooth=None):
         r"""Constructor for evaluator.
         """
         # -- Set all the relevant attributes -- #
         self.network = network
         self.save_csv = save_csv
         self.extension = extension
+        self.f_map_type = f_map_type
         self.param_split = use_param_split
         self.transfer_heads = transfer_heads
         self.network_trainer = network_trainer
@@ -59,17 +61,18 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
         self.use_vit = use_vit
         self.vit_type = vit_type.lower()
         self.ViT_task_specific_ln = ViT_task_specific_ln
+        self.filter_with, self.nth_filter, self.filter_rate, self.useFFT, self.f_map_type, self.conv_smooth = filter_with, nth_filter, filter_rate, useFFT, f_map_type, conv_smooth
 
     def reinitialize(self, network, network_trainer, tasks_list_with_char, model_list_with_char, version=1, vit_type='base',
                      plans_identifier=default_plans_identifier, mixed_precision=True, extension='multihead', save_csv=True,
                      transfer_heads=False, use_vit=False, use_param_split=False, ViT_task_specific_ln=False, do_LSA=False, do_SPT=False,
-                     FeatScale=False, AttnScale=False):
+                     FeatScale=False, AttnScale=False, useFFT=False, f_map_type='none', conv_smooth=None):
         r"""This function changes the network and trainer so no new Evaluator needs to be created.
         """
         # -- Just perform initialization again -- #
         self.__init__(network, network_trainer, tasks_list_with_char, model_list_with_char, version, vit_type, plans_identifier,
                       mixed_precision, extension, save_csv, transfer_heads, use_vit, use_param_split, ViT_task_specific_ln,
-                      do_LSA, do_SPT, FeatScale, AttnScale)
+                      do_LSA, do_SPT, FeatScale, AttnScale, useFFT, f_map_type, conv_smooth)
 
     def evaluate_on(self, folds, tasks, use_head=None, always_use_last_head=False, adaptive=False,
                     trainer_path=None, output_path=None, use_all_data=False):
@@ -92,7 +95,9 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
             # -- Build the paths if they are not provided --> Only provide the paths if you know what you're doing .. -- #
             if trainer_path is None or output_path is None:
                 # -- Extract the folder name in case we have a ViT -- #
-                folder_n = get_ViT_LSA_SPT_scale_folder_name(self.LSA, self.SPT, self.featscale, self.attnscale)
+                folder_n = get_ViT_LSA_SPT_scale_folder_name(self.LSA, self.SPT, self.featscale, self.attnscale,
+                                                             self.filter_with, self.nth_filter, self.filter_rate,
+                                                             self.useFFT, self.f_map_type, self.conv_smooth)
 
                 # -- Build the trainer_path first -- #
                 if 'nnUNetTrainerV2' in self.network_trainer:   # always_last_head makes no sense here, there is only one head

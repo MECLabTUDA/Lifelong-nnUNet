@@ -108,6 +108,17 @@ def main():
                         help='Set this flag if Feature Scale should be used for the ViT.')
     parser.add_argument('--AttnScale', action='store_true', default=False,
                         help='Set this flag if Attention Scale should be used for the ViT.')
+    parser.add_argument('--FFT', action='store_true', default=False,
+                        help='Set this flag if MSA should be replaced with FFT Blocks (every 2nd layer only).')
+    parser.add_argument('-f_map_type', action='store', type=str, nargs=1, required=False, default='none', choices=['none', 'basic', 'gauss_1', 'gauss_10', 'gauss_100'],
+                        help='Specify if fourrier feature mapping should be used before the ViTs MLP module along with the type.'
+                            ' Note that the argument none makes literally no modification. Default: No mapping will be performed.')
+    parser.add_argument('-replace_every', action='store', type=int, nargs=1, required=False, default=None,
+                        help='Specify after which amount of MSA a Convolutional smoothing should be used instead.')
+    parser.add_argument('-do_n_blocks', action='store', type=int, nargs=1, required=False, default=None,
+                        help='Specify the amount of Convolutional smoothing blocks.')
+    parser.add_argument('-smooth_temp', action='store', type=float, nargs=1, required=False, default=10,
+                        help='Specify the smoothing temperature for Convolutional smoothing blocks. Default: 10.')
     parser.add_argument('-num_epochs', action='store', type=int, nargs=1, required=False, default=500,
                         help='Specify the number of epochs to train the model.'
                             ' Default: Train for 500 epochs.')
@@ -157,6 +168,13 @@ def main():
     # -- Scaling flags -- #
     FeatScale = args.FeatScale
     AttnScale = args.AttnScale
+    useFFT = args.FFT
+    f_map_type = args.f_map_type[0] if isinstance(args.f_map_type, list) else args.f_map_type
+
+    conv_smooth = [args.replace_every[0] if isinstance(args.replace_every, list) else args.replace_every,
+                   args.do_n_blocks[0] if isinstance(args.do_n_blocks, list) else args.do_n_blocks,
+                   args.smooth_temp[0] if isinstance(args.smooth_temp, list) else args.smooth_temp]
+    conv_smooth = None if conv_smooth[0] is None or conv_smooth[1] is None else conv_smooth
 
     # -- Extract the arguments specific for all trainers from argument parser -- #
     task = args.task
@@ -225,7 +243,7 @@ def main():
                             batch_dice=batch_dice, stage=stage, unpack_data=decompress_data,
                             deterministic=deterministic, fp16=run_mixed_precision, save_interval=save_interval,
                             version=version, vit_type=vit_type, split_gpu=split_gpu, do_LSA=do_LSA, do_SPT=do_SPT,
-                            FeatScale=FeatScale, AttnScale=AttnScale)
+                            FeatScale=FeatScale, AttnScale=AttnScale, useFFT=useFFT, f_map_type=f_map_type, conv_smooth=conv_smooth)
     
     # -- Disable the saving of checkpoints if desired -- #                        
     if args.disable_saving:
