@@ -42,7 +42,7 @@ def test_dataset_label_mapping():
               }
 
     # -- Create the transformed mask -- #
-    new_mask = _perform_transformation_on_mask_using_mapping(mask, mapping)
+    new_mask = _perform_transformation_on_mask_using_mapping(mask, mapping, join_labels=False)
 
     # -- Define expectation -- #
     expectation = np.array([[[3, 1, 2, 0],
@@ -79,7 +79,7 @@ def test_dataset_label_mapping():
 
     # -- Create the transformed mask --> expect an error this time -- #
     try:
-        _ = _perform_transformation_on_mask_using_mapping(mask, mapping)
+        _ = _perform_transformation_on_mask_using_mapping(mask, mapping, join_labels=False)
         assert False, "Expected an error due to empty mapping."
     except Exception as ex:
         if type(ex).__name__ != "AssertionError":

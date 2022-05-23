@@ -471,8 +471,9 @@ if __name__ == "__main__":
             # -- Run the test suite -- #
             test_multi_head_trainer()
         except Exception as e:  # Error occured or test failed
+            
             # -- Delete the generated data -- #
-            delete_specified_task(False, test_data=True, task_ids=list())
+            delete_specified_task(False, test_data=True, task_ids=['-11', '-22'])
             # -- Enable the prints again -- #
             sys.stdout = sys.__stdout__
             # -- Raise the error -- #
@@ -480,4 +481,4 @@ if __name__ == "__main__":
             raise e
 
     # -- Ensure that the data is really removed -- #
-    delete_specified_task(False, test_data=True, task_ids=list())
+    delete_specified_task(False, test_data=True, task_ids=['-11', '-22'])

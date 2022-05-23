@@ -218,8 +218,7 @@ class MultiHead_Module(nn.Module):
         # -- Perform splitting: Loop through the models modules -- #
         for idx, (name, n_module) in enumerate(list(model.named_children())):
             # -- Deep copy the module to bypass the runtime error that would occur due to changing of the module -- #
-            # module = copy.deepcopy(n_module)
-            # module = n_module.clone()
+            module = copy.deepcopy(n_module)
 
             # -- If, given layer_id, a desired module from the path is not reached and layer_id is -- #
             # -- smaller than number of split path elements --> set body -- #
