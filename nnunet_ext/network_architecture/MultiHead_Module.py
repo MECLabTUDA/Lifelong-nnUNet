@@ -219,7 +219,7 @@ class MultiHead_Module(nn.Module):
         for idx, (name, n_module) in enumerate(list(model.named_children())):
             # -- Deep copy the module to bypass the runtime error that would occur due to changing of the module -- #
             # module = copy.deepcopy(n_module)
-            # module = n_module.clone()
+            # module = n_module
 
             # -- If, given layer_id, a desired module from the path is not reached and layer_id is -- #
             # -- smaller than number of split path elements --> set body -- #
@@ -296,9 +296,9 @@ class MultiHead_Module(nn.Module):
                 # -- Use the parent, otherwise layers might be overwritten and -- #
                 # -- the parent is necessary for setting everything right -- #
                 if len(parent) > 0: # Still in a deeper layer
-                    setattr(attrgetter('.'.join(parent))(head), name, module)
+                    setattr(attrgetter('.'.join(parent))(head), name, n_module)
                 else:   # No parent exist anymore, so we are on first layer, ie. depth 0
-                    setattr(head, name, module)
+                    setattr(head, name, n_module)
                 
                 # -- Try to remove the module from the body when adding everything to the head -- #
                 try:
@@ -314,13 +314,13 @@ class MultiHead_Module(nn.Module):
                     _ = attrgetter('.'.join([*parent, name]))(body)
                 except:
                     # -- Add this whole module with all children to body since it does not exist yet -- #
-                    body.add_module(name, module)
+                    body.add_module(name, n_module)
                 # -- Only go into recursion when the name of the layer is equal to where the split is desired -- #
                 if name == self.split[len(parent)]:
                     # -- Set the parent node name -- #
                     parent.append(name)
                     # -- Continue with children of current model --> use module -- #
-                    body, head, layer_id, parent = self._split_model_recursively_into_body_head(layer_id+1, module, body, head, parent)
+                    body, head, layer_id, parent = self._split_model_recursively_into_body_head(layer_id+1, n_module, body, head, parent)
 
         return body, copy.deepcopy(head), layer_id, parent[:-1]
 

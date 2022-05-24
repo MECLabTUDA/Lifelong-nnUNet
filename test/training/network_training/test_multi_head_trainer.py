@@ -59,6 +59,10 @@ def test_multi_head_trainer(ext_map=None, args_f=None):
     # ----------------------------------- #
     # -- Get the current timestamp -- #
     start_time = time.time()
+    try:
+        delete_specified_task(False, test_data=True, task_ids=['-11', '-22'])
+    except:
+        pass # --> Data already deleted
 
     # -- Define the log file and output folder where it will be stored-- #
     log_file = None # Create it in first call
@@ -472,7 +476,7 @@ if __name__ == "__main__":
             test_multi_head_trainer()
         except Exception as e:  # Error occured or test failed
             # -- Delete the generated data -- #
-            delete_specified_task(False, test_data=True, task_ids=list())
+            delete_specified_task(False, test_data=True, task_ids=['-11', '-22'])
             # -- Enable the prints again -- #
             sys.stdout = sys.__stdout__
             # -- Raise the error -- #
@@ -480,4 +484,7 @@ if __name__ == "__main__":
             raise e
 
     # -- Ensure that the data is really removed -- #
-    delete_specified_task(False, test_data=True, task_ids=list())
+    try:
+        delete_specified_task(False, test_data=True, task_ids=['-11', '-22'])
+    except Exception as e:  # Error occured, i.e. data is already removed
+        pass

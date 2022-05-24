@@ -363,7 +363,8 @@ class SpatialConvSmoothBlock(TanhBlurBlock):
         # -- Build the surrounding convs by hand with InstanceNorm and LRelu layer -- #
         nonlin_kwargs = {'negative_slope': 1e-2, 'inplace': True}
         norm_op_kwargs = {'eps': 1e-5, 'affine': True, 'momentum': 0.1}
-        conv_kwargs = {'kernel_size': 3, 'stride': 1, 'padding': 1, 'dilation': 1, 'bias': True}
+        conv_kwargs = {'kernel_size': 5, 'stride': 1, 'padding': 2, 'dilation': 1, 'bias': True}
+        # conv_kwargs = {'kernel_size': 3, 'stride': 1, 'padding': 1, 'dilation': 1, 'bias': True}
         
         self.instnorm = nn.InstanceNorm2d(in_size[0], **norm_op_kwargs)
         self.lrelu = nn.LeakyReLU(**nonlin_kwargs)
@@ -382,7 +383,6 @@ class SpatialConvSmoothBlock(TanhBlurBlock):
         x_old = x.size()
         x = torch.reshape(x, (x.size(0), *self.in_size))
         x = self.conv_in(self.lrelu(self.instnorm(x)))
-        # x = self.conv_in(x)
         x = super().forward(x)
         x = torch.reshape(x, x_old)
         
@@ -393,34 +393,63 @@ class Encoder(nn.Module):
     r"""This class' sole purpose is to keep track of the attention weights.
         conv_smooth = [when doing MSA, every n; how many conv-blocks every n?; temperature]
     """
-    def __init__(self, depth, dpr, featscale=False, useFFT=False, conv_smooth=None, in_out_channels=None, in_size=None, **configs):
+    def __init__(self, depth, dpr, featscale=False, useFFT=False, conv_smooth=None, in_out_channels=None,
+                 in_size=None, special=False, task_name=None, **configs):
         super(Encoder, self).__init__()
         self.layer = nn.ModuleList()
+        self.special = special
         init_FFT = useFFT
         init_smooth = conv_smooth is not None
         continue_smooth = 0
         assert init_FFT or init_smooth or not init_smooth and not init_FFT, "You can only do once at a time, either replace MSA with FFT or Convolutional smoothin layers."
-        for i in range(depth):
-            FFT = init_FFT and (i+1) % 2 == 0    # --> Do Fourrier Transformation instead of MSA
-            smooth = init_smooth and (i+1) % conv_smooth[0] == 0 or continue_smooth != 0    # -- Do smoothing every nth layers
-            if i == 0 or i in range(depth)[-2:]:
-                FFT, smooth = False, False  # --> First layer is always MSA as well as last two ones
-            if smooth and continue_smooth < conv_smooth[1]:
-                layer = SpatialConvSmoothBlock(conv_smooth, in_out_channels, in_size, **configs)
-                continue_smooth += 1
-            elif featscale:
-                layer = FeatureBlock(drop_path=dpr[i], useFFT=FFT, **configs)
-                continue_smooth = 0
-            else:
-                layer = VanillaBlock(drop_path=dpr[i], useFFT=FFT, **configs)
-                continue_smooth = 0
-            self.layer.append(copy.deepcopy(layer))
+        
+        if special:
+            # -- Specify heads variable as ModuleDict -- #
+            self.msa_heads = nn.ModuleDict()
+            # -- Build the body only out of VanillaBlocks with FFT instead of attention -- #
+            for i in range(depth-2):
+                layer = VanillaBlock(drop_path=dpr[i], useFFT=True, **configs)
+                # if featscale:
+                #     layer = FeatureBlock(drop_path=dpr[i], useFFT=True, **configs)
+                # else:
+                #     layer = VanillaBlock(drop_path=dpr[i], useFFT=True, **configs)
+                self.layer.append(copy.deepcopy(layer))
+            # -- Build the heads out of 3 attentions -- #
+            msa_layers = list()
+            for i in range(2):
+                layer = FeatureBlock(drop_path=dpr[i], useFFT=False, **configs) if featscale else\
+                        VanillaBlock(drop_path=dpr[i], useFFT=False, **configs)
+                msa_layers.append(copy.deepcopy(layer))
+            self.msa_heads[task_name] = nn.ModuleList(msa_layers)
+        else:
+            for i in range(depth):
+                FFT = init_FFT and (i+1) % 2 == 0    # --> Do Fourrier Transformation instead of MSA
+                smooth = init_smooth and (i+1) % conv_smooth[0] == 0 or continue_smooth != 0    # -- Do smoothing every nth layers
+                if i == 0 or i in range(depth)[-2:]:
+                    FFT, smooth = False, False  # --> First layer is always MSA as well as last two ones
+                if smooth and continue_smooth < conv_smooth[1]:
+                    layer = SpatialConvSmoothBlock(conv_smooth, in_out_channels, in_size, **configs)
+                    continue_smooth += 1
+                elif featscale:
+                    layer = FeatureBlock(drop_path=dpr[i], useFFT=FFT, **configs)
+                    continue_smooth = 0
+                else:
+                    layer = VanillaBlock(drop_path=dpr[i], useFFT=FFT, **configs)
+                    continue_smooth = 0
+                self.layer.append(copy.deepcopy(layer))
             
-    def forward(self, hidden_states, **kwargs):
+    def forward(self, hidden_states, task=None, **kwargs):
         attn_weights = []
         for layer_block in self.layer:
             hidden_states, weights = layer_block(hidden_states, **kwargs)
             attn_weights.append(weights)
+        if self.special:
+            if task not in self.msa_heads:
+                last_head = copy.deepcopy(self.msa_heads[list(self.msa_heads.items())[-1][0]])
+                self.msa_heads[task] = last_head
+            for layer_block in self.msa_heads[task]:
+                hidden_states, weights = layer_block(hidden_states, **kwargs)
+                attn_weights.append(weights)
         return hidden_states, attn_weights
 
 class VisionTransformer(VisionTransformer2D):
@@ -431,7 +460,7 @@ class VisionTransformer(VisionTransformer2D):
                  num_heads=12, mlp_ratio=4., qkv_bias=True, representation_size=None, distilled=False,
                  drop_rate=0., attn_drop_rate=0., drop_path_rate=0., embed_layer=PatchEmbed, norm_layer=partial(nn.LayerNorm, eps=1e-6),
                  act_layer=nn.GELU, weight_init='', task_specific_ln=False, task_name=None, is_LSA=False, is_SPT=False, FeatScale=False, AttnScale=False,
-                 useFFT=False, f_map=False, mapping='none', conv_smooth=None, in_out_channels=None, in_size=None):
+                 useFFT=False, f_map=False, mapping='none', conv_smooth=None, in_out_channels=None, in_size=None, special=False):
         r"""This function represents the constructor of ViT. The user has to specify if a 2D ViT (from timm module)
             should be provided or a 3D one. If so, all parameters and arguments need to have the correct dimensions,
             otherwise the initialization might fail (best case scenario) or the results/training process is not as
@@ -447,6 +476,8 @@ class VisionTransformer(VisionTransformer2D):
             every second MSA, while always starting with one and ending with two MSA modules -- based on https://arxiv.org/pdf/2105.03824.pdf.
             f_map and mapping introduces Fourrier feature mapping right before the MLP of the ViT --> https://arxiv.org/pdf/2006.10739.pdf.
             conv_smooth, in_out_channels and in_size for Convolutional Smoothing to replace MSAs: https://arxiv.org/abs/2105.12639.
+            special returns a specific network, which starts with one MSA, followed by a bunch of FFTs and end with a MH structure, i.e.
+            a heaf for every task consisting of 2 MSA modules. Cross-attention between all heads (or the last head) is used.
         """
         # -- We do not accept task_specific in combination with LSA or SPT or both -- #
         if task_specific_ln:
@@ -478,6 +509,8 @@ class VisionTransformer(VisionTransformer2D):
 
         # -- Convoltional Smoothing parameters -- #
         self.conv_smooth, self.in_out_channels, self.in_size = conv_smooth, in_out_channels, in_size
+        self.special = special
+        self.task_name_use = task_name
         
         # -- Attribute that stores attention weights -- #
         self.attn_weights = None
@@ -526,7 +559,8 @@ class VisionTransformer(VisionTransformer2D):
         self.blocks = Encoder(depth, dim=embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, drop=drop_rate,
                               attn_drop=attn_drop_rate, dpr=dpr, norm_layer=self.norm_layer, act_layer=self.act_layer,\
                               is_LSA=self.LSA, num_patches=num_patches, featscale=self.featscale, attnscale=self.attnscale,\
-                              useFFT=self.useFFT, conv_smooth=self.conv_smooth, in_out_channels=self.in_out_channels, in_size=self.in_size)
+                              useFFT=self.useFFT, conv_smooth=self.conv_smooth, in_out_channels=self.in_out_channels, in_size=self.in_size,\
+                              special=special, task_name=task_name)
         
         # -- Remove and create a new self.norm if user wants task_specific_ln -- #
         if self.task_specific_ln:    # --> If not task specific, we don't have anything to do
@@ -540,7 +574,8 @@ class VisionTransformer(VisionTransformer2D):
             self.blocks = Encoder(depth, dim=embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, drop=drop_rate,
                                   attn_drop=attn_drop_rate, dpr=dpr, norm_layer=self.norm_layer, act_layer=self.act_layer,
                                   task_specific_ln=self.task_specific_ln, task_name=task_name, is_LSA=self.LSA, featscale=self.featscale,
-                                  attnscale=self.attnscale, useFFT=self.useFFT, conv_smooth=self.conv_smooth, in_out_channels=self.in_out_channels, in_size=self.in_size)
+                                  attnscale=self.attnscale, useFFT=self.useFFT, conv_smooth=self.conv_smooth, in_out_channels=self.in_out_channels, in_size=self.in_size,
+                                  special=special)
             
             init_size = init_size[1:] if len(init_size) == 3 else init_size
             self.patch_embed = embed_layer(img_size=init_size, patch_size=init_patch, in_chans=init_channel, embed_dim=embed_dim, norm_layer=norm_layer,\
@@ -648,7 +683,7 @@ class VisionTransformer(VisionTransformer2D):
             x = torch.cat((cls_token, self.dist_token.expand(x.shape[0], -1, -1), x), dim=1)
         x = self.pos_drop(x + getattr(self, 'pos_embed_' + str(idx)))
         # -- Blocks can handle task_name since user should have set it using ViT.use_task(..) -- #
-        x, self.attn_weights = self.blocks(x, f_map=self.f_map, B=self.B_dict[self.mapping])
+        x, self.attn_weights = self.blocks(x, f_map=self.f_map, B=self.B_dict[self.mapping], task=task_name)
 
         # -- For self.norm we have to do it here 'by hand' -- #
         if self.task_specific_ln:
@@ -665,7 +700,10 @@ class VisionTransformer(VisionTransformer2D):
             assert self.task_name_use is not None, "Either set the task_name during forward or using the use_task function when training with task specific LNs.."
             # -- Set the task_name accordingly -- #
             task_name = self.task_name_use
-
+        if self.special and task_name is None:
+            # -- Set the task_name accordingly -- #
+            task_name = self.task_name_use
+            
         x = self.forward_features(x, idx, task_name)
         if self.head_dists is not None:
             x, x_dist = self.heads[idx](x[0]), self.head_dists[idx](x[1])  # x must be a tuple

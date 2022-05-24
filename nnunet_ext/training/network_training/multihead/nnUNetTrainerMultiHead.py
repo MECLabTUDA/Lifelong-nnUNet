@@ -73,7 +73,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # -- FFT flag to replace MSA -- #
         self.useFFT = useFFT
         self.f_map_type = f_map_type
-        self.fourrier_mapping = f_map_type is not 'none' and f_map_type is not None
+        self.fourrier_mapping = f_map_type != 'none' and f_map_type is not None
         
         # -- Define filtering flags when used with ViT -- #
         self.filter_rate = filter_rate
@@ -636,7 +636,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
 
         if self.fp16:
             with autocast():
-                if self.filter_with is not None and self.iteration % self.nth_filter == 0:
+                if self.use_vit and self.filter_with is not None and self.iteration % self.nth_filter == 0:
                     output = self.network(data, fft_filter=self.filter_with, filter_rate=self.filter_rate)
                 else:
                     output = self.network(data)
@@ -651,8 +651,8 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                 self.amp_grad_scaler.step(self.optimizer)
                 self.amp_grad_scaler.update()
         else:
-            if self.filter_with is not None and self.iteration % self.nth_filter == 0:
-                output = self.network(data, fft_filter=self.filter_with, filter_rate=self.filter_rate)
+            if self.use_vit and self.filter_with is not None and self.iteration % self.nth_filter == 0:
+                output = self.network(data, fft_filter=self.filter_with, filter_rate=self.filter_rate, task_name=self.task)
             else:
                 output = self.network(data)
             del data

@@ -225,7 +225,7 @@ class Generic_ViT_UNet(Generic_UNet):
         self.split_names = ['ViT']
 
 
-    def forward(self, x, store_vit_input=False, store_vit_output=False, fft_filter=None, filter_rate=0.33):
+    def forward(self, x, store_vit_input=False, store_vit_output=False, fft_filter=None, filter_rate=0.33, task_name=None):
         r"""This function represents the forward function of the presented Generic_ViT_UNet architecture.
             fft_filter can be set to high_basic or high_advanced.
         """
