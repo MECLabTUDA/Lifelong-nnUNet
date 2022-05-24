@@ -59,6 +59,10 @@ def test_multi_head_trainer(ext_map=None, args_f=None):
     # ----------------------------------- #
     # -- Get the current timestamp -- #
     start_time = time.time()
+    try:
+        delete_specified_task(False, test_data=True, task_ids=['-11', '-22'])
+    except:
+        pass # --> Data already deleted
 
     # -- Define the log file and output folder where it will be stored-- #
     log_file = None # Create it in first call
