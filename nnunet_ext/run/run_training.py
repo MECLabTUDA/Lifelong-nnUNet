@@ -98,6 +98,8 @@ def run_training(extension='multihead'):
                         help='Try to train the model on the GPU device with <DEVICE> ID. '+
                             ' Valid IDs: 0, 1, ..., 7. A List of IDs can be provided as well.'+
                             ' Default: Only GPU device with ID 0 will be used.')
+    parser.add_argument('--reduce_threads', action='store_true', default=False,
+                        help='If the network uses too much CPU Threads, set this flag and it will be reduced to about 20 to 30 Threads.')
     parser.add_argument("-s", "--split_at", action='store', type=str, nargs=1, required=True,
                         help='Specify the path in the network in which the split will be performed. '+
                             ' Use a single string for it, specify between layers using a dot \'.\' notation.'+
@@ -253,7 +255,13 @@ def run_training(extension='multihead'):
     task = args.task_ids    # List of the tasks
     fold = args.folds       # List of the folds
     split = args.split_at   # String that specifies the path to the layer where the split needs to be done
+    reduce_threads = args.reduce_threads
     transfer_heads = not args.no_transfer_heads
+    
+    if reduce_threads:
+        os.environ['MKL_NUM_THREADS'] = 1
+        os.environ['NUMEXPR_NUM_THREADS'] = 1
+        os.environ['OMP_NUM_THREADS'] = 1
 
     if isinstance(split, list):    # When the split get returned as a list, extract the path to avoid later appearing errors
         split = split[0].strip()
