@@ -259,9 +259,9 @@ def run_training(extension='multihead'):
     transfer_heads = not args.no_transfer_heads
     
     if reduce_threads:
-        os.environ['MKL_NUM_THREADS'] = 1
-        os.environ['NUMEXPR_NUM_THREADS'] = 1
-        os.environ['OMP_NUM_THREADS'] = 1
+        os.environ['MKL_NUM_THREADS'] = '1'
+        os.environ['NUMEXPR_NUM_THREADS'] = '1'
+        os.environ['OMP_NUM_THREADS'] = '1'
 
     if isinstance(split, list):    # When the split get returned as a list, extract the path to avoid later appearing errors
         split = split[0].strip()
