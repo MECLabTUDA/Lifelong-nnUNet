@@ -62,7 +62,7 @@ class nnUNetTrainerRehearsal(nnUNetTrainerMultiHead):
                           version, split_gpu, transfer_heads, ViT_task_specific_ln, do_LSA, do_SPT)
 
     #------------------------------------------ Partially copied from original implementation ------------------------------------------#
-    def get_basic_generators(self, use_all_data):
+    def get_basic_generators(self, use_all_data=False):
         r"""Calculate the joined dataset for the rehearsal training task.
         """
         if use_all_data:    # In case of evaluation
