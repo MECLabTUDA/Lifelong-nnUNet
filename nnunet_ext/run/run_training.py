@@ -238,6 +238,7 @@ def run_training(extension='multihead'):
     args = parser.parse_args()
     network = args.network
     network_trainer = str(TRAINER_MAP[extension]).split('.')[-1][:-2]
+    print("trainer2", network_trainer)
     validation_only = args.validation_only
     plans_identifier = args.p
     find_lr = args.find_lr
@@ -531,7 +532,8 @@ def run_training(extension='multihead'):
               'nnUNetTrainerPLOP': plop_args, 'nnUNetTrainerV2': basic_args, 'nnViTUNetTrainer': basic_vit,
               'nnUNetTrainerPOD': plop_args, 'nnUNetTrainerFrozEWC': froz_ewc_args,# 'nnUNetTrainerFrozEWCFinal': ewc_args,
               'nnUNetTrainerOwnM1': ownm1_args, 'nnUNetTrainerOwnM2': ownm1_args,
-              'nnUNetTrainerOwnM3': ownm3_args, 'nnUNetTrainerOwnM4': ownm4_args}
+              'nnUNetTrainerOwnM3': ownm3_args, 'nnUNetTrainerOwnM4': ownm4_args,
+              'nnUNetTrainerAgnostic': basic_exts}
 
     
     # ---------------------------------------------
@@ -997,3 +999,9 @@ def main_rw():
     r"""Run training for RW Trainer --> this is equivalent to transfer learning of n tasks.
     """
     run_training(extension='rw')
+
+# -- Main function for setup execution of RW method -- #
+def main_agnostic():
+    r"""Run training for Agnostic Trainer --> this is equivalent to the sequential trainer (will be extended soon)
+    """
+    run_training(extension='agnostic')
