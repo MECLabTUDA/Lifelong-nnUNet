@@ -27,8 +27,8 @@ class Generic_ViT_UNet(Generic_UNet):
                  upscale_logits=False, convolutional_pooling=False, convolutional_upsampling=False,
                  max_num_features=None, basic_block=ConvDropoutNormNonlin, seg_output_use_bias=False,
                  vit_version='V1', vit_type='base', split_gpu=False, ViT_task_specific_ln=False, first_task_name=None,
-                 do_LSA=False, do_SPT=False, FeatScale=False, AttnScale=False, useFFT=False, fourrier_mapping=False,
-                 f_map_type='none', conv_smooth=None):
+                 do_LSA=False, do_SPT=False, FeatScale=False, AttnScale=False, useFFT=False, fourier_mapping=False,
+                 f_map_type='none', conv_smooth=None, special=False, cbam=False):
         r"""This function represents the constructor of the Generic_ViT_UNet architecture. It basically uses the
             Generic_UNet class from the nnU-Net Framework as initialization since the presented architecture is
             based on this network. The vit_type needs to be set, which can be one of three possibilities:
@@ -191,11 +191,13 @@ class Generic_ViT_UNet(Generic_UNet):
             'FeatScale': FeatScale,
             'AttnScale': AttnScale,
             'useFFT': useFFT,
-            'f_map': fourrier_mapping,
+            'f_map': fourier_mapping,
             'mapping': f_map_type,
             'conv_smooth': conv_smooth,
             'in_out_channels': 204 if vit_type == 'base' else None,  # Number of channels
-            'in_size': [204, 8, 8] if vit_type == 'base' else None   # Convolution input size (calculated by hand!)
+            'in_size': [204, 8, 8] if vit_type == 'base' else None,   # Convolution input size (calculated by hand!)
+            'special': special,
+            'cbam': cbam
             }
 
         # -- Initialize ViT generically -- #
@@ -211,21 +213,22 @@ class Generic_ViT_UNet(Generic_UNet):
         del self.conv_blocks_localization, self.conv_blocks_context, self.ViT, self.td, self.tu, self.seg_outputs
 
         # -- Re-register all modules properly using backups to create a specific order -- #
-        self.conv_blocks_localization = conv_blocks_localization
-        self.conv_blocks_context = conv_blocks_context
-        if self.version != 'V4':
+        # -- NEW Order: Encoder -- ViT -- Decoder
+        self.conv_blocks_context = conv_blocks_context  # Encoder part 1
+        self.td = td  # Encoder part 2
+        if self.version != 'V4':    # ViT
             self.ViT = ViT
-        self.td = td
-        self.tu = tu
-        if self.version == 'V4':
+        self.tu = tu   # Decoder part 1
+        self.conv_blocks_localization = conv_blocks_localization   # Decoder part 2
+        if self.version == 'V4':    # ViT
             self.ViT = ViT
-        self.seg_outputs = seg_outputs
+        self.seg_outputs = seg_outputs  # Segmentation head
 
         # -- Define the list of names in case the network gets split onto multiple GPUs -- #
         self.split_names = ['ViT']
 
 
-    def forward(self, x, store_vit_input=False, store_vit_output=False, fft_filter=None, filter_rate=0.33, task_name=None):
+    def forward(self, x, store_vit_input=False, store_vit_output=False, fft_filter=None, filter_rate=0.33):
         r"""This function represents the forward function of the presented Generic_ViT_UNet architecture.
             fft_filter can be set to high_basic or high_advanced.
         """

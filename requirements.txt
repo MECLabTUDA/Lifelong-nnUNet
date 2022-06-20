@@ -1,4 +1,5 @@
 pytest
+matplotlib
 einops==0.3.2
 batchgenerators==0.21
 git+https://github.com/MIC-DKFZ/nnUNet.git@77bc485ee025a61feb91cb0a0ed1c61a32a0f39f

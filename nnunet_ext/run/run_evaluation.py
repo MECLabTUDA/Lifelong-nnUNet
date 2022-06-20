@@ -118,6 +118,10 @@ def run_evaluation():
                         help='Specify the amount of Convolutional smoothing blocks.')
     parser.add_argument('-smooth_temp', action='store', type=float, nargs=1, required=False, default=10,
                         help='Specify the smoothing temperature for Convolutional smoothing blocks. Default: 10.')
+    parser.add_argument('--special', action='store_true', default=False,
+                        help='Set this flag if our special FFT ViT Unet with multiple heads and cross-attention should be used.')
+    parser.add_argument('--cbam', action='store_true', default=False,
+                        help='Set this flag to alternately replace a MSA block with a CBAM block.')
     parser.add_argument('--adaptive', required=False, default=False, action="store_true",
                         help='Set this flag if the EWC loss has been changed during the frozen training process (ewc_lambda*e^{-1/3}). '
                              ' Default: The EWC loss will not be altered. --> Makes only sense with our nnUNetTrainerFrozEWC trainer.')
@@ -175,6 +179,8 @@ def run_evaluation():
                    args.do_n_blocks[0] if isinstance(args.do_n_blocks, list) else args.do_n_blocks,
                    args.smooth_temp[0] if isinstance(args.smooth_temp, list) else args.smooth_temp]
     conv_smooth = None if conv_smooth[0] is None or conv_smooth[1] is None else conv_smooth
+    special = args.special
+    cbam = args.cbam
     
     # -- Filtering specific arguments -- #
     FFT_filter = args.FFT_filter[0] if isinstance(args.FFT_filter, list) else args.FFT_filter
@@ -246,14 +252,13 @@ def run_evaluation():
 
     char_to_join_tasks = '_'
     
-    
     # ---------------------------------------------
     # Evaluate for each task and all provided folds
     # ---------------------------------------------
     evaluator = Evaluator(network, network_trainer, (tasks_for_folder, char_to_join_tasks), (use_model_w_tasks, char_to_join_tasks), 
                           version, vit_type, plans_identifier, mixed_precision, EXT_MAP[network_trainer], save_csv, transfer_heads,
                           use_vit, False, ViT_task_specific_ln, do_LSA, do_SPT, FeatScale, AttnScale, filter_rate, FFT_filter, filter_every,
-                          useFFT, f_map_type, conv_smooth)
+                          useFFT, f_map_type, conv_smooth, special, cbam)
     evaluator.evaluate_on(fold, evaluate_on_tasks, use_head, always_use_last_head, adaptive=adaptive, use_all_data=use_all_data)
 
 # -- Main function for setup execution -- #

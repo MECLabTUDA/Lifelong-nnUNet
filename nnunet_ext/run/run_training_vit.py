@@ -119,6 +119,10 @@ def main():
                         help='Specify the amount of Convolutional smoothing blocks.')
     parser.add_argument('-smooth_temp', action='store', type=float, nargs=1, required=False, default=10,
                         help='Specify the smoothing temperature for Convolutional smoothing blocks. Default: 10.')
+    parser.add_argument('--special', action='store_true', default=False,
+                        help='Set this flag if our special FFT ViT Unet with multiple heads and cross-attention should be used.')
+    parser.add_argument('--cbam', action='store_true', default=False,
+                        help='Set this flag to alternately replace a MSA block with a CBAM block.')
     parser.add_argument('-num_epochs', action='store', type=int, nargs=1, required=False, default=500,
                         help='Specify the number of epochs to train the model.'
                             ' Default: Train for 500 epochs.')
@@ -175,6 +179,8 @@ def main():
                    args.do_n_blocks[0] if isinstance(args.do_n_blocks, list) else args.do_n_blocks,
                    args.smooth_temp[0] if isinstance(args.smooth_temp, list) else args.smooth_temp]
     conv_smooth = None if conv_smooth[0] is None or conv_smooth[1] is None else conv_smooth
+    special = args.special
+    cbam = args.cbam
 
     # -- Extract the arguments specific for all trainers from argument parser -- #
     task = args.task
@@ -243,7 +249,8 @@ def main():
                             batch_dice=batch_dice, stage=stage, unpack_data=decompress_data,
                             deterministic=deterministic, fp16=run_mixed_precision, save_interval=save_interval,
                             version=version, vit_type=vit_type, split_gpu=split_gpu, do_LSA=do_LSA, do_SPT=do_SPT,
-                            FeatScale=FeatScale, AttnScale=AttnScale, useFFT=useFFT, f_map_type=f_map_type, conv_smooth=conv_smooth)
+                            FeatScale=FeatScale, AttnScale=AttnScale, useFFT=useFFT, f_map_type=f_map_type,
+                            conv_smooth=conv_smooth, special=special, cbam=cbam)
     
     # -- Disable the saving of checkpoints if desired -- #                        
     if args.disable_saving:

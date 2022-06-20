@@ -331,7 +331,7 @@ def commDiv(a, b):
 
 def get_ViT_LSA_SPT_scale_folder_name(do_LSA, do_SPT, FeatScale, AttnScale,
                                       filter_with=None, nth_filter=None, filter_rate=None,
-                                      useFFT=False, f_map_type=None, conv_smooth=None):
+                                      useFFT=False, f_map_type=None, conv_smooth=None, special=False, cbam=False):
     r"""Use this function when the ViT_U-Net is used and the output folder needs to be build.
     """
     # -- Specify the folder name based on do_LSA and do_SPT -- #
@@ -360,8 +360,14 @@ def get_ViT_LSA_SPT_scale_folder_name(do_LSA, do_SPT, FeatScale, AttnScale,
     if f_map_type is not None and f_map_type != 'none':
         folder_n = os.path.join(folder_n, f_map_type)
         
+    if special:
+        folder_n = os.path.join(folder_n, 'special')
+        
     if conv_smooth is not None:
         folder_n = os.path.join(folder_n, 'Conv_Smoothing_' + str(conv_smooth[1]) + '_blocks_' + str(conv_smooth[0]) + '_MSAs_temp_' + str(conv_smooth[-1]))
+
+    if cbam:
+        folder_n = os.path.join(folder_n, 'CBAM_MSA')
 
     # -- Return the folder name -- #
     return folder_n

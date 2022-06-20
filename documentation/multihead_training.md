@@ -30,6 +30,7 @@ The following arguments are specifically added for all Trainers, including the M
 | `-t` or `--task_ids` | Specify a list of task ids to train on (ids or names). Each of these ids must have a matching folder TaskXXX_TASKNAME in the raw data folder. | yes | -- | -- |
 | `-f` or `--folds` | Specify on which folds to train on. Use a fold between `0, 1, ..., 4` or `all`. | yes | -- | -- |
 | `-d` or `--device` | Try to train the model on the GPU device with <GPU_ID>. Valid IDs: 0, 1, ..., 7. A List of IDs can be provided as well. Default: Only GPU device with ID 0 will be used. | no | -- | `0` |
+| `--reduce_threads` | If the network uses too much CPU Threads, set this flag and it will be reduced to about 20 to 30 Threads. | no | -- | `False` |
 | `-s` or `--split_at` | Specify the path in the network in which the split will be performed. Use a single string for it, specify between layers using a dot `.` notation. This is a required field and no default will be set. Use the same names as present in the desired network architecture. | yes | -- | -- |
 | `-num_epochs` | Specify the number of epochs to train the model. | no | -- | `500` |
 | `-save_interval` | Specify after which epoch interval to update the saved data. | no | -- | `25` |
@@ -70,7 +71,7 @@ One more complex example showing how to define a deeper split using the `.` nota
 (<your_anaconda_env>) $ nnUNet_train_multihead 3d_fullres -t 11 12 13 -f 0
                                                -num_epoch 250 -d <GPU_ID> -save_interval 25
                                                -s conv_blocks_context.0.blocks.1 --store_csv
-                                               [--use_vit -v <VERSION> -v_type <TYPE> ...]
+                                               [--reduce_threads --use_vit -v <VERSION> -v_type <TYPE> ...]
 ```
 
 All the so far provided examples use the [Generic_UNet](https://github.com/MIC-DKFZ/nnUNet/blob/master/nnunet/network_architecture/generic_UNet.py#L167) architecture as foundation, however as proposed in the Command Line Arguments, one can use our proposed [Generic_ViT_UNet](https://github.com/camgbus/Lifelong-nnUNet/blob/continual_learning/nnunet_ext/network_architecture/generic_ViT_UNet.py#L14) from the [ViT_U-Net branch](https://github.com/camgbus/Lifelong-nnUNet/tree/ViT_U-Net) instead. The following example uses Version 1 (out of 4) of the [Generic_ViT_UNet](https://github.com/camgbus/Lifelong-nnUNet/blob/continual_learning/nnunet_ext/network_architecture/generic_ViT_UNet.py#L14) specifying the Vision Transformer itself as a base Transformer, ie. the smallest one (out of 3 types). More informations with regard to the ViT_U-Net architecture can be found [here](https://github.com/camgbus/Lifelong-nnUNet/blob/ViT_U-Net/documentation/ViT_U-Net.md):
@@ -79,7 +80,7 @@ All the so far provided examples use the [Generic_UNet](https://github.com/MIC-D
                     ~ $ source activate <your_anaconda_env>
 (<your_anaconda_env>) $ nnUNet_train_multihead 3d_fullres -t 11 12 13 -f 0
                                                -num_epoch 250 -d <GPU_ID> -save_interval 25 -s seg_outputs --store_csv
-                                               --use_vit -v 1 -v_type base [--use_mult_gpus ...]
+                                               --use_vit -v 1 -v_type base [--reduce_threads --use_mult_gpus ...]
 ```
 
 In a next use case, the same settings as in the previous one apply, except that the LayerNorm layers of the ViT should be task specific while using the Shifted Path Tokenization and Locality Self-Attention method as proposed [here](https://arxiv.org/pdf/2112.13492v1.pdf):
@@ -89,7 +90,7 @@ In a next use case, the same settings as in the previous one apply, except that 
 (<your_anaconda_env>) $ nnUNet_train_multihead 3d_fullres -t 11 12 13 -f 0 --task_specific_ln
                                                -num_epoch 250 -d <GPU_ID> -save_interval 25 -s seg_outputs --store_csv
                                                --use_vit -v 1 -v_type base --do_LSA --do_SPT
-                                               [--use_mult_gpus ...]                
+                                               [--reduce_threads --use_mult_gpus ...]                
 ```
 
 Last but not least, the following example shows how to use a pre-trained nnU-Net as a foundation (trained on `Task011_XYZ` with `nnUNetTrainerV2` Trainer) to continue training on using new tasks (`Task012_XYZ` and `Task013_XYZ`). Note that this has not been used and thus not tested yet:
@@ -101,7 +102,7 @@ Last but not least, the following example shows how to use a pre-trained nnU-Net
                                                -s seg_outputs --store_csv --init_seq
                                                -initialize_with_network_trainer nnUNetTrainerV2
                                                -used_identifier_in_init_network_trainer nnUNetPlansv2.1
-                                               [--use_vit -v <VERSION> -v_type <TYPE> ...]
+                                               [--reduce_threads --use_vit -v <VERSION> -v_type <TYPE> ...]
 ```
 
 Note that the `--no_transfer_heads` flag makes sense to use in combination with the Multi-Head Trainer, otherwise this will be a classical Transfer Learning case represented by the Sequential Trainer, described [here](sequential_training.md). This flag might make more sense when using the EWC or LwF Trainer as shown [here](ewc_training.md) and [here](lwf_training.md).

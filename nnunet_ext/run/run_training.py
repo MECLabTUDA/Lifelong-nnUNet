@@ -98,6 +98,8 @@ def run_training(extension='multihead'):
                         help='Try to train the model on the GPU device with <DEVICE> ID. '+
                             ' Valid IDs: 0, 1, ..., 7. A List of IDs can be provided as well.'+
                             ' Default: Only GPU device with ID 0 will be used.')
+    parser.add_argument('--reduce_threads', action='store_true', default=False,
+                        help='If the network uses too much CPU Threads, set this flag and it will be reduced to about 20 to 30 Threads.')
     parser.add_argument("-s", "--split_at", action='store', type=str, nargs=1, required=True,
                         help='Specify the path in the network in which the split will be performed. '+
                             ' Use a single string for it, specify between layers using a dot \'.\' notation.'+
@@ -169,7 +171,7 @@ def run_training(extension='multihead'):
                         help='Specify the amount of skipped FFT information during the high_basic filtering.'
                             ' Default: If FFT_filter is set to high_basic, 31 percent of low-pass information is skipped.')
     parser.add_argument('-f_map_type', action='store', type=str, nargs=1, required=False, default='none', choices=['none', 'basic', 'gauss_1', 'gauss_10', 'gauss_100'],
-                        help='Specify if fourrier feature mapping should be used before the ViTs MLP module along with the type.'
+                        help='Specify if fourier feature mapping should be used before the ViTs MLP module along with the type.'
                             ' Note that the argument none makes literally no modification. Default: No mapping will be performed.')
     parser.add_argument('-replace_every', action='store', type=int, nargs=1, required=False, default=None,
                         help='Specify after which amount of MSA a Convolutional smoothing should be used instead.')
@@ -177,6 +179,10 @@ def run_training(extension='multihead'):
                         help='Specify the amount of Convolutional smoothing blocks.')
     parser.add_argument('-smooth_temp', action='store', type=float, nargs=1, required=False, default=10,
                         help='Specify the smoothing temperature for Convolutional smoothing blocks. Default: 10.')
+    parser.add_argument('--special', action='store_true', default=False,
+                        help='Set this flag if our special FFT ViT Unet with multiple heads and cross-attention should be used.')
+    parser.add_argument('--cbam', action='store_true', default=False,
+                        help='Set this flag to alternately replace a MSA block with a CBAM block.')
     parser.add_argument('--no_transfer_heads', required=False, default=False, action="store_true",
                         help='Set this flag if a new head should not be initialized using the last head'
                             ' during training, ie. the very first head from the initialization of the class is used.'
@@ -269,7 +275,13 @@ def run_training(extension='multihead'):
     task = args.task_ids    # List of the tasks
     fold = args.folds       # List of the folds
     split = args.split_at   # String that specifies the path to the layer where the split needs to be done
+    reduce_threads = args.reduce_threads
     transfer_heads = not args.no_transfer_heads
+    
+    if reduce_threads:
+        os.environ['MKL_NUM_THREADS'] = '1'
+        os.environ['NUMEXPR_NUM_THREADS'] = '1'
+        os.environ['OMP_NUM_THREADS'] = '1'
 
     if isinstance(split, list):    # When the split get returned as a list, extract the path to avoid later appearing errors
         split = split[0].strip()
@@ -311,7 +323,9 @@ def run_training(extension='multihead'):
                    args.do_n_blocks[0] if isinstance(args.do_n_blocks, list) else args.do_n_blocks,
                    args.smooth_temp[0] if isinstance(args.smooth_temp, list) else args.smooth_temp]
     conv_smooth = None if conv_smooth[0] is None or conv_smooth[1] is None else conv_smooth
-     
+    
+    special = args.special
+    cbam = args.cbam
     # -- Filtering specific arguments -- #
     FFT_filter = args.FFT_filter[0] if isinstance(args.FFT_filter, list) else args.FFT_filter
     filter_every = args.filter_every[0] if isinstance(args.filter_every, list) else args.filter_every
@@ -514,14 +528,14 @@ def run_training(extension='multihead'):
     basic_vit =  {'vit_type': vit_type, 'version': version, 'split_gpu': split_gpu, 'do_LSA': do_LSA, 'do_SPT': do_SPT,
                   'FeatScale': FeatScale, 'AttnScale': AttnScale, 'filter_with': FFT_filter, 'nth_filter': filter_every,
                   'filter_rate': filter_rate, 'useFFT': useFFT, 'f_map_type': f_map_type,  'conv_smooth': conv_smooth,
-                  **basic_args}
+                  'special': special, 'cbam': cbam, **basic_args}
     basic_exts = {'save_interval': save_interval, 'identifier': init_identifier, 'extension': extension, 'useFFT': useFFT,
                   'tasks_list_with_char': copy.deepcopy(tasks_list_with_char), 'save_csv': save_csv, 'use_param_split': False,
                   'mixed_precision': run_mixed_precision, 'use_vit': use_vit, 'vit_type': vit_type, 'version': version,
                   'split_gpu': split_gpu, 'transfer_heads': transfer_heads, 'ViT_task_specific_ln': ViT_task_specific_ln,
                   'do_LSA': do_LSA, 'do_SPT': do_SPT, 'FeatScale':FeatScale, 'AttnScale': AttnScale, 'filter_with': FFT_filter,
                   'nth_filter': filter_every, 'filter_rate': filter_rate, 'f_map_type': f_map_type, 'conv_smooth': conv_smooth,
-                  **basic_args}
+                  'special': special, 'cbam': cbam, **basic_args}
     ewc_args = {'ewc_lambda': ewc_lambda, **basic_exts}
     mib_args = {'mib_lkd': mib_lkd, 'mib_alpha': mib_alpha, **basic_exts}
     lwf_args = {'lwf_temperature': lwf_temperature, **basic_exts}
@@ -573,18 +587,8 @@ def run_training(extension='multihead'):
                 # -- Extract the folder name in case we have a ViT -- #
                 folder_n = get_ViT_LSA_SPT_scale_folder_name(do_LSA, do_SPT, FeatScale, AttnScale,
                                                              FFT_filter, filter_every, filter_rate,
-                                                             useFFT, f_map_type, conv_smooth)
-                # folder_n = ''
-                # if do_SPT:
-                #     folder_n += 'SPT'
-                # if do_LSA:
-                #     folder_n += 'LSA' if len(folder_n) == 0 else '_LSA'
-                # if FeatScale:
-                #     folder_n += 'FeatScale' if len(folder_n) == 0 else '_FeatScale'
-                # if AttnScale:
-                #     folder_n += 'AttnScale' if len(folder_n) == 0 else '_AttnScale'
-                # if len(folder_n) == 0:
-                #     folder_n = 'traditional'
+                                                             useFFT, f_map_type, conv_smooth, special,
+                                                             cbam)
                 # -- Build base_path -- #
                 if args.continue_from_previous_dir:
                     tasks_excluding_last = join_texts_with_char(tasks_for_folds[:-1], char_to_join_tasks)
@@ -764,7 +768,11 @@ def run_training(extension='multihead'):
             plans_file, output_folder_name, dataset_directory, batch_dice, stage, \
             trainer_class = get_default_configuration(network, t, running_task, network_trainer, tasks_joined_name,\
                                                       plans_identifier, extension_type=extension)
-
+            
+            if trainer_class is None and TRAINER_MAP[extension] is not None:
+                # -- Our fallback rule -- #
+                trainer_class = TRAINER_MAP[extension]
+                
             if trainer_class is None:
                 raise RuntimeError("Could not find trainer class in nnunet_ext.training.network_training")
 
