@@ -4,6 +4,7 @@
 #########################################################################################################
 
 import os, argparse, nnunet_ext
+from nnunet_ext.evaluation.agnostic_evaluator import AgnosticEvaluator
 from nnunet_ext.evaluation.evaluator import Evaluator
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet_ext.utilities.helpful_functions import join_texts_with_char
@@ -222,6 +223,42 @@ def run_evaluation():
 # -- Main function for setup execution -- #
 def main():
     run_evaluation()
+
+def main_agnostic():
+    assert evaluation_output_dir is not None, "Before running any evaluation, please specify the Evaluation folder (EVALUATION_FOLDER) as described in the paths.md."
+    
+    parser = argparse.ArgumentParser()
+    parser.add_argument("network")
+    parser.add_argument("network_trainer")
+    parser.add_argument("-f", "--folds",  action='store', type=str, nargs="+",
+                        help="Specify on which folds to train on. Use a fold between 0, 1, ..., 4 or \'all\'", required=True)
+    parser.add_argument("-trained_on", action='store', type=str, nargs="+",
+                        help="Specify a list of task ids the network has trained with to specify the correct path to the networks. "
+                             "Each of these ids must, have a matching folder 'TaskXXX_' in the raw "
+                             "data folder", required=True)
+    parser.add_argument("-d", "--device", action='store', type=int, nargs="+", default=[0],
+                        help='Try to train the model on the GPU device with <DEVICE> ID. '+
+                            ' Valid IDs: 0, 1, ..., 7. A List of IDs can be provided as well.'+
+                            ' Default: Only GPU device with ID 0 will be used.')
+    parser.add_argument('--store_csv', required=False, default=False, action="store_true",
+                        help='Set this flag if the validation data and any other data if applicable should be stored'
+                            ' as a .csv file as well. Default: .csv are not created.')
+
+    args = parser.parse_args()
+
+    tasks_for_folder = list()
+    for idx, t in enumerate(args.trained_on):
+        # -- Convert task ids to names if necessary --> can be then omitted later on by just using the tasks list with all names in it -- #
+        if not t.startswith("Task"):
+            task_id = int(t)
+            t = convert_id_to_task_name(task_id)
+        # -- Add corresponding task in dictoinary -- #
+        tasks_for_folder.append(t)
+
+
+    agnostic_evaluator = AgnosticEvaluator(args.network, args.network_trainer, tasks_for_folder, EXT_MAP[args.network_trainer])
+    agnostic_evaluator.evaluate(list(map(int, args.folds)))
+
 
 if __name__ == "__main__":
     run_evaluation()

@@ -238,7 +238,6 @@ def run_training(extension='multihead'):
     args = parser.parse_args()
     network = args.network
     network_trainer = str(TRAINER_MAP[extension]).split('.')[-1][:-2]
-    print("trainer2", network_trainer)
     validation_only = args.validation_only
     plans_identifier = args.p
     find_lr = args.find_lr
@@ -333,7 +332,7 @@ def run_training(extension='multihead'):
     os.environ["CUDA_VISIBLE_DEVICES"] = cuda
 
     # -- Reset transfer heads if the Trainer is of sequential type -- #
-    if extension in ['sequential', 'plop', 'frozen_nonln', 'frozen_unet', 'frozen_vit']:
+    if extension in ['sequential', 'plop', 'frozen_nonln', 'frozen_unet', 'frozen_vit', 'agnostic']:
         # -- Transfer heads is always True here even if the user did not set it -- #
         transfer_heads = True
 

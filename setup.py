@@ -42,6 +42,7 @@ setup(name='nnunet_ext',
               'nnUNet_train_plop = nnunet_ext.run.run_training:main_plop',                     # Use for PLOP training
               'nnUNet_train_pod = nnunet_ext.run.run_training:main_pod',                       # Use for POD training
               'nnUNet_evaluate = nnunet_ext.run.run_evaluation:main',                          # Use for evaluation of any method
+              'nnUNet_evaluate_agnostic = nnunet_ext.run.run_evaluation:main_agnostic',        # Use for evaluation of the agnostic trainer
               'nnUNet_parameter_search = nnunet_ext.run.run_param_search:main',                # Use for parameter search for any parameter using extension trainer
                             ## -- Experimental Trainers -- ##
               'nnUNet_train_ewc_ln = nnunet_ext.run.run_training:main_ewc_ln',                 # Use for EWC on LN layers
