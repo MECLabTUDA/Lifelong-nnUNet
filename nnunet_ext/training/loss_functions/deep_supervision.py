@@ -619,3 +619,30 @@ class MultipleOutputLossOwn2(MultipleOutputLossEWC):
 
         # -- Return the updated loss value -- #
         return loss + dist_loss
+
+# -- Loss function for the own approach -- #
+class MultipleOutputLossKDViT(MultipleOutputLoss2):
+    def __init__(self, loss, weight_factors=None, temp=10., alpha=2/3, beta=1/3):
+        """This loss represents our own loss for KD between ViT heads.
+        """
+        # -- Initialize using the MultipleOutputLoss2 from nnU-Net -- #
+        super(MultipleOutputLossKDViT, self).__init__(loss, weight_factors)
+
+        # -- Set all variables that are used by parent class and are necessary for the EWC loss calculation -- #
+        self.weight_factors = weight_factors
+        self.loss = loss
+        self.alpha = alpha
+        self.beta = beta
+        self.kd = SimpleKnowledgeDistillationLoss(temp)
+
+    def forward(self, x, x_o, y):
+        # -- Calculate the loss first using the parent class -- #
+        loss = super(MultipleOutputLossKDViT, self).forward(x, y)
+        if x_o is not None:
+            # -- Calculate KD loss -- #
+            loss_kd = self.kd(x, x_o)
+            # -- Add KD part of the loss using alpha and beta weighting -- #
+            loss = self.alpha*loss + self.beta*loss_kd
+        
+        # -- Return the updated loss value -- #
+        return loss

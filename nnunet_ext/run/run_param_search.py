@@ -183,8 +183,10 @@ def run_param_search():
                         help='Specify the amount of Convolutional smoothing blocks.')
     parser.add_argument('-smooth_temp', action='store', type=float, nargs=1, required=False, default=10,
                         help='Specify the smoothing temperature for Convolutional smoothing blocks. Default: 10.')
-    parser.add_argument('--special', action='store_true', default=False,
-                        help='Set this flag if our special FFT ViT Unet with multiple heads and cross-attention should be used.')
+    parser.add_argument('--TS_MSA', action='store_true', default=False,
+                        help='Set this flag if you want task-specific MSA heads. If cross-attn is desired, the architecture will use TS_MSA.')
+    parser.add_argument('--cross_attn', action='store_true', default=False,
+                        help='Set this flag if our cross_attn FFT ViT Unet with multiple heads and cross-attention should be used.')
     parser.add_argument('--cbam', action='store_true', default=False,
                         help='Set this flag to alternately replace a MSA block with a CBAM block.')
     parser.add_argument('--adaptive', required=False, default=False, action="store_true",
@@ -248,7 +250,9 @@ def run_param_search():
                    args.do_n_blocks[0] if isinstance(args.do_n_blocks, list) else args.do_n_blocks,
                    args.smooth_temp[0] if isinstance(args.smooth_temp, list) else args.smooth_temp]
     conv_smooth = None if conv_smooth[0] is None or conv_smooth[1] is None else conv_smooth
-    special = args.special
+    
+    cross_attn = args.cross_attn
+    ts_msa = True if cross_attn else args.TS_MSA
     cbam = args.cbam
 
     # -- Filtering specific arguments -- #
@@ -385,7 +389,8 @@ def run_param_search():
                   'do_LSA': do_LSA, 'do_SPT': do_SPT, 'FeatScale':FeatScale, 'AttnScale':AttnScale, 'search_mode': search_mode, 'grid_picks': grid_picks, 'rand_range': rand_range,
                   'rand_pick': rand_pick, 'rand_seed': rand_seed, 'always_use_last_head': always_use_last_head, 'adaptive': adaptive, 'filter_with': FFT_filter,
                   'nth_filter': filter_every, 'filter_rate': filter_rate, 'perform_validation': perform_validation, 'fixate_params': fixate_params,
-                  'run_in_parallel': run_in_parallel, 'f_map_type': f_map_type, 'conv_smotth': conv_smooth, 'special': special, 'cbam': cbam, **unet_args}
+                  'run_in_parallel': run_in_parallel, 'f_map_type': f_map_type, 'conv_smotth': conv_smooth, 'ts_msa': ts_msa, 'cross_attn': cross_attn,
+                  'cbam': cbam, **unet_args}
     
     # -- Create the ParamSearcher -- #
     searcher = ParamSearcher(**param_args)

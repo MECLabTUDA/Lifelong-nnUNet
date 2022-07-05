@@ -23,8 +23,8 @@ class ParamSearcher():
                  perform_validation=False, continue_training=False, unpack_data=True, deterministic=False, save_interval=5, num_epochs=100,
                  fp16=True, find_lr=False, valbest=False, disable_postprocessing_on_folds=False, split_gpu=False, fixate_params=None,
                  val_disable_overwrite=True, disable_next_stage_pred=False, run_in_parallel=False, adaptive=False,
-                 filter_rate=0.35, filter_with='high_basic', nth_filter=10, useFFT=False, f_map_type=None, conv_smooth=None, special=False,
-                 cbam=False):
+                 filter_rate=0.35, filter_with='high_basic', nth_filter=10, useFFT=False, f_map_type=None, conv_smooth=None, ts_msa=False,
+                 cross_attn=False, cbam=False):
         r"""Constructor for parameter searcher. Use the constructor of an Experiment since they are very similar.
         """
         # -- Ensure everything is correct transmitted -- #
@@ -45,7 +45,8 @@ class ParamSearcher():
         self.cbam = cbam
         self.summary = None
         self.main_sum = None
-        self.special = special
+        self.ts_msa = True if cross_attn else ts_msa
+        self.cross_attn = cross_attn
         self.adaptive = adaptive
         self.rand_pick = rand_pick
         self.rand_seed = rand_seed
@@ -68,7 +69,7 @@ class ParamSearcher():
                          'num_epochs': num_epochs, 'fp16': fp16, 'find_lr': find_lr, 'valbest': valbest, 'disable_postprocessing_on_folds': disable_postprocessing_on_folds,
                          'split_gpu': split_gpu, 'val_disable_overwrite': val_disable_overwrite, 'disable_next_stage_pred': disable_next_stage_pred,
                          'filter_with': filter_with, 'nth_filter': nth_filter, 'filter_rate': filter_rate, 'f_map_type': f_map_type, 'conv_smotth': conv_smooth,
-                         'special': special, 'cbam': cbam}
+                         'ts_msa': self.ts_msa, 'cross_attn': cross_attn, 'cbam': cbam}
 
         # -- Do an initialization like the one of an Experiment -- #
         Experiment.__init__(self, **self.exp_args)

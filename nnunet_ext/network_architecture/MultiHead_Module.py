@@ -41,7 +41,6 @@ class MultiHead_Module(nn.Module):
         """
         # -- Initialize using super -- #
         super().__init__()
-
         # -- Store the class_object -- #
         self.class_object = class_object
 

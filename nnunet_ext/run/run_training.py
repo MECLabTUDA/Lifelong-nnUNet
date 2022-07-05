@@ -179,8 +179,10 @@ def run_training(extension='multihead'):
                         help='Specify the amount of Convolutional smoothing blocks.')
     parser.add_argument('-smooth_temp', action='store', type=float, nargs=1, required=False, default=10,
                         help='Specify the smoothing temperature for Convolutional smoothing blocks. Default: 10.')
-    parser.add_argument('--special', action='store_true', default=False,
-                        help='Set this flag if our special FFT ViT Unet with multiple heads and cross-attention should be used.')
+    parser.add_argument('--TS_MSA', action='store_true', default=False,
+                        help='Set this flag if you want task-specific MSA heads. If cross-attn is desired, the architecture will use TS_MSA.')
+    parser.add_argument('--cross_attn', action='store_true', default=False,
+                        help='Set this flag if our cross_attn FFT ViT Unet with multiple heads and cross-attention should be used.')
     parser.add_argument('--cbam', action='store_true', default=False,
                         help='Set this flag to alternately replace a MSA block with a CBAM block.')
     parser.add_argument('--no_transfer_heads', required=False, default=False, action="store_true",
@@ -249,6 +251,17 @@ def run_training(extension='multihead'):
         parser.add_argument('--adaptive', required=False, default=False, action="store_true",
                             help='Set this flag if the EWC loss should be changed during the frozen training process (ewc_lambda*e^{-1/3}). '
                                  ' Default: The EWC loss will not be altered.')
+
+    if extension in ['kd_vit']:
+        parser.add_argument('-kd_temp', action='store', type=float, nargs=1, required=False, default=10.,
+                            help='Specify the weighting of the KL loss.'
+                                ' Default: kd_temp = 10')
+        parser.add_argument('-alpha', action='store', type=float, nargs=1, required=False, default=2/3,
+                            help='Specify the weighting of the non-KD term (CE and DC loss).'
+                                ' Default: alpha = 2/3')
+        parser.add_argument('-beta', action='store', type=float, nargs=1, required=False, default=1/3,
+                            help='Specify the weighting of the KD term (KL loss).'
+                                ' Default: beta = 1/3')
 
     # -------------------------------
     # Extract arguments from parser
@@ -324,7 +337,8 @@ def run_training(extension='multihead'):
                    args.smooth_temp[0] if isinstance(args.smooth_temp, list) else args.smooth_temp]
     conv_smooth = None if conv_smooth[0] is None or conv_smooth[1] is None else conv_smooth
     
-    special = args.special
+    cross_attn = args.cross_attn
+    ts_msa = True if cross_attn else args.TS_MSA
     cbam = args.cbam
     # -- Filtering specific arguments -- #
     FFT_filter = args.FFT_filter[0] if isinstance(args.FFT_filter, list) else args.FFT_filter
@@ -492,6 +506,20 @@ def run_training(extension='multihead'):
     if extension in ['froz_ewc']:
         assert use_vit, "The nnUNetTrainerFrozEWC can only be used with a ViT_U-Net.."
         adaptive = args.adaptive
+        
+    # -- Extract own arguments -- #
+    kd_temp, alpha, beta = None, None, None
+    if extension in ['kd_vit']:
+        assert use_vit, "The nnUNetTrainerKDViT can only be used with a ViT_U-Net.."
+        kd_temp = args.kd_temp
+        if isinstance(kd_temp, list):
+            kd_temp = kd_temp[0]
+        alpha = args.alpha
+        if isinstance(alpha, list):
+            alpha = alpha[0]
+        beta = args.beta
+        if isinstance(beta, list):
+            beta = beta[0]
     
     # -------------------------------
     # Transform tasks to task names
@@ -528,14 +556,14 @@ def run_training(extension='multihead'):
     basic_vit =  {'vit_type': vit_type, 'version': version, 'split_gpu': split_gpu, 'do_LSA': do_LSA, 'do_SPT': do_SPT,
                   'FeatScale': FeatScale, 'AttnScale': AttnScale, 'filter_with': FFT_filter, 'nth_filter': filter_every,
                   'filter_rate': filter_rate, 'useFFT': useFFT, 'f_map_type': f_map_type,  'conv_smooth': conv_smooth,
-                  'special': special, 'cbam': cbam, **basic_args}
+                  'ts_msa': ts_msa, 'cross_attn': cross_attn, 'cbam': cbam, **basic_args}
     basic_exts = {'save_interval': save_interval, 'identifier': init_identifier, 'extension': extension, 'useFFT': useFFT,
                   'tasks_list_with_char': copy.deepcopy(tasks_list_with_char), 'save_csv': save_csv, 'use_param_split': False,
                   'mixed_precision': run_mixed_precision, 'use_vit': use_vit, 'vit_type': vit_type, 'version': version,
                   'split_gpu': split_gpu, 'transfer_heads': transfer_heads, 'ViT_task_specific_ln': ViT_task_specific_ln,
                   'do_LSA': do_LSA, 'do_SPT': do_SPT, 'FeatScale':FeatScale, 'AttnScale': AttnScale, 'filter_with': FFT_filter,
                   'nth_filter': filter_every, 'filter_rate': filter_rate, 'f_map_type': f_map_type, 'conv_smooth': conv_smooth,
-                  'special': special, 'cbam': cbam, **basic_args}
+                  'ts_msa': ts_msa, 'cross_attn': cross_attn, 'cbam': cbam, **basic_args}
     ewc_args = {'ewc_lambda': ewc_lambda, **basic_exts}
     mib_args = {'mib_lkd': mib_lkd, 'mib_alpha': mib_alpha, **basic_exts}
     lwf_args = {'lwf_temperature': lwf_temperature, **basic_exts}
@@ -543,6 +571,7 @@ def run_training(extension='multihead'):
     plop_args = {'pod_lambda': pod_lambda, 'pod_scales': pod_scales, **basic_exts}
     rw_args = {'rw_lambda': rw_lambda, 'rw_alpha': rw_alpha, 'fisher_update_after': update_fisher_every, **basic_exts}
     froz_ewc_args = {'adaptive':adaptive, **ewc_args}
+    kd_vit = {'kd_temp': kd_temp, 'alpha': alpha, 'beta': beta, **basic_exts}
     # -- Join the dictionaries into a dictionary with the corresponding class name -- #
     args_f = {'nnUNetTrainerRW': rw_args, 'nnUNetTrainerMultiHead': basic_exts,
               'nnUNetTrainerFrozenViT': basic_exts, 'nnUNetTrainerEWCViT': ewc_args,
@@ -551,7 +580,7 @@ def run_training(extension='multihead'):
               'nnUNetTrainerSequential': basic_exts, 'nnUNetTrainerRehearsal': reh_args,
               'nnUNetTrainerMiB': mib_args, 'nnUNetTrainerEWC': ewc_args, 'nnUNetTrainerLWF': lwf_args,
               'nnUNetTrainerPLOP': plop_args, 'nnUNetTrainerV2': basic_args, 'nnViTUNetTrainer': basic_vit,
-              'nnUNetTrainerPOD': plop_args, 'nnUNetTrainerFrozEWC': froz_ewc_args}
+              'nnUNetTrainerPOD': plop_args, 'nnUNetTrainerFrozEWC': froz_ewc_args, 'nnUNetTrainerKDViT': kd_vit}
 
     # ---------------------------------------------
     # Train for each task for all provided folds
@@ -576,7 +605,7 @@ def run_training(extension='multihead'):
         # -- Set began_with -- #
         began_with = tasks[0]
         
-        # -- When continual_learning flag used there is a special case: The algorithm needs to know where to continue with its training -- #
+        # -- When continual_learning flag used there is a cross_attn case: The algorithm needs to know where to continue with its training -- #
         # -- For this the already_trained_on file will be loaded and the tasks based on the content prepared for training. -- #
         # -- The started but yet not finished task will be continued and then the remaining task(s) will be trained the normal way. -- #
         if continue_training:
@@ -587,7 +616,7 @@ def run_training(extension='multihead'):
                 # -- Extract the folder name in case we have a ViT -- #
                 folder_n = get_ViT_LSA_SPT_scale_folder_name(do_LSA, do_SPT, FeatScale, AttnScale,
                                                              FFT_filter, filter_every, filter_rate,
-                                                             useFFT, f_map_type, conv_smooth, special,
+                                                             useFFT, f_map_type, conv_smooth, ts_msa, cross_attn,
                                                              cbam)
                 # -- Build base_path -- #
                 if args.continue_from_previous_dir:
@@ -1018,3 +1047,9 @@ def main_rw():
     r"""Run training for RW Trainer --> this is equivalent to transfer learning of n tasks.
     """
     run_training(extension='rw')
+    
+# -- Main function for setup execution of KD ViT method -- #
+def main_kd_vit():
+    r"""Run training for KD ViT.
+    """
+    run_training(extension='kd_vit')

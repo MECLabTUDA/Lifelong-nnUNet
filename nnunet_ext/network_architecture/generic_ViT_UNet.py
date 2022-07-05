@@ -28,7 +28,7 @@ class Generic_ViT_UNet(Generic_UNet):
                  max_num_features=None, basic_block=ConvDropoutNormNonlin, seg_output_use_bias=False,
                  vit_version='V1', vit_type='base', split_gpu=False, ViT_task_specific_ln=False, first_task_name=None,
                  do_LSA=False, do_SPT=False, FeatScale=False, AttnScale=False, useFFT=False, fourier_mapping=False,
-                 f_map_type='none', conv_smooth=None, special=False, cbam=False):
+                 f_map_type='none', conv_smooth=None, ts_msa=False, cross_attn=False, cbam=False):
         r"""This function represents the constructor of the Generic_ViT_UNet architecture. It basically uses the
             Generic_UNet class from the nnU-Net Framework as initialization since the presented architecture is
             based on this network. The vit_type needs to be set, which can be one of three possibilities:
@@ -196,7 +196,8 @@ class Generic_ViT_UNet(Generic_UNet):
             'conv_smooth': conv_smooth,
             'in_out_channels': 204 if vit_type == 'base' else None,  # Number of channels
             'in_size': [204, 8, 8] if vit_type == 'base' else None,   # Convolution input size (calculated by hand!)
-            'special': special,
+            'ts_msa': ts_msa,
+            'cross_attn': cross_attn,
             'cbam': cbam
             }
 
@@ -228,7 +229,7 @@ class Generic_ViT_UNet(Generic_UNet):
         self.split_names = ['ViT']
 
 
-    def forward(self, x, store_vit_input=False, store_vit_output=False, fft_filter=None, filter_rate=0.33):
+    def forward(self, x, store_vit_input=False, store_vit_output=False, fft_filter=None, filter_rate=0.33, task_name=None):
         r"""This function represents the forward function of the presented Generic_ViT_UNet architecture.
             fft_filter can be set to high_basic or high_advanced.
         """
@@ -314,7 +315,7 @@ class Generic_ViT_UNet(Generic_UNet):
 
             # -- Pass the result from conv_blocks through ViT -- #
             # x = self.ViT(torch.fft.fft2(ViT_in).real)
-            x = self.ViT(ViT_in)
+            x = self.ViT(ViT_in, task_name=task_name)
             del ViT_in
 
             # -- Reshape result from ViT to input of self.tu[0] -- #

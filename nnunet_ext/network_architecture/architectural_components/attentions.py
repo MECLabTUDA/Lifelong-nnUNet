@@ -41,7 +41,7 @@ class VanillaAttention(AttentionTimm):
                 nn.init.constant_(m.bias, 0)
                 nn.init.constant_(m.weight, 1.0)
 
-    def forward(self, x, special=False, use_q=None):
+    def forward(self, x, cross_attn=False, use_q=None):
         if self.LSA:
             # -- Perform forward function from Attention with LSA --> copied and modified from https://github.com/aanna0701/SPT_LSA_ViT/blob/main/models/vit.py#L75 -- #
             b, _, _, h = *x.shape, self.heads
@@ -82,7 +82,7 @@ class VanillaAttention(AttentionTimm):
             x = self.proj_drop(x)
         
         # -- Always return a copy of q as well for cross-attention -- #
-        if special and use_q is None:
+        if cross_attn and use_q is None:
             return x, weights, q_
         else:
             return x, weights
@@ -95,7 +95,7 @@ class ScaleAttention(VanillaAttention):
         # -- Just add the lamb parameter -- #
         self.lamb = nn.Parameter(torch.zeros(num_heads), requires_grad=True)
 
-    def forward(self, x, special=False, use_q=None):
+    def forward(self, x, cross_attn=False, use_q=None):
         if self.LSA:    # <-- Test this, i.e. set LSA and AttnScale!!!
             B, N, C = x.shape
             # -- Perform forward function from Attention with LSA --> copied and modified from https://github.com/aanna0701/SPT_LSA_ViT/blob/main/models/vit.py#L75 -- #
@@ -153,7 +153,7 @@ class ScaleAttention(VanillaAttention):
             x = self.proj_drop(x)
         
         # -- Always return a copy of q as well for cross-attention -- #
-        if special and use_q is None:
+        if cross_attn and use_q is None:
             return x, weights, q_
         else:
             return x, weights

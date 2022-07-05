@@ -46,7 +46,7 @@ class VanillaBlock(nn.Module):
         mlp_hidden_dim = int(dim * mlp_ratio)
         self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
 
-    def forward(self, x, f_map=False, B=None, special=False, use_q=None):
+    def forward(self, x, f_map=False, B=None, cross_attn=False, use_q=None):
         r"""If task_specific_ln is used, don't forget to call ViT.use_task(..) to select the correct LNs for the blocks.
         """
         if self.task_specific_ln:
@@ -58,8 +58,8 @@ class VanillaBlock(nn.Module):
             else:
                 x = x + self.drop_path(self.mlp(self.norm2[self.use_task_name].to(x.device.index)(x)))
         else:
-            x_, *weights = self.attn(self.norm1(x), special=special, use_q=use_q)
-            if special and use_q is None:
+            x_, *weights = self.attn(self.norm1(x), cross_attn=cross_attn, use_q=use_q)
+            if cross_attn and use_q is None:
                 weights, q = weights
             else:
                 weights = weights[0]
@@ -69,7 +69,7 @@ class VanillaBlock(nn.Module):
             else:
                 x = x + self.drop_path(self.mlp(self.norm2(x)))
                 
-        if special and use_q is None:
+        if cross_attn and use_q is None:
             return x, weights, q
         else:
             return x, weights
@@ -105,17 +105,17 @@ class FeatureBlock(VanillaBlock):
         x_h = x - x_d # high freq [bs, len, dim]
         return x_d, x_h
 
-    def forward(self, x, f_map=False, B=None, special=False, use_q=None):
+    def forward(self, x, f_map=False, B=None, cross_attn=False, use_q=None):
         r"""If task_specific_ln is used, don't forget to call ViT.use_task(..) to select the correct LNs for the blocks.
             Updated forward function according to Feature Scale method.
         """
         # -- Pass through attention module -- #
         if self.task_specific_ln:
             assert self.use_task_name is not None and isinstance(self.use_task_name, str), "When using task specific LNs, than please set a task_name for the forward call using ViT.use_task(..).."
-            x_, *weights = self.attn(self.norm1[self.use_task_name].to(x.device.index)(x), special)
+            x_, *weights = self.attn(self.norm1[self.use_task_name].to(x.device.index)(x), cross_attn)
         else:
-            x_, *weights = self.attn(self.norm1(x), special, use_q)
-        if special and use_q is None:
+            x_, *weights = self.attn(self.norm1(x), cross_attn, use_q)
+        if cross_attn and use_q is None:
             weights, q = weights
         else:
             weights = weights[0]
@@ -140,7 +140,7 @@ class FeatureBlock(VanillaBlock):
                 x = x + self.drop_path(self.mlp(self.norm2(x)))
              
         # -- Return result with attention weights -- #
-        if special and use_q is None:
+        if cross_attn and use_q is None:
             return x, weights, q
         else:
             return x, weights

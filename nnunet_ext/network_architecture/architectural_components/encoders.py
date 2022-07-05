@@ -7,18 +7,21 @@ class Encoder(nn.Module):
         conv_smooth = [when doing MSA, every n; how many conv-blocks every n?; temperature]
     """
     def __init__(self, depth, dpr, featscale=False, useFFT=False, conv_smooth=None, in_out_channels=None,
-                 in_size=None, special=False, task_name=None, cbam=False, **configs):
+                 in_size=None, ts_msa=False, cross_attn=False, task_name=None, cbam=False, **configs):
         super(Encoder, self).__init__()
         self.layer = nn.ModuleList()
-        self.special = special
+        self.ts_msa = ts_msa
+        self.cross_attn = cross_attn
         init_FFT = useFFT
         init_smooth = conv_smooth is not None
         continue_smooth = 0
         prev_cbam = False
         continue_msa = 0
         assert init_FFT or init_smooth or not init_smooth and not init_FFT, "You can only do once at a time, either replace MSA with FFT or Convolutional smoothin layers."
-        
-        if special:
+        if cross_attn:
+            assert self.ts_msa, "You can only use cross attention with task specific MSA heads.."
+          
+        if self.ts_msa:
             # -- Specify heads variable as ModuleDict -- #
             self.msa_heads = nn.ModuleDict()
             # -- Build the body only out of VanillaBlocks with FFT instead of attention -- #
@@ -68,9 +71,9 @@ class Encoder(nn.Module):
     def forward(self, hidden_states, task=None, **kwargs):
         attn_weights = []
         for layer_block in self.layer:
-            hidden_states, weights = layer_block(hidden_states, **kwargs)   # <-- Special is false here by default!
+            hidden_states, weights = layer_block(hidden_states, **kwargs)   # <-- cross_attn is false here by default!
             attn_weights.append(weights)
-        if self.special:
+        if self.ts_msa:
             # -- Do cross-attention using previous head: k, v from current head and q from previous head during attention -- #
             if task not in self.msa_heads:
                 last_head = copy.deepcopy(self.msa_heads[list(self.msa_heads.items())[-1][0]])
@@ -87,20 +90,32 @@ class Encoder(nn.Module):
                     param.requires_grad = False
         
             # -- Do forward pass on previous head and keep track of those q_s -- #
-            if len (self.msa_heads) != 1:
+            if len (self.msa_heads) != 1 and self.cross_attn:
                 # -- Keep a copy of the hidden_states -- #
                 hidden_states_ = hidden_states.clone()
                 queries = list()
                 for layer_block in self.msa_heads[list(self.msa_heads.items())[0][0]]:
-                    hidden_states, weights, q = layer_block(hidden_states, special=True, **kwargs)
+                    hidden_states, weights, q = layer_block(hidden_states, cross_attn=True, **kwargs)
                     queries.append(q)
                 # -- Restore the hidden states, so we use the correct ones -- #
                 hidden_states = hidden_states_.clone()
                 del hidden_states_
-                # -- Loop through actual head using q from previous head, i.e. doing cross-attention -- #
+                # --> See 3x3 folder for the results
+                # # -- Loop through actual head using q from previous head, i.e. doing cross-attention on all modules in head! -- #
+                # for idx, layer_block in enumerate(self.msa_heads[task]):
+                #     # -- Skip the first querie element, as it is the input of the first MSA and we don't want that -- #
+                #     hidden_states, weights = layer_block(hidden_states, use_q=queries[idx], cross_attn=True, **kwargs)
+                #     attn_weights.append(weights)
+                # del queries
+                
+                # --> See exp folder for the results
+                # # -- Loop through actual head using q from previous head, i.e. doing cross-attention but only on the second head, not the first one! -- #
                 for idx, layer_block in enumerate(self.msa_heads[task]):
                     # -- Skip the first querie element, as it is the input of the first MSA and we don't want that -- #
-                    hidden_states, weights = layer_block(hidden_states, use_q=queries[idx], special=True, **kwargs)
+                    if idx == 0:
+                        hidden_states, weights = layer_block(hidden_states, **kwargs)
+                    else:
+                        hidden_states, weights = layer_block(hidden_states, use_q=queries[idx], cross_attn=True, **kwargs)
                     attn_weights.append(weights)
                 del queries
             else:   # First run with only one head, simply run the head as we can not do any cross-attention yet

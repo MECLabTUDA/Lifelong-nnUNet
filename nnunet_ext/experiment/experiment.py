@@ -37,8 +37,8 @@ class Experiment():
                  always_use_last_head=True, npz=False, output_exp=None, output_eval=None, perform_validation=False, param_call=False, adaptive=False,
                  unpack_data=True, deterministic=False, save_interval=5, num_epochs=100, fp16=True, find_lr=False, valbest=False, use_param_split=False,
                  disable_postprocessing_on_folds=False, split_gpu=False, val_disable_overwrite=True, disable_next_stage_pred=False, show_progress_tr_bar=True,
-                 use_all_data=False, filter_rate=0.35, filter_with='high_basic', nth_filter=10, useFFT=False, f_map_type=None, conv_smooth=None, special=False,
-                 cbam=False):
+                 use_all_data=False, filter_rate=0.35, filter_with='high_basic', nth_filter=10, useFFT=False, f_map_type=None, conv_smooth=None, ts_msa=False,
+                 cross_attn=False, cbam=False):
         r"""Constructor for Experiment.
         """
         # -- Define a empty dictionary that is used for backup purposes -- #
@@ -63,7 +63,8 @@ class Experiment():
         # -- Set all the relevant attributes -- #
         self.fold = fold
         self.cbam = cbam
-        self.special = special
+        self.ts_msa = True if cross_attn else ts_msa
+        self.cross_attn = cross_attn
         self.network = network
         self.adaptive = adaptive
         self.split_at = split_at
@@ -114,7 +115,7 @@ class Experiment():
                            'split_gpu': self.split_gpu, 'transfer_heads': self.transfer_heads, 'ViT_task_specific_ln': self.ViT_task_specific_ln,
                            'do_LSA': self.LSA, 'do_SPT': self.SPT, 'FeatScale': FeatScale, 'AttnScale': AttnScale, 'use_param_split': use_param_split,
                            'filter_with': filter_with, 'nth_filter': nth_filter, 'filter_rate': filter_rate, 'useFFT': useFFT, 'f_map_type': f_map_type,
-                           'conv_smooth': conv_smooth, 'special': special, 'cbam': self.cbam, **basic_args}
+                           'conv_smooth': conv_smooth, 'ts_msa': self.ts_msa, 'cross_attn': cross_attn, 'cbam': self.cbam, **basic_args}
         
         # -- Check that the hyperparameters match -- #
         trainer_file_to_import = recursive_find_python_class_file([join(nnunet_ext.__path__[0], "training", "network_training", self.extension)],
@@ -127,7 +128,7 @@ class Experiment():
                                 'extension': self.extension, 'save_csv': True, 'transfer_heads': self.transfer_heads, 'use_vit': self.use_vit, 'useFFT': useFFT,
                                 'use_param_split': self.param_split, 'ViT_task_specific_ln': self.ViT_task_specific_ln, 'do_LSA': self.LSA, 'do_SPT': self.SPT,
                                 'FeatScale': FeatScale, 'AttnScale': AttnScale, 'filter_with': filter_with, 'nth_filter': nth_filter, 'filter_rate': filter_rate,
-                                'f_map_type': f_map_type, 'conv_smotth': conv_smooth, 'special': special, 'cbam': self.cbam}
+                                'f_map_type': f_map_type, 'conv_smotth': conv_smooth, 'ts_msa': self.ts_msa, 'cross_attn': cross_attn, 'cbam': self.cbam}
         self.evaluator = Evaluator(model_list_with_char = (self.tasks_list_with_char[0][0], self.tasks_list_with_char[1]), **self.basic_eval_args)
 
     def run_experiment(self, exp_id, settings, settings_in_folder_name, gpu_ids, continue_tr=False):

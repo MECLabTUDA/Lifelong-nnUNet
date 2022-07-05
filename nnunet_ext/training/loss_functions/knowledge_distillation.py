@@ -1,4 +1,5 @@
 import torch, torch.nn as nn
+import torch.nn.functional as F
 
 class UnbiasedKnowledgeDistillationLoss(nn.Module):
     r"""Copied from https://github.com/fcdl94/MiB/blob/1c589833ce5c1a7446469d4602ceab2cdeac1b0e/utils/loss.py#L139.
@@ -58,3 +59,22 @@ class KnowledgeDistillationLoss(nn.Module):
             outputs = -loss
 
         return outputs
+    
+class SimpleKnowledgeDistillationLoss(nn.Module):
+    r"""Simple KD loss using KL Divergence loss.
+    """
+    def __init__(self, temp=10.):
+        super().__init__()
+        self.temp = temp
+        self.loss_function = torch.nn.KLDivLoss()
+
+    def forward(self, new_pred, old_pred):
+        # KL Divergence loss needs special care
+        # It expects log probabilities for the model's output, and probabilities for the label
+        loss = 0
+        for i in range(len(new_pred)):
+            loss += self.loss_function(
+            F.log_softmax(new_pred[i]/self.temp, dim=-1),
+            F.softmax(old_pred[i]/self.temp, dim=-1)
+        ) / (self.temp * self.temp) / new_pred[i].size(0)
+        return loss
