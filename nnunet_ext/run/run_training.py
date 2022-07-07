@@ -3,6 +3,7 @@
 #----------training versions. Implementation inspired by original implementation.-----------------------#
 #########################################################################################################
 
+from nnunet_ext.training.network_training.expert_gate.nnUNetTrainerExpertGate import nnUNetTrainerExpertGate
 import numpy as np
 import os, argparse, copy, warnings, nnunet_ext
 from nnunet.network_architecture.generic_UNet import Generic_UNet
@@ -332,7 +333,7 @@ def run_training(extension='multihead'):
     os.environ["CUDA_VISIBLE_DEVICES"] = cuda
 
     # -- Reset transfer heads if the Trainer is of sequential type -- #
-    if extension in ['sequential', 'plop', 'frozen_nonln', 'frozen_unet', 'frozen_vit', 'agnostic']:
+    if extension in ['sequential', 'plop', 'frozen_nonln', 'frozen_unet', 'frozen_vit', 'agnostic', 'expert_gate']:
         # -- Transfer heads is always True here even if the user did not set it -- #
         transfer_heads = True
 
@@ -532,7 +533,7 @@ def run_training(extension='multihead'):
               'nnUNetTrainerPOD': plop_args, 'nnUNetTrainerFrozEWC': froz_ewc_args,# 'nnUNetTrainerFrozEWCFinal': ewc_args,
               'nnUNetTrainerOwnM1': ownm1_args, 'nnUNetTrainerOwnM2': ownm1_args,
               'nnUNetTrainerOwnM3': ownm3_args, 'nnUNetTrainerOwnM4': ownm4_args,
-              'nnUNetTrainerAgnostic': basic_exts}
+              'nnUNetTrainerAgnostic': basic_exts, 'nnUNetTrainerExpertGate': basic_exts }
 
     
     # ---------------------------------------------
@@ -999,8 +1000,14 @@ def main_rw():
     """
     run_training(extension='rw')
 
-# -- Main function for setup execution of RW method -- #
+# -- Main function for setup execution of agnostic method -- #
 def main_agnostic():
     r"""Run training for Agnostic Trainer --> this is equivalent to the sequential trainer (will be extended soon)
     """
     run_training(extension='agnostic')
+
+# -- Main function for setup execution of expert gate method -- #
+def main_expert_gate():
+    r"""Run training for expert gate Trainer
+    """
+    run_training(extension='expert_gate')
