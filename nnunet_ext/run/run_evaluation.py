@@ -5,6 +5,7 @@
 
 import os, argparse, nnunet_ext
 from nnunet_ext.evaluation.agnostic_evaluator import AgnosticEvaluator
+from nnunet_ext.evaluation.expert_gate_evaluator import expert_gate_evaluator
 from nnunet_ext.evaluation.evaluator import Evaluator
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet_ext.utilities.helpful_functions import join_texts_with_char
@@ -224,9 +225,7 @@ def run_evaluation():
 def main():
     run_evaluation()
 
-def main_agnostic():
-    assert evaluation_output_dir is not None, "Before running any evaluation, please specify the Evaluation folder (EVALUATION_FOLDER) as described in the paths.md."
-    
+def build_agnostic_argparser():
     parser = argparse.ArgumentParser()
     parser.add_argument("network")
     parser.add_argument("network_trainer")
@@ -243,7 +242,13 @@ def main_agnostic():
     parser.add_argument('--store_csv', required=False, default=False, action="store_true",
                         help='Set this flag if the validation data and any other data if applicable should be stored'
                             ' as a .csv file as well. Default: .csv are not created.')
+    return parser
 
+
+def main_agnostic():
+    assert evaluation_output_dir is not None, "Before running any evaluation, please specify the Evaluation folder (EVALUATION_FOLDER) as described in the paths.md."
+    
+    parser = build_agnostic_argparser()
     args = parser.parse_args()
 
     tasks_for_folder = list()
@@ -259,6 +264,22 @@ def main_agnostic():
     agnostic_evaluator = AgnosticEvaluator(args.network, args.network_trainer, tasks_for_folder, EXT_MAP[args.network_trainer])
     agnostic_evaluator.evaluate(list(map(int, args.folds)))
 
+
+def main_expert_gate():
+    parser = build_agnostic_argparser()
+    args = parser.parse_args()
+
+    tasks_for_folder = list()
+    for idx, t in enumerate(args.trained_on):
+        # -- Convert task ids to names if necessary --> can be then omitted later on by just using the tasks list with all names in it -- #
+        if not t.startswith("Task"):
+            task_id = int(t)
+            t = convert_id_to_task_name(task_id)
+        # -- Add corresponding task in dictoinary -- #
+        tasks_for_folder.append(t)
+
+    evaluator = expert_gate_evaluator(args.network, args.network_trainer, tasks_for_folder, EXT_MAP[args.network_trainer])
+    evaluator.evaluate(list(map(int, args.folds)))
 
 if __name__ == "__main__":
     run_evaluation()

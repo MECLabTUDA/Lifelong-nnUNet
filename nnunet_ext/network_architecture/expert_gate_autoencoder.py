@@ -1,6 +1,6 @@
 
 from torch import nn, Tensor
-
+import torch
 
 class expert_gate_autoencoder(nn.Module):
     autoencoder: nn.Sequential
@@ -15,6 +15,8 @@ class expert_gate_autoencoder(nn.Module):
             nn.Linear(code_dims, input_dims),
             nn.Sigmoid()
         )
+        if torch.cuda.is_available():
+            self.to('cuda')
 
     def forward(self, x: Tensor) -> Tensor: #TODO make sure that the input are features extracted by alexnet
         return self.autoencoder(x)

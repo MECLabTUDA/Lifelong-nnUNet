@@ -533,7 +533,8 @@ def run_training(extension='multihead'):
               'nnUNetTrainerPOD': plop_args, 'nnUNetTrainerFrozEWC': froz_ewc_args,# 'nnUNetTrainerFrozEWCFinal': ewc_args,
               'nnUNetTrainerOwnM1': ownm1_args, 'nnUNetTrainerOwnM2': ownm1_args,
               'nnUNetTrainerOwnM3': ownm3_args, 'nnUNetTrainerOwnM4': ownm4_args,
-              'nnUNetTrainerAgnostic': basic_exts, 'nnUNetTrainerExpertGate': basic_exts }
+              'nnUNetTrainerAgnostic': basic_exts, 'nnUNetTrainerExpertGate': basic_exts,
+              'nnUNetTrainerExpertGate2': basic_exts }
 
     
     # ---------------------------------------------
@@ -1011,3 +1012,9 @@ def main_expert_gate():
     r"""Run training for expert gate Trainer
     """
     run_training(extension='expert_gate')
+
+# -- Main function for setup execution of expert gate method -- #
+def main_expert_gate2():
+    r"""Run training for expert gate Trainer
+    """
+    run_training(extension='expert_gate2')
