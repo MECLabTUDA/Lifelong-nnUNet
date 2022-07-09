@@ -6,8 +6,11 @@ class expert_gate_autoencoder(nn.Module):
     autoencoder: nn.Sequential
 
     
-    def __init__(self, input_dims: int, code_dims: int = 100) -> None:
+    def __init__(self, input_dims: int, code_dims: int = None) -> None:
         super().__init__()
+        if code_dims == None:
+            #code_dims = int(0.003 * input_dims)
+            code_dims = int(0.04 * input_dims)
         self.autoencoder = nn.Sequential(
             nn.Flatten(),
             nn.Linear(input_dims,code_dims),

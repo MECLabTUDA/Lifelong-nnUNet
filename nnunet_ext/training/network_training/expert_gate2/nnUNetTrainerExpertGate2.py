@@ -47,12 +47,13 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
         r"""Constructor of Sequential trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets. --> Note that the only
             difference to the Multi-Head Trainer is the transfer_heads flag which should always be True for this Trainer!
         """
-        self.online_eval_mse = []
         # -- Initialize using parent class -- #
         super().__init__(split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic,
                          fp16, save_interval, already_trained_on, use_progress, identifier, extension, tasks_list_with_char, mixed_precision,
                          save_csv, del_log, use_vit, vit_type, version, split_gpu, True, ViT_task_specific_ln, do_LSA, do_SPT,
                          network, use_param_split)
+        self.online_eval_mse = []
+        #self.num_batches_per_epoch = 10
 
     def process_plans(self, plans):
         if self.stage is None:
@@ -664,14 +665,14 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
         with torch.no_grad():
             #target = target[None, :]
             output = torch.squeeze(output)
-            mse = torch.nn.MSELoss()(output,target)
+            mse =-1 * torch.nn.MSELoss()(output,target)
             self.online_eval_mse.append([mse.detach().cpu().numpy()])
 
     def finish_online_evaluation(self):
         online_eval_mse = np.mean(self.online_eval_mse, 0)
         self.all_val_eval_metrics.append(online_eval_mse)
-        self.print_to_log_file("Average global mean squared error:", np.round(online_eval_mse, 4))
-        self.print_to_log_file("(interpret this as an estimate for the mean squared error. This is not "
+        self.print_to_log_file("Average global negative mean squared error:", np.round(online_eval_mse, 4))
+        self.print_to_log_file("bigger is better.(interpret this as an estimate for the mean squared error. This is not "
                                "exact.)")
         self.online_eval_mse = []
 
@@ -713,7 +714,7 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
             store_dict[subject] = dict()
             for class_label in range(len(global_mse_per_class_and_subject[idx])):
                 store_dict[subject]['mask_'+str(class_label+1)] = { 
-                                                                    'MSE': np.float64(global_mse_per_class_and_subject[idx][class_label])
+                                                                    'energy': np.float64(global_mse_per_class_and_subject[idx][class_label])
                                                                   }
 
         # -- Add the results to self.validation_results based on task, epoch, subject and class-- #
