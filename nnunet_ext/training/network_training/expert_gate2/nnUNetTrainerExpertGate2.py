@@ -279,7 +279,6 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
         # -- Activate the model based on task --> self.mh_network.active_task is now set to task as well -- #
         print("################## init network")
         self.network = expert_gate_autoencoder(self.patch_size[0] * self.patch_size[1] * self.patch_size[2])
-        #self.network = expert_gate_autoencoder(50 ** 3)#TODO
         
         # -- Delete the trainer_model (used for restoring) -- #
         self.trainer_model = None
@@ -328,8 +327,8 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
         data = maybe_to_torch(data)
         target = maybe_to_torch(target)
 
-        target = torch.flatten(data, start_dim=2)#TODO
-        target = torch.squeeze(target)
+        target = torch.flatten(data, start_dim=1, end_dim=-1)#TODO
+        #target = torch.squeeze(target)
         target = torch.sigmoid(target)
 
 
@@ -664,7 +663,7 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
     def run_online_evaluation(self, output, target):#TODO improve (remove all torch.squeeze)
         with torch.no_grad():
             #target = target[None, :]
-            output = torch.squeeze(output)
+            #output = torch.squeeze(output)
             mse =-1 * torch.nn.MSELoss()(output,target)
             self.online_eval_mse.append([mse.detach().cpu().numpy()])
 
