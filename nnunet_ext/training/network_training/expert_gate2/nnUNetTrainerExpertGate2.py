@@ -53,7 +53,17 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
                          save_csv, del_log, use_vit, vit_type, version, split_gpu, True, ViT_task_specific_ln, do_LSA, do_SPT,
                          network, use_param_split)
         self.online_eval_mse = []
-        #self.num_batches_per_epoch = 10
+        #self.num_batches_per_epoch = 10        #TODO
+        #self.initial_lr = 1
+    """
+    def initialize_optimizer_and_scheduler(self):#TODO
+        assert self.network is not None, "self.initialize_network must be called first"
+        self.optimizer = torch.optim.SGD(self.network.parameters(), self.initial_lr, weight_decay=self.weight_decay, momentum=0, nesterov=False)
+        #self.optimizer = torch.optim.Adam(self.network.parameters(), 0.001)
+        self.lr_scheduler = None
+    def maybe_update_lr(self, epoch=None):
+        pass
+    """
 
     def process_plans(self, plans):
         if self.stage is None:
@@ -66,7 +76,7 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
         stage_plans = self.plans['plans_per_stage'][self.stage]
         self.batch_size = stage_plans['batch_size']
         self.net_pool_per_axis = stage_plans['num_pool_per_axis']
-        self.patch_size = np.array([50,50,50]).astype(int)#TODO
+        self.patch_size = np.array([10,30,30]).astype(int)#TODO
         self.do_dummy_2D_aug = stage_plans['do_dummy_2D_data_aug']
 
         if 'pool_op_kernel_sizes' not in stage_plans.keys():
@@ -277,8 +287,9 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
             self.mh_network.add_new_task(task, use_init=not self.transfer_heads)
 
         # -- Activate the model based on task --> self.mh_network.active_task is now set to task as well -- #
-        print("################## init network")
+        print("################## init network", self.patch_size[0] * self.patch_size[1] * self.patch_size[2])
         self.network = expert_gate_autoencoder(self.patch_size[0] * self.patch_size[1] * self.patch_size[2])
+        self.initialize_optimizer_and_scheduler()
         
         # -- Delete the trainer_model (used for restoring) -- #
         self.trainer_model = None
@@ -322,14 +333,12 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
         # -- Run iteration as usual --> copied and modified from nnUNetTrainerV2 -- #
         data_dict = next(data_generator)
         data = data_dict['data']
-        target = data_dict['target']
+        #target = data_dict['target']
 
+        #TODO
         data = maybe_to_torch(data)
-        target = maybe_to_torch(target)
-
-        target = torch.flatten(data, start_dim=1, end_dim=-1)#TODO
-        #target = torch.squeeze(target)
-        target = torch.sigmoid(target)
+        data = torch.sigmoid(data)
+        target = data
 
 
         if torch.cuda.is_available():
@@ -353,6 +362,8 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
                 self.amp_grad_scaler.update()
         else:
             output = self.network(data)
+            assert target.shape == output.shape
+            assert torch.all(target == data)
             del data
             if not no_loss:
                 l = self.loss(output, target)
@@ -630,6 +641,7 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
         self.mh_network.add_n_tasks_and_activate(self.already_trained_on[str(self.fold)]['tasks_at_time_of_checkpoint'],
                                                  self.already_trained_on[str(self.fold)]['active_task_at_time_of_checkpoint'])
         self.network = expert_gate_autoencoder(self.patch_size[0] * self.patch_size[1] * self.patch_size[2])
+        self.initialize_optimizer_and_scheduler()
         # -- Use parent class to save checkpoint for MultiHead_Module model consisting of self.model, self.body and self.heads -- #
         super(nnUNetTrainerV2, self).load_checkpoint_ram(checkpoint, train)
 
@@ -655,15 +667,13 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
         self.ds_loss_weights = weights
 
         #TODO
-        #self.loss = torch.nn.MSELoss()
-        self.loss = torch.nn.CrossEntropyLoss()
+        self.loss = torch.nn.MSELoss()
+        #self.loss = torch.nn.CrossEntropyLoss()
         
         ################# END ###################
         
-    def run_online_evaluation(self, output, target):#TODO improve (remove all torch.squeeze)
+    def run_online_evaluation(self, output, target):
         with torch.no_grad():
-            #target = target[None, :]
-            #output = torch.squeeze(output)
             mse =-1 * torch.nn.MSELoss()(output,target)
             self.online_eval_mse.append([mse.detach().cpu().numpy()])
 

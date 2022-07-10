@@ -10,7 +10,9 @@ class expert_gate_autoencoder(nn.Module):
         super().__init__()
         if code_dims == None:
             #code_dims = int(0.003 * input_dims)
-            code_dims = int(0.04 * input_dims)
+            #code_dims = int(0.04 * input_dims)
+            code_dims = int(0.1 * input_dims)
+        
         self.autoencoder = nn.Sequential(
             nn.Flatten(),
             nn.Linear(input_dims,code_dims),
@@ -22,4 +24,7 @@ class expert_gate_autoencoder(nn.Module):
             self.to('cuda')
 
     def forward(self, x: Tensor) -> Tensor: #TODO make sure that the input are features extracted by alexnet
-        return self.autoencoder(x)
+        shape = x.shape
+        x  = self.autoencoder(x)
+        x = torch.reshape(x, shape)
+        return x
