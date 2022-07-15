@@ -235,6 +235,7 @@ class Generic_ViT_UNet(Generic_UNet):
         """
         # -- Do FFT here only on x -- #
         # x = torch.fft.fft2(x).real
+        
         #------------------------------------------ Copied from original implementation ------------------------------------------#
         # -- Extract all necessary skip connections -- #
         skips = []
@@ -315,6 +316,7 @@ class Generic_ViT_UNet(Generic_UNet):
 
             # -- Pass the result from conv_blocks through ViT -- #
             # x = self.ViT(torch.fft.fft2(ViT_in).real)
+            
             x = self.ViT(ViT_in, task_name=task_name)
             del ViT_in
 

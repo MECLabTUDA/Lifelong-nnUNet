@@ -65,7 +65,7 @@ class nnViTUNetTrainer(nnUNetTrainerV2): # Inherit default trainer class for 2D,
                 output_folder = os.path.join(output_folder, 'not_task_specific')
 
         # -- Add the LSA and SPT before the fold -- #
-        folder_n = get_ViT_LSA_SPT_scale_folder_name(self.LSA, self.SPT, self.featscale, self.attnscale, self.useFFT,\
+        folder_n = get_ViT_LSA_SPT_scale_folder_name(self.LSA, self.SPT, self.featscale, self.attnscale, None, None, None, self.useFFT,\
                                                      self.f_map_type, self.conv_smooth, self.ts_msa, self.cross_attn, self.cbam)
         # -- Add to the path -- #
         if folder_n != output_folder.split(os.path.sep)[-1] and folder_n not in output_folder:
