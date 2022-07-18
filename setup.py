@@ -29,6 +29,7 @@ setup(name='nnunet_ext',
       ],
       entry_points={
           'console_scripts': [
+              'nnUNet_ext_plan_and_preprocess = nnunet_ext.experiment_planning.nnUNet_ext_plan_and_preprocess:main',# Use for registration or normal use
               'nnUNet_dataset_label_mapping = nnunet_ext.experiment_planning.dataset_label_mapping:main',# Use when the labels of the masks need to be changed based on a mapping file
               'nnUNet_delete_tasks = nnunet_ext.scripts.delete_specified_task:main',           # Use for deleting preprocessed and planned data or after clean up when a test failed
               'nnUNet_update_checkpoints = nnunet_ext.scripts.update_checkpoints:main',        # Use for modifying the checkpoints

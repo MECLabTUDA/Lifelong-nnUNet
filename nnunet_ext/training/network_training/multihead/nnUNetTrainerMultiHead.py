@@ -15,6 +15,7 @@ from nnunet.utilities.nd_softmax import softmax_helper
 from nnunet.utilities.tensor_utilities import sum_tensor
 from nnunet_ext.training.model_restore import restore_model
 from nnunet.utilities.to_torch import maybe_to_torch, to_cuda
+from nnunet_ext.network_architecture.vit_voxing import ViT_Voxing
 from nnunet.network_architecture.generic_UNet import Generic_UNet
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet.training.loss_functions.dice_loss import DC_and_CE_loss
@@ -43,7 +44,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                  save_csv=True, del_log=False, use_vit=False, vit_type='base', version=1, split_gpu=False, transfer_heads=False,
                  ViT_task_specific_ln=False, do_LSA=False, do_SPT=False, FeatScale=False, AttnScale=False,
                  filter_rate=0.35, filter_with=None, nth_filter=10, useFFT=False, f_map_type='none', conv_smooth=None,
-                 ts_msa=False, cross_attn=False, cbam=False, network=None, use_param_split=False):
+                 ts_msa=False, cross_attn=False, cbam=False, registration=False, network=None, use_param_split=False):
         r"""Constructor of Multi Head Trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
             The transfer_heads flag is used when adding a new head, if True, the state_dict from the last head will be used
             instead of the one from the initialization. This is the basic transfer learning (difference between MH and SEQ folder structure).
@@ -77,6 +78,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         self.ts_msa = ts_msa
         self.cross_attn = cross_attn
         self.cbam = cbam
+        self.registration = registration
         
         # -- Define filtering flags when used with ViT -- #
         self.filter_rate = filter_rate
@@ -117,6 +119,9 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         if self.use_vit and self.split_gpu:
             assert torch.cuda.device_count() > 1, 'When trying to split the models on multiple GPUs, then please provide more than one..'
 
+        if self.registration:
+            assert self.use_vit, 'When you want to perform registration, please set the use_vit flag for now..'
+            
         # -- Initialize or set self.already_trained_on dictionary to keep track of the trained tasks so far for restoring -- #
         if already_trained_on is not None:
             self.already_trained_on = already_trained_on    # Use provided already_trained on
@@ -366,18 +371,23 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             # -- however for self.plans, the user needs to extract the correct plans_file path by himself using always the -- #
             # -- first task from a list of tasks since the network is build using the plans_file and thus the structure might vary -- #
             if self.use_vit:
+                vit_kwargs = {'input_channels':self.num_input_channels, 'base_num_features':self.base_num_features,\
+                              'num_classes':self.num_classes, 'num_pool':len(self.net_num_pool_op_kernel_sizes),\
+                              'patch_size':patch_size.tolist(), 'vit_version':self.version, 'vit_type':self.vit_type,\
+                              'split_gpu':self.split_gpu, 'ViT_task_specific_ln':self.ViT_task_specific_ln,\
+                              'first_task_name':self.tasks_list_with_char[0][0], 'do_LSA':self.LSA, 'do_SPT':self.SPT,\
+                              'FeatScale':self.featscale, 'AttnScale':self.attnscale, 'useFFT':self.useFFT,\
+                              'fourier_mapping':self.fourier_mapping, 'f_map_type':self.f_map_type,\
+                              'conv_smooth':self.conv_smooth, 'ts_msa':self.ts_msa, 'cross_attn':self.cross_attn, 'cbam':self.cbam}
                 self.first_task_name = self.tasks_list_with_char[0][0]
                 # -- Initialize from beginning and start training, since no model is provided using ViT architecture -- #
                 nnViTUNetTrainer.initialize_network(self) # --> This updates the corresponding variables automatically since we inherit this class
-                self.mh_network = MultiHead_Module(Generic_ViT_UNet, self.split, self.tasks_list_with_char[0][0], prev_trainer=self.network,
-                                                   input_channels=self.num_input_channels, base_num_features=self.base_num_features,\
-                                                   num_classes=self.num_classes, num_pool=len(self.net_num_pool_op_kernel_sizes),\
-                                                   patch_size=patch_size.tolist(), vit_version=self.version, vit_type=self.vit_type,\
-                                                   split_gpu=self.split_gpu, ViT_task_specific_ln=self.ViT_task_specific_ln,\
-                                                   first_task_name=self.tasks_list_with_char[0][0], do_LSA=self.LSA, do_SPT=self.SPT,\
-                                                   FeatScale=self.featscale, AttnScale=self.attnscale, useFFT=self.useFFT,\
-                                                   fourier_mapping=self.fourier_mapping, f_map_type=self.f_map_type,\
-                                                   conv_smooth=self.conv_smooth, ts_msa=self.ts_msa, cross_attn=self.cross_attn, cbam=self.cbam)
+                if self.registration:
+                    self.mh_network = MultiHead_Module(ViT_Voxing, self.split, self.tasks_list_with_char[0][0], prev_trainer=self.network,
+                                                       **vit_kwargs)
+                else:
+                    self.mh_network = MultiHead_Module(Generic_ViT_UNet, self.split, self.tasks_list_with_char[0][0], prev_trainer=self.network,
+                                                       **vit_kwargs)
             else:
                 # -- Initialize from beginning and start training, since no model is provided -- #
                 super().initialize_network() # --> This updates the corresponding variables automatically since we inherit this class
@@ -447,15 +457,20 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                                                input_channels=self.num_input_channels, base_num_features=self.base_num_features,\
                                                num_classes=self.num_classes, num_pool=len(self.net_num_pool_op_kernel_sizes))
         elif self.trainer_model.__class__.__name__ == nnViTUNetTrainer.__name__:   # Important when doing evaluation, since nnViTUNetTrainer has no mh_network
-            self.mh_network = MultiHead_Module(Generic_ViT_UNet, self.split, self.tasks_list_with_char[0][0], prev_trainer=self.trainer_model.network,
-                                               input_channels=self.num_input_channels, base_num_features=self.base_num_features,\
-                                               num_classes=self.num_classes, num_pool=len(self.net_num_pool_op_kernel_sizes),\
-                                               patch_size=self.patch_size.tolist(), vit_version=self.version, vit_type=self.vit_type,\
-                                               split_gpu=self.split_gpu, ViT_task_specific_ln=self.ViT_task_specific_ln,\
-                                               first_task_name=self.tasks_list_with_char[0][0], do_LSA=self.LSA, do_SPT=self.SPT,\
-                                               FeatScale=self.featscale, AttnScale=self.attnscale, useFFT=self.useFFT,\
-                                               fourier_mapping=self.fourier_mapping, f_map_type=self.f_map_type,\
-                                               conv_smooth=self.conv_smooth, ts_msa=self.ts_msa, cross_attn=self.cross_attn, cbam=self.cbam)
+            vit_kwargs = {'input_channels':self.num_input_channels, 'base_num_features':self.base_num_features,\
+                          'num_classes':self.num_classes, 'num_pool':len(self.net_num_pool_op_kernel_sizes),\
+                          'patch_size':patch_size.tolist(), 'vit_version':self.version, 'vit_type':self.vit_type,\
+                          'split_gpu':self.split_gpu, 'ViT_task_specific_ln':self.ViT_task_specific_ln,\
+                          'first_task_name':self.tasks_list_with_char[0][0], 'do_LSA':self.LSA, 'do_SPT':self.SPT,\
+                          'FeatScale':self.featscale, 'AttnScale':self.attnscale, 'useFFT':self.useFFT,\
+                          'fourier_mapping':self.fourier_mapping, 'f_map_type':self.f_map_type,\
+                          'conv_smooth':self.conv_smooth, 'ts_msa':self.ts_msa, 'cross_attn':self.cross_attn, 'cbam':self.cbam}
+            if self.registration:
+                self.mh_network = MultiHead_Module(ViT_Voxing, self.split, self.tasks_list_with_char[0][0], prev_trainer=self.trainer_model.network,
+                                                   **vit_kwargs)
+            else:
+                self.mh_network = MultiHead_Module(Generic_ViT_UNet, self.split, self.tasks_list_with_char[0][0], prev_trainer=self.trainer_model.network,
+                                                   **vit_kwargs)
         else:
             self.mh_network = self.trainer_model.mh_network
 
@@ -1380,7 +1395,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             folder_n = get_ViT_LSA_SPT_scale_folder_name(self.LSA, self.SPT, self.featscale, self.attnscale,
                                                          self.filter_with, self.nth_filter, self.filter_rate,
                                                          self.useFFT, self.f_map_type, self.conv_smooth,
-                                                         self.ts_msa, self.cross_attn, self.cbam)
+                                                         self.ts_msa, self.cross_attn, self.cbam, self.registration)
 
             # -- Update the output_folder accordingly -- #
             if self.version != output_folder.split(os.path.sep)[-1] and self.version not in output_folder:

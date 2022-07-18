@@ -332,11 +332,11 @@ def commDiv(a, b):
 def get_ViT_LSA_SPT_scale_folder_name(do_LSA, do_SPT, FeatScale, AttnScale,
                                       filter_with=None, nth_filter=None, filter_rate=None,
                                       useFFT=False, f_map_type=None, conv_smooth=None, ts_msa=False,
-                                      cross_attn=False, cbam=False):
+                                      cross_attn=False, cbam=False, registration=False):
     r"""Use this function when the ViT_U-Net is used and the output folder needs to be build.
     """
     # -- Specify the folder name based on do_LSA and do_SPT -- #
-    folder_n = ''
+    folder_n = 'reg' if registration else 'seg'
     if do_SPT:
         folder_n += 'SPT'
     if do_LSA:

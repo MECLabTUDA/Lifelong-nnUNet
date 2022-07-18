@@ -5,12 +5,55 @@
 import torch, copy
 import torch.nn as nn
 import torch.nn.functional as F
+from voxelmorph.torch.losses import Grad
 from nnunet.utilities.to_torch import to_cuda
 from nnunet_ext.training.loss_functions.embeddings import *
 from nnunet_ext.training.loss_functions.crossentropy import *
 from nnunet_ext.training.loss_functions.knowledge_distillation import *
 from nnunet.training.loss_functions.deep_supervision import MultipleOutputLoss2
 
+class MultipleOutputLossRegistration(MultipleOutputLoss2):
+    def __init__(self, loss, weight_factors=None, loss_weights = [1., 0.01], simple_dice=False):
+        """Use this loss for registration. Set simple_dice to True if the traditional dice should be used,
+           else the nnUNet MultipleOutputLoss2 will be used instead.
+        """
+        # -- Initialize using the MultipleOutputLoss2 from nnU-Net -- #
+        super(MultipleOutputLossRegistration, self).__init__(loss, weight_factors)
+
+        # -- Set all variables that are used by parent class and are necessary for the EWC loss calculation -- #
+        self.weight_factors = weight_factors
+        self.loss_weights = loss_weights
+        self.loss = loss
+        self.grad = Grad(penalty='l2')
+        self.simple_dice = simple_dice
+        
+    def dice(self, y_true, y_pred):
+        ndims = len(list(y_pred.size())) - 2
+        vol_axes = list(range(2, ndims+2))
+        top = 2 * (y_true * y_pred).sum(dim=vol_axes)
+        bottom = torch.clamp((y_true + y_pred).sum(dim=vol_axes), min=1e-5)
+        dice = torch.mean(top / bottom)
+        return -dice
+    
+    def forward(self, x, y, seg_x, seg_y):
+        r"""
+            param x: Moved image * deformation field
+            param y: Fixed image (GT)
+            param seg_x: Moved image segmentation * deformation field
+            param seg_y: Fixed image segmentation (GT)
+        """
+        # -- Add segmentation loss to it -- #
+        if self.simple_dice:
+            loss = self.dice(seg_y, seg_x)
+        else:
+            loss = super(MultipleOutputLossRegistration, self).forward(seg_x, seg_y)
+        
+        # -- Add MSE to it -- #
+        loss += self.loss_weights[0] * torch.mean((y - x) ** 2)
+        # -- Add Grad to it -- #
+        loss += self.loss_weights[1] * self.grad(y, x)
+        return loss
+    
 # -- Loss function for the Elastic Weight Consolidation approach -- #
 class MultipleOutputLossEWC(MultipleOutputLoss2):
     # -- The implementation of this method is based on the following Source Code: -- #
