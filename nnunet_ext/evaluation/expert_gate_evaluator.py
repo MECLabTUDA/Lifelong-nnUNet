@@ -1,11 +1,21 @@
 
-
+from keyword import softkwlist
+import pandas as pd
 from nnunet_ext.training.model_restore import restore_model
 from nnunet_ext.paths import network_training_output_dir, evaluation_output_dir
-from nnunet_ext.training.network_training.expert_gate.nnUNetTrainerExpertGate import nnUNetTrainerExpertGate
 from batchgenerators.utilities.file_and_folder_operations import maybe_mkdir_p, join
 from batchgenerators.utilities.file_and_folder_operations import load_pickle
 from nnunet_ext.paths import default_plans_identifier, network_training_output_dir, preprocessing_output_dir
+from nnunet_ext.evaluation.evaluator import Evaluator
+import numpy as np
+import pandas as pd
+from nnunet.network_architecture.generic_UNet import Generic_UNet
+from batchgenerators.utilities.file_and_folder_operations import maybe_mkdir_p, join
+from nnunet_ext.evaluation.evaluator import Evaluator
+from nnunet_ext.paths import network_training_output_dir, evaluation_output_dir
+from nnunet_ext.utilities.helpful_functions import dumpDataFrameToCsv, join_texts_with_char
+import torch
+from nnunet.utilities.to_torch import maybe_to_torch, to_cuda
 
 class expert_gate_evaluator():
     def __init__(self, network: str, network_trainer: str, tasks_for_folder: list[str], extension: str):
@@ -14,24 +24,100 @@ class expert_gate_evaluator():
         self.network_trainer = network_trainer
         self.tasks_for_folder = tasks_for_folder
         self.plans_identifier = "nnUNetPlansv2.1"
+        pd.set_option('display.max_rows', 1000)
 
     def evaluate(self, folds: list[int]):
-        for t_fold in folds:
-            index = 0
-            for index in range(len(self.tasks_for_folder)):
-                checkpoint = join(network_training_output_dir, "expert_gate", self.tasks_for_folder[index],
-                    "nnUNetTrainerExpertGate" + "__" + self.plans_identifier, "fold_" + str(t_fold),
-                    "model_final_checkpoint.model"
-                )
-                pkl_file = checkpoint + ".pkl"
+        """
+        for index in range(1,len(self.tasks_for_folder)+1):
+            #create Evaluator
+            print("run basic autoencoder evaluation on ", self.tasks_for_folder[index-1])
+            print(self.extension)
+            evaluator = Evaluator(self.network, "nnUNetTrainerExpertGate2", ([self.tasks_for_folder[index-1]], '_'),([self.tasks_for_folder[index-1]], '_'),
+            extension="expert_gate2", transfer_heads=True)
+            #run evaluator
+            output_path = None #maybe set this?
+            evaluator.evaluate_on(folds,self.tasks_for_folder,output_path=output_path)
+        """
+        """
+        for index in range(1,len(self.tasks_for_folder)+1):
+            #create Evaluator
+            print("run basic segmentation evaluation on ", self.tasks_for_folder[0:index])
+            print(self.extension)
+            evaluator = Evaluator(self.network, self.network_trainer, (self.tasks_for_folder, '_'),(self.tasks_for_folder[0:index], '_'),
+            extension=self.extension, transfer_heads=True)
+            #run evaluator
+            output_path = None #maybe set this?
+            evaluator.evaluate_on(folds,self.tasks_for_folder,output_path=output_path)
+        """
 
-                info = load_pickle(pkl_file)
-                init = info['init']
-                #print(init)
-                trainer = nnUNetTrainerExpertGate(*init)
-                trainer.load_checkpoint(checkpoint, train=False)
-                patch_size = trainer.patch_size
-                print("patch size", patch_size)
+        for t_fold in folds:
+            #iterate over all the tasks
+            #ae_results = pd.DataFrame()
+            for index in range(1,len(self.tasks_for_folder)+1):
+                #get the path to the out folder of evaluations
+                in_ae_evaluation_csv_path = join(evaluation_output_dir, self.network, 
+                    join_texts_with_char([self.tasks_for_folder[index-1]],'_'),#trained on
+                    join_texts_with_char([self.tasks_for_folder[index-1]],'_'), #use model
+                    "nnUNetTrainerExpertGate2"+"__"+self.plans_identifier,Generic_UNet.__name__,
+                    'SEQ','corresponding_head',
+                    'fold_'+str(t_fold) #the specific fold
+                )
+                #print(in_ae_evaluation_csv_path)
+                #read csv and store in a list
+                in_evaluation_csv = pd.read_csv(join(in_ae_evaluation_csv_path, 'val_metrics_eval.csv'), delimiter='\t')
+                #ae_results.append(in_evaluation_csv)
+                if index == 1:
+                    ae_results = in_evaluation_csv
+                    ae_results = ae_results.rename(columns={"value": self.tasks_for_folder[index-1]})
+                    ae_results = ae_results.drop(columns=['Epoch','seg_mask','metric'])
+                else:
+                    interm = in_evaluation_csv[['subject_id','value']]
+                    ae_results = pd.merge(ae_results,interm,on='subject_id',how='inner')
+                    ae_results = ae_results.rename(columns={"value": self.tasks_for_folder[index-1]})
+                #print(in_evaluation_csv)
+
+            print(ae_results)
+
+            #calculate confidence using softmax
+            temperature = 1.0
+            softmax = torch.nn.Softmax(dim=1)
+
+            #print(ae_results)
+            interm = ae_results.drop(columns=['Task','subject_id'])
+            t = torch.Tensor(interm.values.tolist())
+            #print(t)
+            out = softmax(t/temperature)
+            #print(out)
+            out = out.numpy()
+            out = out.T
+            for index in range(1,len(self.tasks_for_folder)+1):
+                ae_results.iloc[:,-index] = out[-index]
+
+            interm = ae_results.drop(columns=['Task','subject_id'])
+            decisions = [self.tasks_for_folder[row.argmax()] for row in interm.to_numpy() ]
+            ae_results['decision'] = decisions
+
+            task = ae_results['Task'].to_numpy()
+            decision = ae_results['decision'].to_numpy()
+            hits = np.sum(task == decision)
+            ae_accuracy = hits / len(decision)
+
+            #print(interm.to_numpy())
+            #calculate cross entropy
+            target = torch.LongTensor([self.tasks_for_folder.index(row) for row in ae_results['Task'].to_numpy() ])
+            input = torch.Tensor(ae_results[self.tasks_for_folder].to_numpy())
+            cross_entropy = torch.nn.CrossEntropyLoss()(input, target).item()
+            #print(interm.values.tolist())
+            print(ae_results)
+            print("accuracy (higher is better): ", ae_accuracy)
+            print("cross entropy loss (lower is better): ", cross_entropy)
+            
+            
+        
+
                 
-                # evaluate on the initially trained data
-                trainer._perform_validation(self.tasks_for_folder)
+            #build new output csv
+            #output_csv = pd.concat(ae_results)
+            #store output csv
+            #dumpDataFrameToCsv(output_csv,in_evaluation_csv_path,"agnostic_evaluation.csv")
+            #print("wrote results to: ", join(in_evaluation_csv_path,"agnostic_evaluation.csv"))

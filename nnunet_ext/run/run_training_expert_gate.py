@@ -372,7 +372,7 @@ def run_training(extension='multihead'):
             )
             trainer.initialize(True, num_epochs=num_epochs)
 
-
+            trainer.save_every = save_interval
             # -- disable the saving of checkpoints if desired -- #
             if disable_saving:
                 trainer.save_final_checkpoint = False # Whether or not to save the final checkpoint

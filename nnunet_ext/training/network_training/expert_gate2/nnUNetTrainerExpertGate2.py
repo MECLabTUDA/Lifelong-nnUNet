@@ -76,7 +76,7 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
         stage_plans = self.plans['plans_per_stage'][self.stage]
         self.batch_size = stage_plans['batch_size']
         self.net_pool_per_axis = stage_plans['num_pool_per_axis']
-        self.patch_size = np.array([10,30,30]).astype(int)#TODO
+        self.patch_size = np.array([30,30,30]).astype(int)#TODO
         self.do_dummy_2D_aug = stage_plans['do_dummy_2D_data_aug']
 
         if 'pool_op_kernel_sizes' not in stage_plans.keys():
@@ -337,7 +337,7 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
 
         #TODO
         data = maybe_to_torch(data)
-        data = torch.sigmoid(data)
+        #data = torch.sigmoid(data)
         target = data
 
 

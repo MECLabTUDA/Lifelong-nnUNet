@@ -245,11 +245,30 @@ def build_agnostic_argparser():
     return parser
 
 
+def set_cuda(args):
+    cuda = args.device
+        # -- Assert if device value is ot of predefined range and create string to set cuda devices -- #
+    for idx, c in enumerate(cuda):
+        assert c > -1 and c < 8, 'GPU device ID out of range (0, ..., 7).'
+        cuda[idx] = str(c)  # Change type from int to str otherwise join_texts_with_char will throw an error
+
+    # -- Check if the user wants to split the network onto multiple GPUs -- #
+    #split_gpu = args.use_mult_gpus
+    #if split_gpu:
+    #    assert len(cuda) > 1, 'When trying to split the models on multiple GPUs, then please provide more than one..'
+        
+    cuda = join_texts_with_char(cuda, ',')
+    
+    # -- Set cuda device as environment variable, otherwise other GPUs will be used as well ! -- #
+    os.environ["CUDA_VISIBLE_DEVICES"] = cuda
+    return
+
 def main_agnostic():
     assert evaluation_output_dir is not None, "Before running any evaluation, please specify the Evaluation folder (EVALUATION_FOLDER) as described in the paths.md."
     
     parser = build_agnostic_argparser()
     args = parser.parse_args()
+    set_cuda(args)
 
     tasks_for_folder = list()
     for idx, t in enumerate(args.trained_on):
@@ -268,6 +287,7 @@ def main_agnostic():
 def main_expert_gate():
     parser = build_agnostic_argparser()
     args = parser.parse_args()
+    set_cuda(args)
 
     tasks_for_folder = list()
     for idx, t in enumerate(args.trained_on):
