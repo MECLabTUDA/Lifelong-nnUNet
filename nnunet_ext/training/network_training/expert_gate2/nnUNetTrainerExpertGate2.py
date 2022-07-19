@@ -2,6 +2,7 @@
 #------------------This class represents the nnUNet trainer for sequential training.--------------------#
 #########################################################################################################
 
+from nnunet_ext.network_architecture.expert_gate_UNet import expert_gate_UNet
 from nnunet_ext.paths import default_plans_identifier
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet_ext.training.network_training.multihead.nnUNetTrainerMultiHead import nnUNetTrainerMultiHead
@@ -33,6 +34,9 @@ from nnunet.training.data_augmentation.data_augmentation_noDA import get_no_augm
 from nnunet.training.data_augmentation.data_augmentation_moreDA import get_moreDA_augmentation
 from nnunet.training.dataloading.dataset_loading import load_dataset, DataLoader3D, DataLoader2D, unpack_dataset
 from nnunet_ext.paths import default_plans_identifier, evaluation_output_dir, preprocessing_output_dir, default_plans_identifier
+
+from nnunet.network_architecture.initialization import InitWeights_He
+from torch import nn
 
 # -- Define globally the Hyperparameters for this trainer along with their type -- #
 HYPERPARAMS = {}
@@ -76,7 +80,8 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
         stage_plans = self.plans['plans_per_stage'][self.stage]
         self.batch_size = stage_plans['batch_size']
         self.net_pool_per_axis = stage_plans['num_pool_per_axis']
-        self.patch_size = np.array([30,30,30]).astype(int)#TODO
+        self.patch_size = np.array(stage_plans['patch_size']).astype(int)
+        #self.patch_size = np.array([30,30,30]).astype(int)#TODO
         self.do_dummy_2D_aug = stage_plans['do_dummy_2D_data_aug']
 
         if 'pool_op_kernel_sizes' not in stage_plans.keys():
@@ -288,7 +293,10 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
 
         # -- Activate the model based on task --> self.mh_network.active_task is now set to task as well -- #
         print("################## init network", self.patch_size[0] * self.patch_size[1] * self.patch_size[2])
-        self.network = expert_gate_autoencoder(self.patch_size[0] * self.patch_size[1] * self.patch_size[2])
+        #self.network = expert_gate_autoencoder(self.patch_size[0] * self.patch_size[1] * self.patch_size[2])
+        self.initialize_network2()
+
+
         self.initialize_optimizer_and_scheduler()
         
         # -- Delete the trainer_model (used for restoring) -- #
@@ -640,7 +648,8 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
         # -- For all tasks, create a corresponding head, otherwise the restoring would not work due to mismatching weights -- #
         self.mh_network.add_n_tasks_and_activate(self.already_trained_on[str(self.fold)]['tasks_at_time_of_checkpoint'],
                                                  self.already_trained_on[str(self.fold)]['active_task_at_time_of_checkpoint'])
-        self.network = expert_gate_autoencoder(self.patch_size[0] * self.patch_size[1] * self.patch_size[2])
+        #self.network = expert_gate_autoencoder(self.patch_size[0] * self.patch_size[1] * self.patch_size[2])
+        self.initialize_network2()
         self.initialize_optimizer_and_scheduler()
         # -- Use parent class to save checkpoint for MultiHead_Module model consisting of self.model, self.body and self.heads -- #
         super(nnUNetTrainerV2, self).load_checkpoint_ram(checkpoint, train)
@@ -649,6 +658,7 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
         # -- Reset the internal net_num_pool_op_kernel_sizes and patch_size -- #
         print("Updating the Loss based on the provided previous trainer")
         self.net_num_pool_op_kernel_sizes = net_num_pool_op_kernel_sizes
+        self.patch_size = patch_size
 
         # -- Updating the loss accordingly so that the forward function will not fail due to plans changing and different task -- #
         #------------------------------------------ Partially copied from original implementation ------------------------------------------#
@@ -735,3 +745,28 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
         # -- Empty the variables for next iteration -- #
         self.online_eval_mse = []
         self.subject_names_raw = [] # <-- Subject names necessary to map IoU and Dice per subject
+
+    def initialize_network2(self):
+        net_numpool = len(self.net_num_pool_op_kernel_sizes)
+
+        if self.threeD:
+            conv_op = nn.Conv3d
+            dropout_op = nn.Dropout3d
+            norm_op = nn.InstanceNorm3d
+        else:
+            conv_op = nn.Conv2d
+            dropout_op = nn.Dropout2d
+            norm_op = nn.InstanceNorm2d
+
+        norm_op_kwargs = {'eps': 1e-5, 'affine': True}
+        dropout_op_kwargs = {'p': 0, 'inplace': True}
+        net_nonlin = nn.LeakyReLU
+        net_nonlin_kwargs = {'negative_slope': 1e-2, 'inplace': True}
+        print("#################input channels: ",  self.num_input_channels)
+        self.network = expert_gate_UNet(self.num_input_channels, self.base_num_features, self.num_classes, net_numpool,
+                                    self.conv_per_stage, 2, conv_op, norm_op, norm_op_kwargs, dropout_op,
+                                    dropout_op_kwargs,
+                                    net_nonlin, net_nonlin_kwargs, False, False, lambda x: x, InitWeights_He(1e-2),
+                                    self.net_num_pool_op_kernel_sizes, self.net_conv_kernel_sizes, False, True, True)
+        if torch.cuda.is_available():
+            self.network.cuda()
