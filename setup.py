@@ -56,6 +56,7 @@ setup(name='nnunet_ext',
               'nnUNet_train_expert_gate = nnunet_ext.run.run_training_expert_gate:main_expert_gate',              # Use for expert gate training (to be extended)
               'nnUNet_evaluate_expert_gate = nnunet_ext.run.run_evaluation:main_expert_gate', 
               'nnUNet_train_expert_gate2 = nnunet_ext.run.run_training:main_expert_gate2',  
+              'nnUNet_inference = nnunet_ext.run.run_inference:main',  
 
           ],
       },

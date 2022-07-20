@@ -770,3 +770,5 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
                                     self.net_num_pool_op_kernel_sizes, self.net_conv_kernel_sizes, False, True, True)
         if torch.cuda.is_available():
             self.network.cuda()
+
+    
