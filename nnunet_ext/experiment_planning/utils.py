@@ -1,5 +1,6 @@
 import numpy as np
 import shutil, os, pickle, json
+import SimpleITK as sitk
 from nnunet.paths import nnUNet_raw_data, nnUNet_cropped_data
 from nnunet.preprocessing.cropping import get_case_identifier, load_case_from_list_of_files
 from batchgenerators.utilities.file_and_folder_operations import join, isdir, maybe_mkdir_p
@@ -15,10 +16,10 @@ def create_lists_from_splitted_dataset(base_folder_splitted):
     for tr in training_files:
         cur_pat = []
         for mod in range(num_modalities):
-            cur_pat.append(join(base_folder_splitted, "imagesTr", tr['image'].split("/")[-1][:-7] +
+            cur_pat.append(join(base_folder_splitted, "imagesTr", tr['image'].split(os.sep)[-1][:-7] +
                                 "_%04.0d.nii.gz" % mod))
             # -- Add label of fixed and moving image during registration -- #
-            cur_pat.append(join(base_folder_splitted, "labelsTr", tr['label'].split("/")[-1][:-7] +
+            cur_pat.append(join(base_folder_splitted, "labelsTr", tr['label'].split(os.sep)[-1][:-7] +
                                 "_%04.0d.nii.gz" % mod))
         lists.append(cur_pat)
     return lists, {int(i): d['modality'][str(i)] for i in d['modality'].keys()}
@@ -35,9 +36,10 @@ def no_crop(task_string, override=False, *args):
 
     splitted_4d_output_dir_task = join(nnUNet_raw_data, task_string)
     lists, _ = create_lists_from_splitted_dataset(splitted_4d_output_dir_task)
-    _copy(lists, overwrite_existing=override, output_folder=cropped_out_dir)
+    nr_dims = _copy(lists, overwrite_existing=override, output_folder=cropped_out_dir)
     
     shutil.copy(join(nnUNet_raw_data, task_string, "dataset.json"), cropped_out_dir)
+    return nr_dims
     
     
 def _copy(list_of_files, overwrite_existing=False, output_folder=None):
@@ -69,12 +71,22 @@ def _copy(list_of_files, overwrite_existing=False, output_folder=None):
                     data_m = data_m[0]
                 if seg_m.shape[:2] == (1, 1):
                     seg_m = seg_m[0]
+                    
                 properties["size_after_cropping"] = data_f[0].shape
-                all_data = np.vstack((data_f, seg_f, data_m, seg_m))
+                properties["classes"] = np.unique(seg_f)
+                all_data = np.vstack((data_f, data_m, seg_m, seg_f))
+                # all_data = np.vstack((data_f, seg_f, data_m, seg_m))
                 np.savez_compressed(os.path.join(output_folder, "%s.npz" % case_identifier), data=all_data)
                 with open(os.path.join(output_folder, "%s.pkl" % case_identifier), 'wb') as f:
                     pickle.dump(properties, f)
+                    
+                # -- Save labels with correct dimensions (B, C, D, H, W) in gt_segmentation folder -- #
+                # sitk.WriteImage(sitk.GetImageFromArray(seg_f), os.path.join(output_folder_gt, labels[0].split(os.sep)[-1]))
+                # sitk.WriteImage(sitk.GetImageFromArray(seg_m), os.path.join(output_folder_gt, labels[1].split(os.sep)[-1]))
+                
         except Exception as e:
             print("Exception in", case_identifier, ":")
             print(e)
             raise e
+        
+    return all_data.shape[0]

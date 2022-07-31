@@ -337,6 +337,7 @@ def get_ViT_LSA_SPT_scale_folder_name(do_LSA, do_SPT, FeatScale, AttnScale,
     """
     # -- Specify the folder name based on do_LSA and do_SPT -- #
     folder_n = 'reg' if registration else 'seg'
+    folder_n += str(os.sep)
     if do_SPT:
         folder_n += 'SPT'
     if do_LSA:

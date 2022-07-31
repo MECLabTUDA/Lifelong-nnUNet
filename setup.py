@@ -33,6 +33,7 @@ setup(name='nnunet_ext',
               'nnUNet_dataset_label_mapping = nnunet_ext.experiment_planning.dataset_label_mapping:main',# Use when the labels of the masks need to be changed based on a mapping file
               'nnUNet_delete_tasks = nnunet_ext.scripts.delete_specified_task:main',           # Use for deleting preprocessed and planned data or after clean up when a test failed
               'nnUNet_update_checkpoints = nnunet_ext.scripts.update_checkpoints:main',        # Use for modifying the checkpoints
+              'nnUNet_train_vit = nnunet_ext.run.run_training_vit:main',                                   # Use for simple extension training with ViT U-Net backbone
               'nnUNet_train_multihead = nnunet_ext.run.run_training:main_multihead',           # Use for multi head training
               'nnUNet_train_sequential = nnunet_ext.run.run_training:main_sequential',         # Use for sequential training --> transfer learning using n tasks
               'nnUNet_train_rehearsal = nnunet_ext.run.run_training:main_rehearsal',           # Use for rehearsal training

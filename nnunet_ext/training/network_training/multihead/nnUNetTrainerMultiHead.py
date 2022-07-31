@@ -15,17 +15,18 @@ from nnunet.utilities.nd_softmax import softmax_helper
 from nnunet.utilities.tensor_utilities import sum_tensor
 from nnunet_ext.training.model_restore import restore_model
 from nnunet.utilities.to_torch import maybe_to_torch, to_cuda
-from nnunet_ext.network_architecture.vit_voxing import ViT_Voxing
 from nnunet.network_architecture.generic_UNet import Generic_UNet
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet.training.loss_functions.dice_loss import DC_and_CE_loss
 from nnunet_ext.run.default_configuration import get_default_configuration
 from nnunet.training.network_training.nnUNetTrainerV2 import nnUNetTrainerV2
+from nnunet_ext.network_architecture.vit_voxing import ViT_Voxing, VoxelMorph
 from nnunet_ext.network_architecture.MultiHead_Module import MultiHead_Module
 from nnunet_ext.network_architecture.generic_ViT_UNet import Generic_ViT_UNet
 from nnunet.training.loss_functions.deep_supervision import MultipleOutputLoss2
 from nnunet_ext.training.network_training.nnViTUNetTrainer import nnViTUNetTrainer
 from nnunet.training.data_augmentation.data_augmentation_noDA import get_no_augmentation
+from nnunet_ext.training.loss_functions.deep_supervision import MultipleOutputLossRegistration
 from nnunet.training.data_augmentation.data_augmentation_moreDA import get_moreDA_augmentation
 from nnunet.training.dataloading.dataset_loading import load_dataset, DataLoader3D, DataLoader2D, unpack_dataset
 from nnunet_ext.paths import default_plans_identifier, evaluation_output_dir, preprocessing_output_dir, default_plans_identifier
@@ -44,7 +45,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                  save_csv=True, del_log=False, use_vit=False, vit_type='base', version=1, split_gpu=False, transfer_heads=False,
                  ViT_task_specific_ln=False, do_LSA=False, do_SPT=False, FeatScale=False, AttnScale=False,
                  filter_rate=0.35, filter_with=None, nth_filter=10, useFFT=False, f_map_type='none', conv_smooth=None,
-                 ts_msa=False, cross_attn=False, cbam=False, registration=False, network=None, use_param_split=False):
+                 ts_msa=False, cross_attn=False, cbam=False, registration=None, reg_loss_weights=[1., 0.01], network=None, use_param_split=False):
         r"""Constructor of Multi Head Trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
             The transfer_heads flag is used when adding a new head, if True, the state_dict from the last head will be used
             instead of the one from the initialization. This is the basic transfer learning (difference between MH and SEQ folder structure).
@@ -79,6 +80,8 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         self.cross_attn = cross_attn
         self.cbam = cbam
         self.registration = registration
+        self.reg_loss_weights = reg_loss_weights
+        self.mean_dice = []
         
         # -- Define filtering flags when used with ViT -- #
         self.filter_rate = filter_rate
@@ -119,8 +122,8 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         if self.use_vit and self.split_gpu:
             assert torch.cuda.device_count() > 1, 'When trying to split the models on multiple GPUs, then please provide more than one..'
 
-        if self.registration:
-            assert self.use_vit, 'When you want to perform registration, please set the use_vit flag for now..'
+        if self.registration == 'ViT_Voxing':
+            assert self.use_vit, 'When you want to perform registration with ViT_Voxing, please set the use_vit flag for now..'
             
         # -- Initialize or set self.already_trained_on dictionary to keep track of the trained tasks so far for restoring -- #
         if already_trained_on is not None:
@@ -216,7 +219,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                           deterministic, fp16, save_interval, self.already_trained_on, use_progress, identifier, extension,
                           tasks_list_with_char, mixed_precision, save_csv, del_log, use_vit, self.vit_type, version, split_gpu,
                           transfer_heads, ViT_task_specific_ln, do_LSA, do_SPT, FeatScale, AttnScale, filter_rate, filter_with,
-                          nth_filter, useFFT, f_map_type, conv_smooth, ts_msa, cross_attn, cbam)
+                          nth_filter, useFFT, f_map_type, conv_smooth, ts_msa, cross_attn, cbam, registration, reg_loss_weights)
 
     def do_split(self):
         r"""Modify the original function. This enables the loading of the split
@@ -332,9 +335,77 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         else:   # If for eval, then this is a nnUNetTrainerV2 whereas the path is not build as implemented in _build_output_path
             self.trainer_path = prev_trainer_path
         
-        # -- Initialize using super class -- #
-        super().initialize(training, force_load_plans) # --> This updates the corresponding variables automatically since we inherit this class
+        # -- Copied from original implementation -- #
+        if not self.was_initialized:
+            maybe_mkdir_p(self.output_folder)
 
+            if force_load_plans or (self.plans is None):
+                self.load_plans_file()
+
+            self.process_plans(self.plans)
+
+            self.setup_DA_params()
+
+            ################# Here we wrap the loss for deep supervision ############
+            # we need to know the number of outputs of the network
+            net_numpool = len(self.net_num_pool_op_kernel_sizes)
+
+            # we give each output a weight which decreases exponentially (division by 2) as the resolution decreases
+            # this gives higher resolution outputs more weight in the loss
+            weights = np.array([1 / (2 ** i) for i in range(net_numpool)])
+
+            # we don't use the lowest 2 outputs. Normalize weights so that they sum to 1
+            mask = np.array([True] + [True if i < net_numpool - 1 else False for i in range(1, net_numpool)])
+            weights[~mask] = 0
+            weights = weights / weights.sum()
+            self.ds_loss_weights = weights
+            # now wrap the loss
+            self.loss = MultipleOutputLoss2(self.loss, self.ds_loss_weights)
+            ################# END ###################
+
+            self.folder_with_preprocessed_data = join(self.dataset_directory, self.plans['data_identifier'] +
+                                                      "_stage%d" % self.stage)
+            if training:
+                self.dl_tr, self.dl_val = self.get_basic_generators()
+                if self.unpack_data:
+                    print("unpacking dataset")
+                    unpack_dataset(self.folder_with_preprocessed_data)
+                    print("done")
+                else:
+                    print(
+                        "INFO: Not unpacking data! Training may be slow due to that. Pray you are not using 2d or you "
+                        "will wait all winter for your model to finish!")
+
+                self.tr_gen, self.val_gen = get_moreDA_augmentation(
+                    self.dl_tr, self.dl_val,
+                    self.data_aug_params[
+                        'patch_size_for_spatialtransform'],
+                    self.data_aug_params,
+                    deep_supervision_scales=self.deep_supervision_scales,
+                    pin_memory=self.pin_memory,
+                    use_nondetMultiThreadedAugmenter=False
+                )
+                self.print_to_log_file("TRAINING KEYS:\n %s" % (str(self.dataset_tr.keys())),
+                                       also_print_to_console=False)
+                self.print_to_log_file("VALIDATION KEYS:\n %s" % (str(self.dataset_val.keys())),
+                                       also_print_to_console=False)
+            else:
+                pass
+
+            self.initialize_network()
+            self.initialize_optimizer_and_scheduler()
+            
+            if self.registration is not None:
+                # -- Choose the right loss function (Registration) that will be used during training -- #
+                # -- --> Look into the Loss function to see how the approach is implemented -- #
+                # -- Update the network paramaters during each iteration -- #
+                self.loss = MultipleOutputLossRegistration(self.reg_loss_weights)
+
+        else:
+            self.print_to_log_file('self.was_initialized is True, not running self.initialize again')
+        self.was_initialized = True
+        # -- Copied from original implementation -- #
+        
         # -- Set nr_epochs to provided number -- #
         self.max_num_epochs = num_epochs
 
@@ -378,13 +449,16 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                               'first_task_name':self.tasks_list_with_char[0][0], 'do_LSA':self.LSA, 'do_SPT':self.SPT,\
                               'FeatScale':self.featscale, 'AttnScale':self.attnscale, 'useFFT':self.useFFT,\
                               'fourier_mapping':self.fourier_mapping, 'f_map_type':self.f_map_type,\
-                              'conv_smooth':self.conv_smooth, 'ts_msa':self.ts_msa, 'cross_attn':self.cross_attn, 'cbam':self.cbam}
+                              'conv_smooth':self.conv_smooth, 'ts_msa':self.ts_msa, 'cross_attn':self.cross_attn, 'cbam':self.cbam,\
+                              'registration': self.registration}
                 self.first_task_name = self.tasks_list_with_char[0][0]
                 # -- Initialize from beginning and start training, since no model is provided using ViT architecture -- #
                 nnViTUNetTrainer.initialize_network(self) # --> This updates the corresponding variables automatically since we inherit this class
-                if self.registration:
+                if self.registration == 'ViT_Voxing':
                     self.mh_network = MultiHead_Module(ViT_Voxing, self.split, self.tasks_list_with_char[0][0], prev_trainer=self.network,
                                                        **vit_kwargs)
+                elif self.registration == 'VoxelMorph':
+                    self.mh_network = MultiHead_Module(VoxelMorph, self.split, self.tasks_list_with_char[0][0], prev_trainer=self.network)
                 else:
                     self.mh_network = MultiHead_Module(Generic_ViT_UNet, self.split, self.tasks_list_with_char[0][0], prev_trainer=self.network,
                                                        **vit_kwargs)
@@ -464,10 +538,13 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                           'first_task_name':self.tasks_list_with_char[0][0], 'do_LSA':self.LSA, 'do_SPT':self.SPT,\
                           'FeatScale':self.featscale, 'AttnScale':self.attnscale, 'useFFT':self.useFFT,\
                           'fourier_mapping':self.fourier_mapping, 'f_map_type':self.f_map_type,\
-                          'conv_smooth':self.conv_smooth, 'ts_msa':self.ts_msa, 'cross_attn':self.cross_attn, 'cbam':self.cbam}
-            if self.registration:
-                self.mh_network = MultiHead_Module(ViT_Voxing, self.split, self.tasks_list_with_char[0][0], prev_trainer=self.trainer_model.network,
-                                                   **vit_kwargs)
+                          'conv_smooth':self.conv_smooth, 'ts_msa':self.ts_msa, 'cross_attn':self.cross_attn, 'cbam':self.cbam,\
+                          'registration': self.registration}
+            if self.registration == 'ViT_Voxing':
+                self.mh_network = MultiHead_Module(ViT_Voxing, self.split, self.tasks_list_with_char[0][0], prev_trainer=self.network,
+                                                    **vit_kwargs)
+            elif self.registration == 'VoxelMorph':
+                self.mh_network = MultiHead_Module(VoxelMorph, self.split, self.tasks_list_with_char[0][0], prev_trainer=self.network)
             else:
                 self.mh_network = MultiHead_Module(Generic_ViT_UNet, self.split, self.tasks_list_with_char[0][0], prev_trainer=self.trainer_model.network,
                                                    **vit_kwargs)
@@ -658,14 +735,33 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
 
         if self.fp16:
             with autocast():
-                if self.use_vit and self.filter_with is not None and self.iteration % self.nth_filter == 0:
+                if self.use_vit and self.registration is not None:
+                    # output, flow = self.network(source=data[:, -1, :], target=data[:, 0, :], registration=True)
+                    # f_i, m_i, f_s = data[:, 0, ...], data[:, -1, ...], data[:, 1, ...]
+                    f_i, m_i, m_s_ = data[:, 0, ...], data[:, 1, ...], data[:, 2, ...]
+                    # output, flow = self.network(source=m_i, target=f_i, registration=True)
+                    output, m_s, flow = self.network(source=m_i, target=f_i, registration=False)
+                    # m_s = self.network.transformer(target[0], flow)
+                    # m_s = self.network.transformer(m_s_.unsqueeze(1), flow)
+                elif self.use_vit and self.filter_with is not None and self.iteration % self.nth_filter == 0:
                     output = self.network(data, fft_filter=self.filter_with, filter_rate=self.filter_rate)
                 else:
                     output = self.network(data)
                 del data
                 if not no_loss:
-                    l = self.loss(output, target)
-
+                    if self.use_vit and self.registration is not None:
+                        l = self.loss(output, f_i, m_s, target[0], flow)
+                        # l = self.loss(output, f_i, m_s, f_s, flow)
+                    else:
+                        l = self.loss(output, target)
+                        
+            # import SimpleITK as sitk
+            # sitk.WriteImage(sitk.GetImageFromArray(f_i[12].detach().cpu().numpy()), '/local/scratch/aranem/Lifelong-nnUNet-storage/test_f.nii.gz')
+            # sitk.WriteImage(sitk.GetImageFromArray(m_i[12].detach().cpu().numpy()), '/local/scratch/aranem/Lifelong-nnUNet-storage/test_m.nii.gz')
+            # sitk.WriteImage(sitk.GetImageFromArray(m_s[12].detach().cpu().numpy()), '/local/scratch/aranem/Lifelong-nnUNet-storage/test_sm.nii.gz')
+            # sitk.WriteImage(sitk.GetImageFromArray(target[0][12].detach().cpu().numpy()), '/local/scratch/aranem/Lifelong-nnUNet-storage/test_sf.nii.gz')
+            # raise
+        
             if do_backprop:
                 self.amp_grad_scaler.scale(l).backward()
                 self.amp_grad_scaler.unscale_(self.optimizer)
@@ -673,13 +769,21 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                 self.amp_grad_scaler.step(self.optimizer)
                 self.amp_grad_scaler.update()
         else:
-            if self.use_vit and self.filter_with is not None and self.iteration % self.nth_filter == 0:
+            if self.use_vit and self.registration is not None:
+                f_i, m_i, m_s_ = data[:, 0, ...], data[:, 1, ...], data[:, 2, ...]
+                # output, flow = self.network(source=m_i, target=f_i, registration=True)
+                output, m_s, flow = self.network(source=m_i, target=f_i, registration=False)
+                # m_s = self.network.transformer(m_s_.unsqueeze(1), flow)
+            elif self.use_vit and self.filter_with is not None and self.iteration % self.nth_filter == 0:
                 output = self.network(data, fft_filter=self.filter_with, filter_rate=self.filter_rate)
             else:
                 output = self.network(data)
             del data
             if not no_loss:
-                l = self.loss(output, target)
+                if self.use_vit and self.registration is not None:
+                        l = self.loss(output, f_i, m_s, target[0], flow)
+                else:
+                    l = self.loss(output, target)
 
             if do_backprop:
                 l.backward()
@@ -687,7 +791,10 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                 self.optimizer.step()
 
         if run_online_evaluation:
-            self.run_online_evaluation(output, target)
+            if self.registration is not None:
+                self.run_online_evaluation(m_s, target[0]) # --> Calculate dice between m_s and f_s
+            else:
+                self.run_online_evaluation(output, target)
 
         del target
         self.iteration += 1
@@ -972,7 +1079,15 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                   resolution output because this is what we are interested in in the end.
         """
         # -- If calculation per batch is desired, change nothing -- #
-        if self.eval_batch:
+        if self.registration is not None:
+            output = torch.sigmoid(output)
+            output = output.view(-1)
+            target = target.view(-1)
+            intersection = (output * target).sum()
+            self.mean_dice = (2.*intersection)/(output.sum() + target.sum())
+            self.mean_dice = [self.mean_dice.detach().cpu().numpy()]
+            return None
+        elif self.eval_batch:
             super().run_online_evaluation(output, target)
         else:   # --> Do evaluation per subject not per batch
             # -- Look at the Note in the function description -- #
@@ -981,7 +1096,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             #------------------------------------------ Copied from original implementation ------------------------------------------#
             with torch.no_grad():
                 # -- Calculate tp, fp and fn as usual, for every element in the batch -- #
-                num_classes = output.shape[1]
+                num_classes = output.shape[1]+1 if self.registration else output.shape[1]
                 output_softmax = softmax_helper(output)
                 output_seg = output_softmax.argmax(1)
                 target = target[:, 0]
@@ -1003,7 +1118,19 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                 self.online_eval_tp.append(tp_hard.detach().cpu().numpy())
                 self.online_eval_fp.append(fp_hard.detach().cpu().numpy())
                 self.online_eval_fn.append(fn_hard.detach().cpu().numpy())
-    
+            
+    def finish_online_evaluation(self):
+        r"""Overwrite this one so we do a correct evaluation during registration.
+        """
+        if self.registration is not None:
+            self.all_val_eval_metrics.append(np.mean(self.mean_dice))
+            self.print_to_log_file("Average Dice:", [np.round(i, 4) for i in self.mean_dice])
+            self.print_to_log_file("(interpret this as an estimate for the Dice of the different classes. This is not "
+                                   "exact.)")
+            self.mean_dice = []
+        else:
+            super().finish_online_evaluation()
+            
     def finish_online_evaluation_extended(self, task, unique_subject_names=None):
         r"""Calculate the Dice Score and IoU (Intersection over Union) on the validation dataset during training.
             The metrics are calculated for every subject and for every label in the masks, except for background.
@@ -1351,12 +1478,17 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # -- For all tasks, create a corresponding head, otherwise the restoring would not work due to mismatching weights -- #
         self.mh_network.add_n_tasks_and_activate(self.already_trained_on[str(self.fold)]['tasks_at_time_of_checkpoint'],
                                                  self.already_trained_on[str(self.fold)]['active_task_at_time_of_checkpoint'])
-
+        
+        # -- Added this here during registration -- #
+        self.mh_network.update_after_iteration()
+        
         # -- Set the network to the full MultiHead_Module network to restore everything -- #
         self.network = self.mh_network
 
         # print(self.mh_network)
+        # print(checkpoint['state_dict'].keys())
         # raise
+    
         # -- Use parent class to save checkpoint for MultiHead_Module model consisting of self.model, self.body and self.heads -- #
         super().load_checkpoint_ram(checkpoint, train)
 
@@ -1399,10 +1531,11 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
 
             # -- Update the output_folder accordingly -- #
             if self.version != output_folder.split(os.path.sep)[-1] and self.version not in output_folder:
+                arch = Generic_ViT_UNet.__name__+self.version if self.registration is None else VoxelMorph.__name__ if self.registration == 'VoxelMorph' else ViT_Voxing.__name__+self.version
                 if not meta_data:
-                    output_folder = os.path.join(output_folder, Generic_ViT_UNet.__name__+self.version)
+                    output_folder = os.path.join(output_folder, arch)
                 else:   # --> Path were meta data is stored, i.e. already_trained_on file
-                    output_folder = os.path.join(output_folder, 'metadata', Generic_ViT_UNet.__name__+self.version)
+                    output_folder = os.path.join(output_folder, 'metadata', arch)
 
             # -- Add the vit_type before the fold -- #
             if self.vit_type != output_folder.split(os.path.sep)[-1] and self.vit_type not in output_folder:

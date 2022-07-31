@@ -5,29 +5,48 @@
 import torch, copy
 import torch.nn as nn
 import torch.nn.functional as F
-from voxelmorph.torch.losses import Grad
+from voxelmorph.torch.losses import Grad, NCC
 from nnunet.utilities.to_torch import to_cuda
 from nnunet_ext.training.loss_functions.embeddings import *
 from nnunet_ext.training.loss_functions.crossentropy import *
 from nnunet_ext.training.loss_functions.knowledge_distillation import *
 from nnunet.training.loss_functions.deep_supervision import MultipleOutputLoss2
 
-class MultipleOutputLossRegistration(MultipleOutputLoss2):
-    def __init__(self, loss, weight_factors=None, loss_weights = [1., 0.01], simple_dice=False):
+class DiceLoss(nn.Module):
+    def __init__(self, weight=None, size_average=True):
+        super(DiceLoss, self).__init__()
+
+    def forward(self, inputs, targets, smooth=1):
+        
+        #comment out if your model contains a sigmoid or equivalent activation layer
+        inputs = torch.sigmoid(inputs)       
+        
+        #flatten label and prediction tensors
+        inputs = inputs.view(-1)
+        targets = targets.view(-1)
+        
+        intersection = (inputs * targets).sum()                            
+        dice = (2.*intersection + smooth)/(inputs.sum() + targets.sum() + smooth)  
+        
+        return 1 - dice
+        
+class MultipleOutputLossRegistration(nn.Module):
+    def __init__(self, loss_weights=[1., 0.01]):
         """Use this loss for registration. Set simple_dice to True if the traditional dice should be used,
            else the nnUNet MultipleOutputLoss2 will be used instead.
         """
-        # -- Initialize using the MultipleOutputLoss2 from nnU-Net -- #
-        super(MultipleOutputLossRegistration, self).__init__(loss, weight_factors)
+        # -- Initialize -- #
+        super(MultipleOutputLossRegistration, self).__init__()
 
         # -- Set all variables that are used by parent class and are necessary for the EWC loss calculation -- #
-        self.weight_factors = weight_factors
         self.loss_weights = loss_weights
-        self.loss = loss
         self.grad = Grad(penalty='l2')
-        self.simple_dice = simple_dice
-        
+        self.ncc = NCC()
+        # self.dice = DiceLoss()
+    
     def dice(self, y_true, y_pred):
+        y_true = torch.sigmoid(y_true)
+        y_pred = torch.sigmoid(y_pred)
         ndims = len(list(y_pred.size())) - 2
         vol_axes = list(range(2, ndims+2))
         top = 2 * (y_true * y_pred).sum(dim=vol_axes)
@@ -35,24 +54,25 @@ class MultipleOutputLossRegistration(MultipleOutputLoss2):
         dice = torch.mean(top / bottom)
         return -dice
     
-    def forward(self, x, y, seg_x, seg_y):
+    def forward(self, x, y, seg_x, seg_y, flow):
         r"""
             param x: Moved image * deformation field
             param y: Fixed image (GT)
             param seg_x: Moved image segmentation * deformation field
             param seg_y: Fixed image segmentation (GT)
+            param flow: deformation field
         """
-        # -- Add segmentation loss to it -- #
-        if self.simple_dice:
-            loss = self.dice(seg_y, seg_x)
-        else:
-            loss = super(MultipleOutputLossRegistration, self).forward(seg_x, seg_y)
-        
+        # -- Start loss with segmentation loss -- #
+        loss = self.dice(seg_y, seg_x)
+        # loss = self.dice(seg_x, seg_y)
+        # loss = 0
         # -- Add MSE to it -- #
         loss += self.loss_weights[0] * torch.mean((y - x) ** 2)
+        # y_ = y.unsqueeze(1)
+        # loss += 1e-5 * self.ncc.loss(y_, x)
         # -- Add Grad to it -- #
-        loss += self.loss_weights[1] * self.grad(y, x)
-        return loss
+        loss += self.loss_weights[1] * self.grad.loss(y, flow if len(flow)==5 else flow.unsqueeze(1))
+        return loss#/3
     
 # -- Loss function for the Elastic Weight Consolidation approach -- #
 class MultipleOutputLossEWC(MultipleOutputLoss2):

@@ -12,10 +12,10 @@
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
 
-
 from nnunet.paths import *
 from nnunet_ext.paths import *
 import nnunet, shutil, os, sys
+from collections import OrderedDict
 from nnunet_ext.experiment_planning.utils import no_crop
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet.training.model_restore import recursive_find_python_class
@@ -86,6 +86,7 @@ def main():
         tf = args.tf
         planner_name3d = args.planner3d
         planner_name2d = args.planner2d
+        dont_run_preprocessing = args.no_pp
         
         if planner_name3d == "None":
             planner_name3d = None
@@ -109,7 +110,7 @@ def main():
                 verify_dataset_integrity(join(nnUNet_raw_data, task_name))
 
             # -- No cropping here as we can not crop data for registration, should all have the same shape -- #
-            no_crop(task_name, False, tf)
+            dims = no_crop(task_name, False, tf)
             
             tasks.append(task_name)
 
@@ -149,7 +150,13 @@ def main():
             shutil.copy(join(nnUNet_raw_data, t, "dataset.json"), preprocessing_output_dir_this_task)
 
             threads = (tl, tf)
-
+            
+            # -- Build noNorm schemes -- #
+            schemes, norms = OrderedDict(), OrderedDict()
+            for i in range(dims-1):
+                schemes[i] = 'noNorm'
+                norms[i] = False
+                
             print("number of threads: ", threads, "\n")
 
             if planner_3d is not None:
@@ -160,9 +167,20 @@ def main():
                 else:
                     exp_planner = planner_3d(cropped_out_dir, preprocessing_output_dir_this_task)
                 exp_planner.plan_experiment()
+                # -- Manually change normalization_schemes to noNorm -- #
+                exp_planner.plans['normalization_schemes'], exp_planner.plans['use_mask_for_norm'] = schemes, norms
+                exp_planner.save_my_plans()
+            
+                if not dont_run_preprocessing:  # double negative, yooo
+                    exp_planner.run_preprocessing(threads)
             if planner_2d is not None:
                 exp_planner = planner_2d(cropped_out_dir, preprocessing_output_dir_this_task)
                 exp_planner.plan_experiment()
+                # -- Manually change normalization_schemes to noNorm -- #
+                exp_planner.plans['normalization_schemes'], exp_planner.plans['use_mask_for_norm'] = schemes, norms
+                exp_planner.save_my_plans()
+                if not dont_run_preprocessing:  # double negative, yooo
+                    exp_planner.run_preprocessing(threads)
         # -- Copied from original implementation and modified accordingly -- #
     else:
         # -- Keep as is from nnUNet, as we don't want to change anything here -- #

@@ -89,6 +89,10 @@ def main():
                         help='Try to train the model on the GPU device with <DEVICE> ID. '+
                             ' Valid IDs: 0, 1, ..., 7. A List of IDs can be provided as well.'+
                             ' Default: Only GPU device with ID 0 will be used.')
+    parser.add_argument('-reg', action='store', type=str, default=None, choices=['VoxelMorph', 'ViT_Voxing'],
+                        help='Set this flag along with an architecture if the Lifelong nnUNet should be used for registration.')
+    parser.add_argument('-reg_w', action='store', type=float, nargs=2, required=False, default=[1., 0.01],
+                        help='Specify the weights for the registration loss. Default: 1.0 (L_MSE) and 0.01 (L_Grad)')
     parser.add_argument('--use_mult_gpus', action='store_true', default=False,
                         help='If this is set, the ViT model will be placed onto a second GPU. '+
                              'When this is set, more than one GPU needs to be provided when using -d.')
@@ -131,6 +135,8 @@ def main():
     parser.add_argument('-save_interval', action='store', type=int, nargs=1, required=False, default=25,
                         help='Specify after which epoch interval to update the saved data.'
                             ' Default: If disable_saving False, the result will be updated every 25th epoch.')
+    parser.add_argument('--no_val', required=False, default=False, action="store_true",
+                        help='Set this flag if the final validation of the nnU-Net should be omitted.')
 
     # -------------------------------
     # Extract arguments from parser
@@ -148,6 +154,7 @@ def main():
     deterministic = args.deterministic
     valbest = args.valbest
     fp32 = args.fp32
+    do_val = not args.no_val
     run_mixed_precision = not fp32
     val_folder = args.val_folder
     
@@ -170,6 +177,10 @@ def main():
     # -- LSA and SPT flags -- #
     do_LSA = args.do_LSA
     do_SPT = args.do_SPT
+    registration = args.reg
+    if isinstance(registration, list):    # When the version gets returned as a list, extract the number to avoid later appearing errors
+        registration = registration[0]
+    reg_loss_weights = args.reg_w
 
     # -- Scaling flags -- #
     FeatScale = args.FeatScale
@@ -254,7 +265,8 @@ def main():
                             deterministic=deterministic, fp16=run_mixed_precision, save_interval=save_interval,
                             version=version, vit_type=vit_type, split_gpu=split_gpu, do_LSA=do_LSA, do_SPT=do_SPT,
                             FeatScale=FeatScale, AttnScale=AttnScale, useFFT=useFFT, f_map_type=f_map_type,
-                            conv_smooth=conv_smooth, ts_msa=ts_msa, cross_attn=cross_attn, cbam=cbam)
+                            conv_smooth=conv_smooth, ts_msa=ts_msa, cross_attn=cross_attn, cbam=cbam, registration=registration,
+                            reg_loss_weights=reg_loss_weights)
     
     # -- Disable the saving of checkpoints if desired -- #                        
     if args.disable_saving:
@@ -283,24 +295,25 @@ def main():
                 pass
 
             # -- Start to train the trainer -- #
-            trainer.run_training()
+            trainer.run_training(task=task, output_folder=output_folder_name)
         else:
             if valbest:
                 trainer.load_best_checkpoint(train=False)
             else:
                 trainer.load_final_checkpoint(train=False)
 
-        # -- Put network in evaluation mode -- #
-        trainer.network.eval()
+        if do_val:
+            # -- Put network in evaluation mode -- #
+            trainer.network.eval()
 
-        # -- Perform validation using the trainer -- #
-        trainer.validate(save_softmax=args.npz, validation_folder_name=val_folder,
-                         run_postprocessing_on_folds=not disable_postprocessing_on_folds,
-                         overwrite=args.val_disable_overwrite)
+            # -- Perform validation using the trainer -- #
+            trainer.validate(save_softmax=args.npz, validation_folder_name=val_folder,
+                            run_postprocessing_on_folds=not disable_postprocessing_on_folds,
+                            overwrite=args.val_disable_overwrite)
 
-        if network == '3d_lowres' and not args.disable_next_stage_pred:
-            print("predicting segmentations for the next stage of the cascade")
-            predict_next_stage(trainer, join(dataset_directory, trainer.plans['data_identifier'] + "_stage%d" % 1))
+            if network == '3d_lowres' and not args.disable_next_stage_pred:
+                print("predicting segmentations for the next stage of the cascade")
+                predict_next_stage(trainer, join(dataset_directory, trainer.plans['data_identifier'] + "_stage%d" % 1))
 
 
 if __name__ == "__main__":

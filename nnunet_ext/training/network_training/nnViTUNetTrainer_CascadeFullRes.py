@@ -42,29 +42,9 @@ class nnViTUNetTrainerCascadeFullRes(nnUNetTrainerV2CascadeFullRes): # Inherit d
         self.cbam = cbam
         self.conv_smooth = conv_smooth
 
-        # -- Update the output_folder accordingly -- #
-        if self.version not in output_folder:
-            output_folder = output_folder.replace(self.__class__.__name__, self.__class__.__name__+self.version)
-
-        # -- Add the vit_type before the fold -- #
-        if self.vit_type != output_folder.split(os.path.sep)[-1] and self.vit_type not in output_folder:
-            output_folder = os.path.join(output_folder, self.vit_type)
-
-        # -- Add the ViT_task_specific_ln before the fold -- #
-        if self.ViT_task_specific_ln:
-            if 'task_specific'!= output_folder.split(os.path.sep)[-1] and 'task_specific' not in output_folder:
-                output_folder = os.path.join(output_folder, 'task_specific')
-        else:
-            if 'not_task_specific'!= output_folder.split(os.path.sep)[-1] and 'not_task_specific' not in output_folder:
-                output_folder = os.path.join(output_folder, 'not_task_specific')
-
-        # -- Add the LSA and SPT before the fold -- #
-        folder_n = get_ViT_LSA_SPT_scale_folder_name(self.LSA, self.SPT, self.featscale, self.attnscale, self.useFFT,\
-                                                     self.f_map_type, self.conv_smooth, self.ts_msa, self.cross_attn, self.cbam)
-        # -- Add to the path -- #
-        if folder_n != output_folder.split(os.path.sep)[-1] and folder_n not in output_folder:
-            output_folder = os.path.join(output_folder, folder_n)
-
+        # -- Update the output_folder path accordingly -- #
+        output_folder = nnViTUNetTrainer._build_output_path(self, output_folder, False)
+        
         # -- Initialize using parent class -- #
         super().__init__(plans_file, fold, output_folder, dataset_directory, batch_dice, stage,
                          unpack_data, deterministic, previous_trainer, fp16)
@@ -110,3 +90,27 @@ class nnViTUNetTrainerCascadeFullRes(nnUNetTrainerV2CascadeFullRes): # Inherit d
         """
         # -- This makes everything we want without duplicating the code -- #
         nnViTUNetTrainer.initialize_network(self)
+        
+    def run_training(self, task, output_folder, build_folder=True):
+        r"""Use the same function as from the nnViTUNetTrainer.
+        """
+        # -- This makes everything we want without duplicating the code -- #
+        nnViTUNetTrainer.run_training(self, task, output_folder, build_folder)
+        
+    def run_iteration(self, data_generator, do_backprop=True, run_online_evaluation=False, detach=True, no_loss=False):
+        r"""Use the same function as from the nnViTUNetTrainer.
+        """
+        # -- This makes everything we want without duplicating the code -- #
+        nnViTUNetTrainer.run_iteration(self, data_generator, do_backprop, run_online_evaluation, detach, no_loss)
+        
+    def run_online_evaluation(self, output, target):
+        r"""Use the same function as from the nnViTUNetTrainer.
+        """
+        # -- This makes everything we want without duplicating the code -- #
+        nnViTUNetTrainer.run_online_evaluation(self, output, target)
+        
+    def finish_online_evaluation(self):
+        r"""Use the same function as from the nnViTUNetTrainer.
+        """
+        # -- This makes everything we want without duplicating the code -- #
+        nnViTUNetTrainer.finish_online_evaluation(self)

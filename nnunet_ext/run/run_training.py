@@ -13,6 +13,7 @@ from nnunet.run.load_pretrained_weights import load_pretrained_weights
 from nnunet_ext.run.default_configuration import get_default_configuration
 from nnunet.utilities.task_name_id_conversion import convert_id_to_task_name
 from nnunet_ext.network_architecture.generic_ViT_UNet import Generic_ViT_UNet
+from nnunet_ext.network_architecture.vit_voxing import ViT_Voxing, VoxelMorph
 from nnunet_ext.paths import default_plans_identifier, network_training_output_dir
 
 TRAINER_MAP = dict()
@@ -98,6 +99,10 @@ def run_training(extension='multihead'):
                         help='Try to train the model on the GPU device with <DEVICE> ID. '+
                             ' Valid IDs: 0, 1, ..., 7. A List of IDs can be provided as well.'+
                             ' Default: Only GPU device with ID 0 will be used.')
+    parser.add_argument('-reg', action='store', type=str, default=None, choices=['VoxelMorph', 'ViT_Voxing'],
+                        help='Set this flag along with an architecture if the Lifelong nnUNet should be used for registration.')
+    parser.add_argument('-reg_w', action='store', type=float, nargs=2, required=False, default=[1., 0.01],
+                        help='Specify the weights for the registration loss. Default: 1.0 (L_MSE) and 0.01 (L_Grad)')
     parser.add_argument('--reduce_threads', action='store_true', default=False,
                         help='If the network uses too much CPU Threads, set this flag and it will be reduced to about 20 to 30 Threads.')
     parser.add_argument("-s", "--split_at", action='store', type=str, nargs=1, required=True,
@@ -325,6 +330,10 @@ def run_training(extension='multihead'):
     # -- LSA and SPT flags -- #
     do_LSA = args.do_LSA
     do_SPT = args.do_SPT
+    registration = args.reg
+    if isinstance(registration, list):    # When the version gets returned as a list, extract the number to avoid later appearing errors
+        registration = registration[0]
+    reg_loss_weights = args.reg_w
 
     # -- Scaling flags -- #
     FeatScale = args.FeatScale
@@ -556,14 +565,16 @@ def run_training(extension='multihead'):
     basic_vit =  {'vit_type': vit_type, 'version': version, 'split_gpu': split_gpu, 'do_LSA': do_LSA, 'do_SPT': do_SPT,
                   'FeatScale': FeatScale, 'AttnScale': AttnScale, 'filter_with': FFT_filter, 'nth_filter': filter_every,
                   'filter_rate': filter_rate, 'useFFT': useFFT, 'f_map_type': f_map_type,  'conv_smooth': conv_smooth,
-                  'ts_msa': ts_msa, 'cross_attn': cross_attn, 'cbam': cbam, **basic_args}
+                  'ts_msa': ts_msa, 'cross_attn': cross_attn, 'cbam': cbam, 'registration': registration,
+                  'reg_loss_weights': reg_loss_weights, **basic_args}
     basic_exts = {'save_interval': save_interval, 'identifier': init_identifier, 'extension': extension, 'useFFT': useFFT,
                   'tasks_list_with_char': copy.deepcopy(tasks_list_with_char), 'save_csv': save_csv, 'use_param_split': False,
                   'mixed_precision': run_mixed_precision, 'use_vit': use_vit, 'vit_type': vit_type, 'version': version,
                   'split_gpu': split_gpu, 'transfer_heads': transfer_heads, 'ViT_task_specific_ln': ViT_task_specific_ln,
                   'do_LSA': do_LSA, 'do_SPT': do_SPT, 'FeatScale':FeatScale, 'AttnScale': AttnScale, 'filter_with': FFT_filter,
                   'nth_filter': filter_every, 'filter_rate': filter_rate, 'f_map_type': f_map_type, 'conv_smooth': conv_smooth,
-                  'ts_msa': ts_msa, 'cross_attn': cross_attn, 'cbam': cbam, **basic_args}
+                  'ts_msa': ts_msa, 'cross_attn': cross_attn, 'cbam': cbam, 'registration': registration,
+                  'reg_loss_weights': reg_loss_weights, **basic_args}
     ewc_args = {'ewc_lambda': ewc_lambda, **basic_exts}
     mib_args = {'mib_lkd': mib_lkd, 'mib_alpha': mib_alpha, **basic_exts}
     lwf_args = {'lwf_temperature': lwf_temperature, **basic_exts}
@@ -618,12 +629,13 @@ def run_training(extension='multihead'):
                                                              FFT_filter, filter_every, filter_rate,
                                                              useFFT, f_map_type, conv_smooth, ts_msa, cross_attn,
                                                              cbam)
+                arch = Generic_ViT_UNet.__name__+'V'+str(version) if registration is None else VoxelMorph.__name__ if registration == 'VoxelMorph' else ViT_Voxing.__name__+'V'+str(version)
                 # -- Build base_path -- #
                 if args.continue_from_previous_dir:
                     tasks_excluding_last = join_texts_with_char(tasks_for_folds[:-1], char_to_join_tasks)
-                    base_path = join(network_training_output_dir, network, tasks_excluding_last, 'metadata', Generic_ViT_UNet.__name__+'V'+str(version), vit_type.lower())
+                    base_path = join(network_training_output_dir, network, tasks_excluding_last, 'metadata', arch, vit_type.lower())
                 else:
-                    base_path = join(network_training_output_dir, network, tasks_joined_name, 'metadata', Generic_ViT_UNet.__name__+'V'+str(version), vit_type.lower())
+                    base_path = join(network_training_output_dir, network, tasks_joined_name, 'metadata', arch, vit_type.lower())
                 if ViT_task_specific_ln:
                     base_path = join(base_path, 'task_specific', folder_n)
                 else:

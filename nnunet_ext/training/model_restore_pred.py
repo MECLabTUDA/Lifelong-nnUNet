@@ -3,12 +3,11 @@
 # implementation, we separate this from model_restore to avoid circular imports.
 #########################################################################################################
 
-import torch
-import torch.nn as nn
+import torch, os
+from nnunet_ext.training.model_restore import restore_model
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet_ext.run.default_configuration import get_default_configuration
 from nnunet.run.default_configuration import get_default_configuration as get_default_configuration_orig
-from nnunet_ext.training.model_restore import restore_model
 
 # -- Import the trainer classes -- #
 from nnunet_ext.training.network_training.nnViTUNetTrainer import nnViTUNetTrainer
@@ -74,8 +73,8 @@ def load_model_and_checkpoint_files(params, folder, folds=None, mixed_precision=
 
         # -- Build a simple MultiHead Trainer so we can use the perform validation function without re-coding it -- #
         trainer = nnUNetTrainerMultiHead('seg_outputs', params['tasks_list_with_char'][0][0], plans_file, t_fold, output_folder=trainer_path,\
-                                            dataset_directory=dataset_directory, tasks_list_with_char=(params['tasks_list_with_char'][0], params['tasks_list_with_char'][1]),\
-                                            batch_dice=batch_dice, stage=stage, already_trained_on=None, use_param_split=params['param_split'], network=params['network'])
+                                         dataset_directory=dataset_directory, tasks_list_with_char=(params['tasks_list_with_char'][0], params['tasks_list_with_char'][1]),\
+                                         batch_dice=batch_dice, stage=stage, already_trained_on=None, use_param_split=params['param_split'], network=params['network'])
         trainer.initialize(False, num_epochs=0, prev_trainer_path=prev_trainer_path, call_for_eval=True)
         # -- Reset the epoch -- #
         trainer.epoch = epoch

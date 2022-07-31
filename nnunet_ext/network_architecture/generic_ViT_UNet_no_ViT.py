@@ -203,32 +203,32 @@ class Generic_ViT_UNet(Generic_UNet):
             }
 
         # -- Initialize ViT generically -- #
-        self.ViT = VisionTransformer(**custom_config)
+        # self.ViT = VisionTransformer(**custom_config)
         
         # -- Create copies of the different parts and delete them all again -- #
         conv_blocks_localization = self.conv_blocks_localization
         conv_blocks_context = self.conv_blocks_context
-        ViT = self.ViT
+        # ViT = self.ViT
         td = self.td
         tu = self.tu
         seg_outputs = self.seg_outputs
-        del self.conv_blocks_localization, self.conv_blocks_context, self.ViT, self.td, self.tu, self.seg_outputs
+        del self.conv_blocks_localization, self.conv_blocks_context, self.td, self.tu, self.seg_outputs
 
         # -- Re-register all modules properly using backups to create a specific order -- #
         # -- NEW Order: Encoder -- ViT -- Decoder
         self.conv_blocks_context = conv_blocks_context  # Encoder part 1
         self.td = td  # Encoder part 2
-        if self.version != 'V4':    # ViT
-            self.ViT = ViT
+        # if self.version != 'V4':    # ViT
+        #     self.ViT = ViT
         self.tu = tu   # Decoder part 1
         self.conv_blocks_localization = conv_blocks_localization   # Decoder part 2
-        if self.version == 'V4':    # ViT
-            self.ViT = ViT
+        # if self.version == 'V4':    # ViT
+        #     self.ViT = ViT
         if self.registration is None:
             self.seg_outputs = seg_outputs  # Segmentation head
 
         # -- Define the list of names in case the network gets split onto multiple GPUs -- #
-        self.split_names = ['ViT']
+        # self.split_names = ['ViT']
 
 
     def forward(self, x, store_vit_input=False, store_vit_output=False, fft_filter=None, filter_rate=0.33, task_name=None):
@@ -251,99 +251,99 @@ class Generic_ViT_UNet(Generic_UNet):
         x = self.conv_blocks_context[-1](x)
         #------------------------------------------ Copied from original implementation ------------------------------------------#
 
-        if self.version != 'V4':    # in V4 ViT is placed before segmentation head
-            # -- Copy the size of the input for the transformer -- #
-            size = x.size()
+        # if self.version != 'V4':    # in V4 ViT is placed before segmentation head
+        #     # -- Copy the size of the input for the transformer -- #
+        #     size = x.size()
 
-            # -- Prepare input for ViT based on users input -- #
-            # -- Put ViT_in to GPU 1, where the whole other parts ViT and the rest are -- #
-            if self.split_gpu:
-                ViT_in = getattr(self, self.prepare[self.version])(skips, x)
-                ViT_in = to_cuda(ViT_in, gpu_id=1)
-            else:
-                ViT_in = getattr(self, self.prepare[self.version])(skips, x)
+        #     # -- Prepare input for ViT based on users input -- #
+        #     # -- Put ViT_in to GPU 1, where the whole other parts ViT and the rest are -- #
+        #     if self.split_gpu:
+        #         ViT_in = getattr(self, self.prepare[self.version])(skips, x)
+        #         ViT_in = to_cuda(ViT_in, gpu_id=1)
+        #     else:
+        #         ViT_in = getattr(self, self.prepare[self.version])(skips, x)
 
-            if store_vit_input:     # Keep track of the ViT input
-                self.ViT_in = ViT_in.clone()
+        #     if store_vit_input:     # Keep track of the ViT input
+        #         self.ViT_in = ViT_in.clone()
 
-            # -- Do 2D FFT and proper filtering if desired -- #
-            if fft_filter == 'high_basic':
-                ft = calculate_2dft(ViT_in.clone().type(torch.complex64), True)
-                # -- We have 5D Tensors here: [batch, channels, depth, height, widht] -- #
-                # if self.mask is None:
-                self.mask = high_pass_filter(ft.size(), filter_rate)
-                self.mask = torch.from_numpy(self.mask).to(device=ft.device)
-                ViT_in_filtered = ft * self.mask
+        #     # -- Do 2D FFT and proper filtering if desired -- #
+        #     if fft_filter == 'high_basic':
+        #         ft = calculate_2dft(ViT_in.clone().type(torch.complex64), True)
+        #         # -- We have 5D Tensors here: [batch, channels, depth, height, widht] -- #
+        #         # if self.mask is None:
+        #         self.mask = high_pass_filter(ft.size(), filter_rate)
+        #         self.mask = torch.from_numpy(self.mask).to(device=ft.device)
+        #         ViT_in_filtered = ft * self.mask
 
-            if fft_filter == 'high_advanced':   # Can only be done on CPU as <=/>= does not work for PyTorch with complex nrs
-                ViT_in = ViT_in.detach().cpu().numpy()
-                ViT_in_filtered = calculate_2dft(ViT_in, False)
-                ViT_in_filtered = np.where(ViT_in_filtered == -np.inf, 0, ViT_in_filtered)
-                ViT_in_filtered = np.where(ViT_in_filtered == np.inf, 0, ViT_in_filtered)
-                mean = np.mean(ViT_in_filtered)
-                st = np.std(ViT_in_filtered)
+        #     if fft_filter == 'high_advanced':   # Can only be done on CPU as <=/>= does not work for PyTorch with complex nrs
+        #         ViT_in = ViT_in.detach().cpu().numpy()
+        #         ViT_in_filtered = calculate_2dft(ViT_in, False)
+        #         ViT_in_filtered = np.where(ViT_in_filtered == -np.inf, 0, ViT_in_filtered)
+        #         ViT_in_filtered = np.where(ViT_in_filtered == np.inf, 0, ViT_in_filtered)
+        #         mean = np.mean(ViT_in_filtered)
+        #         st = np.std(ViT_in_filtered)
 
-                # set all to 0 where the value is not in between mean value +/- 0.85 std
-                ViT_in_filtered = np.where(ViT_in_filtered <= mean + 0.85 * st, ViT_in_filtered, 0)
-                ViT_in_filtered = np.where(ViT_in_filtered >= mean - 0.85 * st, ViT_in_filtered, 0)
+        #         # set all to 0 where the value is not in between mean value +/- 0.85 std
+        #         ViT_in_filtered = np.where(ViT_in_filtered <= mean + 0.85 * st, ViT_in_filtered, 0)
+        #         ViT_in_filtered = np.where(ViT_in_filtered >= mean - 0.85 * st, ViT_in_filtered, 0)
                 
-                # ViT_in_filtered = list()
-                # # -- Do a more advanced filtering where no filter rate is necessary -- #
-                # for b in range(ViT_in.shape[0]):   # per batch
-                #     ViT_in_filtered.append([])
-                #     for i in range(ViT_in.shape[1]):    # per channel
-                #         # -- Do 2D FFT and apply HP filter -- #
-                #         ft = calculate_2dft(ViT_in[b,i,...])
-                #         # ft = calculate_2dft(ViT_in[b,i,...].type(torch.complex64), do_torch=True)
-                #         # ft_ = ft.detach().cpu().numpy()
-                #         mean = stats.describe(ft)[-4]
-                #         var = stats.describe(ft)[-3]
-                #         for i in range(ft.shape[0]):
-                #             # -- Replace all infs with 0 -- #
-                #             ft[i] = np.where(ft[i] == -np.inf, 0, ft[i])
-                #             ft[i] = np.where(ft[i] == np.inf, 0, ft[i])
-                #             if mean[i] == - np.inf:
-                #                 continue
-                #             # -- Set all to 0 where the value is in between mean value +/- 1/23 variance -- #
-                #             ft[i] = np.where(ft[i] <= np.mean(mean) + 1/23 * np.std(var), ft[i], 0)
-                #             ft[i] = np.where(ft[i] >= np.mean(mean) - 1/23 * np.std(var), ft[i], 0)
+        #         # ViT_in_filtered = list()
+        #         # # -- Do a more advanced filtering where no filter rate is necessary -- #
+        #         # for b in range(ViT_in.shape[0]):   # per batch
+        #         #     ViT_in_filtered.append([])
+        #         #     for i in range(ViT_in.shape[1]):    # per channel
+        #         #         # -- Do 2D FFT and apply HP filter -- #
+        #         #         ft = calculate_2dft(ViT_in[b,i,...])
+        #         #         # ft = calculate_2dft(ViT_in[b,i,...].type(torch.complex64), do_torch=True)
+        #         #         # ft_ = ft.detach().cpu().numpy()
+        #         #         mean = stats.describe(ft)[-4]
+        #         #         var = stats.describe(ft)[-3]
+        #         #         for i in range(ft.shape[0]):
+        #         #             # -- Replace all infs with 0 -- #
+        #         #             ft[i] = np.where(ft[i] == -np.inf, 0, ft[i])
+        #         #             ft[i] = np.where(ft[i] == np.inf, 0, ft[i])
+        #         #             if mean[i] == - np.inf:
+        #         #                 continue
+        #         #             # -- Set all to 0 where the value is in between mean value +/- 1/23 variance -- #
+        #         #             ft[i] = np.where(ft[i] <= np.mean(mean) + 1/23 * np.std(var), ft[i], 0)
+        #         #             ft[i] = np.where(ft[i] >= np.mean(mean) - 1/23 * np.std(var), ft[i], 0)
                             
-                #         ViT_in_filtered[b].append(ft)
+        #         #         ViT_in_filtered[b].append(ft)
 
-                ViT_in = maybe_to_torch(ViT_in)
-                if not self.split_gpu:
-                    ViT_in = to_cuda(ViT_in, gpu_id=0)
-                else:
-                    ViT_in = to_cuda(ViT_in, gpu_id=1)
+        #         ViT_in = maybe_to_torch(ViT_in)
+        #         if not self.split_gpu:
+        #             ViT_in = to_cuda(ViT_in, gpu_id=0)
+        #         else:
+        #             ViT_in = to_cuda(ViT_in, gpu_id=1)
 
-            # -- Pass the result from conv_blocks through ViT -- #
-            # x = self.ViT(torch.fft.fft2(ViT_in).real)
+        #     # -- Pass the result from conv_blocks through ViT -- #
+        #     # x = self.ViT(torch.fft.fft2(ViT_in).real)
             
-            x = self.ViT(ViT_in, task_name=task_name)
-            del ViT_in
+        #     x = self.ViT(ViT_in, task_name=task_name)
+        #     del ViT_in
 
             # -- Reshape result from ViT to input of self.tu[0] -- #
-            x = x.reshape(size)
+            # x = x.reshape(size)
 
-            if store_vit_output:    # Keep track of the reshaped ViT output
-                self.ViT_out = x.clone()
+            # if store_vit_output:    # Keep track of the reshaped ViT output
+            #     self.ViT_out = x.clone()
 
-            # -- Put x back to GPU 0 where the nnU-Net is located (only ViT is on GPU 1) -- #
-            if self.split_gpu:
-                x = to_cuda(x, gpu_id=0)
+            # # -- Put x back to GPU 0 where the nnU-Net is located (only ViT is on GPU 1) -- #
+            # if self.split_gpu:
+            #     x = to_cuda(x, gpu_id=0)
 
-            # -- Modify the corresponding skip connection if the fft_filter is used -- #
-            if fft_filter == 'high_basic' or fft_filter == 'high_advanced':
-                # -- Simply add the filter to skip connection using '+' in FFT -- #
-                skip_cnx = skips[self.use_skip]
-                skip_cnx_fft = calculate_2dft(skip_cnx.type(torch.complex64), do_torch=True)
-                skip_cnx_fft += torch.from_numpy(ViT_in_filtered).to(skip_cnx_fft.device)
-                # -- Do 2D IFFT -- #
-                ift = torch.fft.ifftshift(skip_cnx_fft)
-                ift = torch.fft.ifft2(ift)
-                ift = torch.fft.fftshift(ift)
-                ift = ift.real
-                skips[self.use_skip] = ift
+            # # -- Modify the corresponding skip connection if the fft_filter is used -- #
+            # if fft_filter == 'high_basic' or fft_filter == 'high_advanced':
+            #     # -- Simply add the filter to skip connection using '+' in FFT -- #
+            #     skip_cnx = skips[self.use_skip]
+            #     skip_cnx_fft = calculate_2dft(skip_cnx.type(torch.complex64), do_torch=True)
+            #     skip_cnx_fft += torch.from_numpy(ViT_in_filtered).to(skip_cnx_fft.device)
+            #     # -- Do 2D IFFT -- #
+            #     ift = torch.fft.ifftshift(skip_cnx_fft)
+            #     ift = torch.fft.ifft2(ift)
+            #     ift = torch.fft.fftshift(ift)
+            #     ift = ift.real
+            #     skips[self.use_skip] = ift
 
             # # -- Modify the corresponding skip connection if the fft_filter is used -- #
             # if fft_filter == 'high_basic' or fft_filter == 'high_advanced':
