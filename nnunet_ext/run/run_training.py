@@ -3,7 +3,6 @@
 #----------training versions. Implementation inspired by original implementation.-----------------------#
 #########################################################################################################
 
-from nnunet_ext.training.network_training.expert_gate.nnUNetTrainerExpertGate import nnUNetTrainerExpertGate
 import numpy as np
 import os, argparse, copy, warnings, nnunet_ext
 from nnunet.network_architecture.generic_UNet import Generic_UNet

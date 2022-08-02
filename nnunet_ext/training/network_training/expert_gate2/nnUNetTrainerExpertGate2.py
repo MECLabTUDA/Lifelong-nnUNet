@@ -36,7 +36,13 @@ from nnunet.training.dataloading.dataset_loading import load_dataset, DataLoader
 from nnunet_ext.paths import default_plans_identifier, evaluation_output_dir, preprocessing_output_dir, default_plans_identifier
 
 from nnunet.network_architecture.initialization import InitWeights_He
-from torch import nn
+from torch import Tensor, nn
+from nnunet.training.network_training.nnUNetTrainer import nnUNetTrainer
+
+
+#from monai.networks.nets import AutoEncoder
+from nnunet_ext.network_architecture.expert_gate_monai_ae import ExpertGateMonaiAutoencoder
+from typing import Tuple
 
 # -- Define globally the Hyperparameters for this trainer along with their type -- #
 HYPERPARAMS = {}
@@ -292,7 +298,7 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
             self.mh_network.add_new_task(task, use_init=not self.transfer_heads)
 
         # -- Activate the model based on task --> self.mh_network.active_task is now set to task as well -- #
-        print("################## init network", self.patch_size[0] * self.patch_size[1] * self.patch_size[2])
+        #print("################## init network", self.patch_size[0] * self.patch_size[1] * self.patch_size[2])
         #self.network = expert_gate_autoencoder(self.patch_size[0] * self.patch_size[1] * self.patch_size[2])
         self.initialize_network2()
 
@@ -763,12 +769,68 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
         net_nonlin = nn.LeakyReLU
         net_nonlin_kwargs = {'negative_slope': 1e-2, 'inplace': True}
         print("#################input channels: ",  self.num_input_channels)
+        """
         self.network = expert_gate_UNet(self.num_input_channels, self.base_num_features, self.num_classes, net_numpool,
                                     self.conv_per_stage, 2, conv_op, norm_op, norm_op_kwargs, dropout_op,
                                     dropout_op_kwargs,
                                     net_nonlin, net_nonlin_kwargs, False, False, lambda x: x, InitWeights_He(1e-2),
                                     self.net_num_pool_op_kernel_sizes, self.net_conv_kernel_sizes, False, True, True)
+        self.network.inference_apply_nonlin = lambda x : x
+        """
+        """TRAINED ON 21:
+        self.network = ExpertGateMonaiAutoencoder(
+            spatial_dims=2,
+            in_channels=1,
+            out_channels=1,
+            channels=(8,16,32,64),
+            strides=(1,1,1,1),
+            inter_channels=(64,),
+            num_res_units=0
+        )
+        """
+        """TRAINED ON 41:
+        """
+        self.network = ExpertGateMonaiAutoencoder(
+            spatial_dims=2,
+            in_channels=1,
+            out_channels=1,
+            channels=(4,8,16,32),
+            strides=(1,1,1,1),
+            inter_channels=(32,),
+            num_res_units=1
+        )
+        self.network.train()
         if torch.cuda.is_available():
             self.network.cuda()
+
+    def predict_preprocessed_data_return_seg_and_softmax(self, data: np.ndarray, do_mirroring: bool = True,
+                                                         mirror_axes: Tuple[int] = None,
+                                                         use_sliding_window: bool = True, step_size: float = 0.5,
+                                                         use_gaussian: bool = True, pad_border_mode: str = 'constant',
+                                                         pad_kwargs: dict = None, all_in_gpu: bool = False,
+                                                         verbose: bool = True, mixed_precision=True) -> Tuple[np.ndarray, np.ndarray]:
+        
+        if pad_border_mode == 'constant' and pad_kwargs is None:
+            pad_kwargs = {'constant_values': 0}
+
+        if do_mirroring and mirror_axes is None:
+            mirror_axes = self.data_aug_params['mirror_axes']
+
+        if do_mirroring:
+            assert self.data_aug_params["do_mirror"], "Cannot do mirroring as test time augmentation when training " \
+                                                      "was done without mirroring"
+
+
+        current_mode = self.network.training
+        self.network.eval()
+        ret = self.network.predict_3D(data, do_mirroring=do_mirroring, mirror_axes=mirror_axes,
+                                      use_sliding_window=use_sliding_window, step_size=step_size,
+                                      patch_size=self.patch_size, regions_class_order=self.regions_class_order,
+                                      use_gaussian=use_gaussian, pad_border_mode=pad_border_mode,
+                                      pad_kwargs=pad_kwargs, all_in_gpu=all_in_gpu, verbose=verbose,
+                                      mixed_precision=mixed_precision)
+
+        self.network.train(current_mode)
+        return ret
 
     
