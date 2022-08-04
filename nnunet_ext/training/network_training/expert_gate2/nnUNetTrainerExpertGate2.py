@@ -785,20 +785,21 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
             channels=(8,16,32,64),
             strides=(1,1,1,1),
             inter_channels=(64,),
-            num_res_units=0
-        )
-        """
+            num_res_units=4
+        )"""
+        
         """TRAINED ON 41:
-        """
+        
         self.network = ExpertGateMonaiAutoencoder(
             spatial_dims=2,
             in_channels=1,
             out_channels=1,
-            channels=(4,8,16,32),
-            strides=(1,1,1,1),
-            inter_channels=(32,),
+            channels=(256,),
+            strides=(1,),
+            inter_channels=(256,),
             num_res_units=1
-        )
+        )"""
+        self.network = expert_gate_autoencoder()
         self.network.train()
         if torch.cuda.is_available():
             self.network.cuda()

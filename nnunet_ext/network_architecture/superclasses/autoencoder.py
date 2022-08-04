@@ -8,13 +8,13 @@ from torch import nn
 import torch
 from scipy.ndimage.filters import gaussian_filter
 from typing import Union, Tuple, List, Sequence, Optional, Any
-
 from torch.cuda.amp import autocast
+from torch import nn, Tensor, prelu, relu
+import torch
+from nnunet.network_architecture.neural_network import NeuralNetwork
 
-from monai.networks.nets import AutoEncoder
-from nnunet_ext.network_architecture.superclasses.autoencoder import Autoencoder
-
-class ExpertGateMonaiAutoencoder(AutoEncoder, Autoencoder):
+class Autoencoder(NeuralNetwork):
+    
     def predict_3D(self, x: np.ndarray, do_mirroring: bool, mirror_axes: Tuple[int, ...] = (0, 1, 2),
                    use_sliding_window: bool = False,
                    step_size: float = 0.5, patch_size: Tuple[int, ...] = None, regions_class_order: Tuple[int, ...] = None,
