@@ -104,6 +104,7 @@ class Autoencoder(SegmentationNetwork):
                                     mirror_axes: tuple = (0, 1), regions_class_order: tuple = None,
                                     pad_border_mode: str = "constant", pad_kwargs: dict = None,
                                     all_in_gpu: bool = False, verbose: bool = True) -> Tuple[np.ndarray, np.ndarray]:
+        raise NotImplementedError
         if all_in_gpu:
             raise NotImplementedError
         assert len(x.shape) == 4, "data must be c, x, y, z"
