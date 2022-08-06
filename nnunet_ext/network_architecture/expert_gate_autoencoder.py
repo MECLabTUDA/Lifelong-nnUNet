@@ -18,7 +18,7 @@ class expert_gate_autoencoder(Autoencoder):
     
     def __init__(self) -> None:
         super().__init__()
-
+        self.debug = torch.nn.Conv2d(1,1,3,padding='same')
         self.encoder = torch.nn.Sequential(
             nn.Conv2d(1,3,5,padding="same"),
             nn.Sigmoid()
@@ -32,6 +32,7 @@ class expert_gate_autoencoder(Autoencoder):
             self.to('cuda')
 
     def forward(self, x: Tensor) -> Tensor: #TODO make sure that the input are features extracted by alexnet
+        return self.debug(x)
         x = self.encoder(x)
         x = self.decoder(x)
         return x

@@ -42,6 +42,7 @@ from nnunet.training.network_training.nnUNetTrainer import nnUNetTrainer
 
 #from monai.networks.nets import AutoEncoder
 from nnunet_ext.network_architecture.expert_gate_monai_ae import ExpertGateMonaiAutoencoder
+from nnunet_ext.network_architecture.expert_gate_autoencoder2 import VAE
 from typing import Tuple
 
 # -- Define globally the Hyperparameters for this trainer along with their type -- #
@@ -84,7 +85,8 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
         self.plans = plans
 
         stage_plans = self.plans['plans_per_stage'][self.stage]
-        self.batch_size = stage_plans['batch_size']
+        self.batch_size = stage_plans['batch_size'] #TODO
+        #self.batch_size = 32
         self.net_pool_per_axis = stage_plans['num_pool_per_axis']
         self.patch_size = np.array(stage_plans['patch_size']).astype(int)
         #self.patch_size = np.array([30,30,30]).astype(int)#TODO
@@ -682,15 +684,22 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
         weights = weights / weights.sum()
         self.ds_loss_weights = weights
 
+        def internal_loss(x,y):
+            reconst, mu, logvar = x
+            return nn.L1Loss()(reconst, y) + (-0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp()))
+
         #TODO
-        self.loss = torch.nn.MSELoss()
+        self.loss= torch.nn.L1Loss()
+        #self.loss = internal_loss
+        #self.loss = torch.nn.MSELoss()
         #self.loss = torch.nn.CrossEntropyLoss()
         
         ################# END ###################
         
     def run_online_evaluation(self, output, target):
         with torch.no_grad():
-            mse =-1 * torch.nn.MSELoss()(output,target)
+            #mse =-1 * torch.nn.MSELoss()(output,target)
+            mse = -1 * self.loss(output, target)
             self.online_eval_mse.append([mse.detach().cpu().numpy()])
 
     def finish_online_evaluation(self):
@@ -799,6 +808,7 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
             inter_channels=(256,),
             num_res_units=1
         )"""
+        #self.network = VAE()
         self.network = expert_gate_autoencoder()
         self.network.train()
         if torch.cuda.is_available():

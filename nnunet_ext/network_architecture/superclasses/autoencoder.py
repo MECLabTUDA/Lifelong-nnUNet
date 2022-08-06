@@ -11,9 +11,9 @@ from typing import Union, Tuple, List, Sequence, Optional, Any
 from torch.cuda.amp import autocast
 from torch import nn, Tensor, prelu, relu
 import torch
-from nnunet.network_architecture.neural_network import NeuralNetwork
+from nnunet.network_architecture.neural_network import SegmentationNetwork
 
-class Autoencoder(NeuralNetwork):
+class Autoencoder(SegmentationNetwork):
     
     def predict_3D(self, x: np.ndarray, do_mirroring: bool, mirror_axes: Tuple[int, ...] = (0, 1, 2),
                    use_sliding_window: bool = False,
@@ -21,38 +21,6 @@ class Autoencoder(NeuralNetwork):
                    use_gaussian: bool = False, pad_border_mode: str = "constant",
                    pad_kwargs: dict = None, all_in_gpu: bool = False,
                    verbose: bool = True, mixed_precision: bool = True) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        Use this function to predict a 3D image. It does not matter whether the network is a 2D or 3D U-Net, it will
-        detect that automatically and run the appropriate code.
-
-        When running predictions, you need to specify whether you want to run fully convolutional of sliding window
-        based inference. We very strongly recommend you use sliding window with the default settings.
-
-        It is the responsibility of the user to make sure the network is in the proper mode (eval for inference!). If
-        the network is not in eval mode it will print a warning.
-
-        :param x: Your input data. Must be a nd.ndarray of shape (c, x, y, z).
-        :param do_mirroring: If True, use test time data augmentation in the form of mirroring
-        :param mirror_axes: Determines which axes to use for mirroing. Per default, mirroring is done along all three
-        axes
-        :param use_sliding_window: if True, run sliding window prediction. Heavily recommended! This is also the default
-        :param step_size: When running sliding window prediction, the step size determines the distance between adjacent
-        predictions. The smaller the step size, the denser the predictions (and the longer it takes!). Step size is given
-        as a fraction of the patch_size. 0.5 is the default and means that wen advance by patch_size * 0.5 between
-        predictions. step_size cannot be larger than 1!
-        :param patch_size: The patch size that was used for training the network. Do not use different patch sizes here,
-        this will either crash or give potentially less accurate segmentations
-        :param regions_class_order: Fabian only
-        :param use_gaussian: (Only applies to sliding window prediction) If True, uses a Gaussian importance weighting
-         to weigh predictions closer to the center of the current patch higher than those at the borders. The reason
-         behind this is that the segmentation accuracy decreases towards the borders. Default (and recommended): True
-        :param pad_border_mode: leave this alone
-        :param pad_kwargs: leave this alone
-        :param all_in_gpu: experimental. You probably want to leave this as is it
-        :param verbose: Do you want a wall of text? If yes then set this to True
-        :param mixed_precision: if True, will run inference in mixed precision with autocast()
-        :return:
-        """
         torch.cuda.empty_cache()
 
         assert step_size <= 1, 'step_size must be smaller than 1. Otherwise there will be a gap between consecutive ' \
@@ -95,7 +63,7 @@ class Autoencoder(NeuralNetwork):
                         res = self._internal_predict_3D_3Dconv(x, patch_size, do_mirroring, mirror_axes, regions_class_order,
                                                                pad_border_mode, pad_kwargs=pad_kwargs, verbose=verbose)
                 elif True: #self.conv_op == nn.Conv2d:
-                    use_sliding_window = False
+                    use_sliding_window = True
                     if use_sliding_window:
                         res = self._internal_predict_3D_2Dconv_tiled(x, patch_size, do_mirroring, mirror_axes, step_size,
                                                                      regions_class_order, use_gaussian, pad_border_mode,
@@ -120,6 +88,7 @@ class Autoencoder(NeuralNetwork):
                                     verbose: bool = True) -> Tuple[np.ndarray, np.ndarray]:
         raise NotImplementedError()
 
+
     """
     def _internal_predict_3D_2Dconv_tiled(self, x: np.ndarray, patch_size: Tuple[int, int], do_mirroring: bool,
                                           mirror_axes: tuple = (0, 1), step_size: float = 0.5,
@@ -129,6 +98,7 @@ class Autoencoder(NeuralNetwork):
                                           verbose: bool = True) -> Tuple[np.ndarray, np.ndarray]:
         raise NotImplementedError()
     """
+    # calls to _internal_predict_2D_2Dconv_tiled
 
     def _internal_predict_3D_2Dconv(self, x: np.ndarray, min_size: Tuple[int, int], do_mirroring: bool,
                                     mirror_axes: tuple = (0, 1), regions_class_order: tuple = None,
@@ -142,6 +112,7 @@ class Autoencoder(NeuralNetwork):
         for s in range(x.shape[1]):
             pred_seg, softmax_pres = self._internal_predict_2D_2Dconv(
                 x[:, s], min_size, do_mirroring, mirror_axes, regions_class_order, pad_border_mode, pad_kwargs, verbose)
+                #output dim: 
             predicted_segmentation.append(pred_seg[None])
             softmax_pred.append(softmax_pres[None])
         predicted_segmentation = np.vstack(predicted_segmentation)
@@ -234,7 +205,6 @@ class Autoencoder(NeuralNetwork):
                                           patch_size: tuple, regions_class_order: tuple, use_gaussian: bool,
                                           pad_border_mode: str, pad_kwargs: dict, all_in_gpu: bool,
                                           verbose: bool) -> Tuple[np.ndarray, np.ndarray]:
-        raise NotImplementedError()
         # better safe than sorry
         assert len(x.shape) == 3, "x must be (c, x, y)"
 
@@ -297,22 +267,22 @@ class Autoencoder(NeuralNetwork):
                 add_for_nb_of_preds = torch.ones(data.shape[1:], device=self.get_device())
 
             if verbose: print("initializing result array (on GPU)")
-            aggregated_results = torch.zeros([self.num_classes] + list(data.shape[1:]), dtype=torch.half,
+            aggregated_results = torch.zeros([1] + list(data.shape[1:]), dtype=torch.half,
                                              device=self.get_device())
 
             if verbose: print("moving data to GPU")
             data = torch.from_numpy(data).cuda(self.get_device(), non_blocking=True)
 
             if verbose: print("initializing result_numsamples (on GPU)")
-            aggregated_nb_of_predictions = torch.zeros([self.num_classes] + list(data.shape[1:]), dtype=torch.half,
+            aggregated_nb_of_predictions = torch.zeros([1] + list(data.shape[1:]), dtype=torch.half,
                                                        device=self.get_device())
         else:
             if use_gaussian and num_tiles > 1:
                 add_for_nb_of_preds = self._gaussian_2d
             else:
                 add_for_nb_of_preds = np.ones(data.shape[1:], dtype=np.float32)
-            aggregated_results = np.zeros([self.num_classes] + list(data.shape[1:]), dtype=np.float32)
-            aggregated_nb_of_predictions = np.zeros([self.num_classes] + list(data.shape[1:]), dtype=np.float32)
+            aggregated_results = np.zeros([1] + list(data.shape[1:]), dtype=np.float32)
+            aggregated_nb_of_predictions = np.zeros([1] + list(data.shape[1:]), dtype=np.float32)
 
         for x in steps[0]:
             lb_x = x
@@ -343,24 +313,9 @@ class Autoencoder(NeuralNetwork):
         # computing the class_probabilities by dividing the aggregated result with result_numsamples
         class_probabilities = aggregated_results / aggregated_nb_of_predictions
 
-        if regions_class_order is None:
-            predicted_segmentation = class_probabilities.argmax(0)
-        else:
-            if all_in_gpu:
-                class_probabilities_here = class_probabilities.detach().cpu().numpy()
-            else:
-                class_probabilities_here = class_probabilities
-            predicted_segmentation = np.zeros(class_probabilities_here.shape[1:], dtype=np.float32)
-            for i, c in enumerate(regions_class_order):
-                predicted_segmentation[class_probabilities_here[i] > 0.5] = c
-
         if all_in_gpu:
             if verbose: print("copying results to CPU")
-
-            if regions_class_order is None:
-                predicted_segmentation = predicted_segmentation.detach().cpu().numpy()
-
             class_probabilities = class_probabilities.detach().cpu().numpy()
 
         if verbose: print("prediction done")
-        return predicted_segmentation, class_probabilities
+        return class_probabilities, class_probabilities
