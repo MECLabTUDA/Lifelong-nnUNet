@@ -136,7 +136,7 @@ class Evaluator():  # Do not inherit the one from the nnunet implementation sinc
             trainer = restore_model(pkl_file, checkpoint, train=False, fp16=self.mixed_precision,\
                                     use_extension=use_extension, extension_type=self.extension, del_log=True,\
                                     param_search=self.param_split, network=self.network)
-
+                                    
             # -- If this is a conventional nn-Unet Trainer, then make a MultiHead Trainer out of it, so we can use the _perform_validation function -- #
             if not use_extension or nnViTUNetTrainer.__name__ in trainer_path:
                 # -- Ensure that use_model only contains one task for the conventional Trainer -- #

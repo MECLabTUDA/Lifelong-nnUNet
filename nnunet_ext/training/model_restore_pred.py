@@ -48,7 +48,7 @@ def load_model_and_checkpoint_files(params, folder, folds=None, mixed_precision=
     trainer = restore_model(pkl_file, checkpoint, train=False, fp16=mixed_precision,\
                             use_extension=use_extension, extension_type=params['extension'], del_log=True,\
                             param_search=params['param_split'], network=params['network'])
-
+    
     # -- If this is a conventional nn-Unet Trainer, then make a MultiHead Trainer out of it, so we can use the _perform_validation function -- #
     if not use_extension or nnViTUNetTrainer.__name__ in trainer_path:
         # -- Ensure that use_model only contains one task for the conventional Trainer -- #
@@ -92,7 +92,7 @@ def load_model_and_checkpoint_files(params, folder, folds=None, mixed_precision=
     use_head = params['use_head']
     if params['use_head'] is None:
         use_head = list(trainer.mh_network.heads.keys())[-1]
-    
+    """
     if hasattr(trainer, 'initialize_network2') and callable(getattr(trainer,'initialize_network2')):
         assert params['network_trainer'] == 'nnUNetTrainerExpertGate2'
         trainer.initialize_network2()
@@ -100,7 +100,7 @@ def load_model_and_checkpoint_files(params, folder, folds=None, mixed_precision=
         assert not params['network_trainer'] == 'nnUNetTrainerExpertGate2'
         trainer.network = trainer.mh_network.assemble_model(use_head)
         pass
-
+    """
     # -- Set the correct task_name for training -- #
     if trainer.use_vit and trainer.ViT_task_specific_ln:
         trainer.network.ViT.use_task(use_head)

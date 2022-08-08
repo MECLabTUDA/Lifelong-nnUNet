@@ -310,6 +310,7 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
         # -- Delete the trainer_model (used for restoring) -- #
         self.trainer_model = None
         
+        self.iteration = 0
         # -- Run the training from parent class -- #
         ret = super(nnUNetTrainerV2, self).run_training()
 
@@ -355,6 +356,7 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
         data = maybe_to_torch(data)
         #data = torch.sigmoid(data)
         target = data
+        #target = copy.deepcopy(data)
 
 
         if torch.cuda.is_available():
@@ -366,7 +368,7 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
         if self.fp16:
             with autocast():
                 output = self.network(data)
-                del data
+                #del data
                 if not no_loss:
                     l = self.loss(output, target)
 

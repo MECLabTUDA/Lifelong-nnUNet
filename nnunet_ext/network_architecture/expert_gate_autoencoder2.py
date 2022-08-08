@@ -78,13 +78,17 @@ class ConvTranspose(nn.Module):
         return self.conv(x)
 
 class VAE(Autoencoder):
+    """
+    def predict_3D(self, x: np.ndarray, do_mirroring: bool, mirror_axes: Tuple[int, ...] = ..., use_sliding_window: bool = False, step_size: float = 0.5, patch_size: Tuple[int, ...] = None, regions_class_order: Tuple[int, ...] = None, use_gaussian: bool = False, pad_border_mode: str = "constant", pad_kwargs: dict = None, all_in_gpu: bool = False, verbose: bool = True, mixed_precision: bool = True) -> Tuple[np.ndarray, np.ndarray]:
+        return Autoencoder.predict_3D(self, x, do_mirroring, mirror_axes, use_sliding_window, step_size, patch_size, regions_class_order, use_gaussian, pad_border_mode, pad_kwargs, all_in_gpu, verbose, mixed_precision)
+    
     def _internal_maybe_mirror_and_pred_2D(self, x: Union[np.ndarray, torch.tensor], mirror_axes: tuple,
                                            do_mirroring: bool = True,
                                            mult: np.ndarray or torch.tensor = None) -> torch.tensor:
         # if cuda available:
         #   everything in here takes place on the GPU. If x and mult are not yet on GPU this will be taken care of here
         #   we now return a cuda tensor! Not numpy array!
-        
+        #print("\n\n\n\n\t\t AAAAAAAAAAAAAA\n\n\n\n\n")
         assert len(x.shape) == 4, 'x must be (b, c, x, y)'
 
         x = maybe_to_torch(x)
@@ -127,7 +131,7 @@ class VAE(Autoencoder):
             result_torch[:, :] *= mult
 
         return result_torch
-    
+    """
     def __init__(self):
         super(VAE, self).__init__()
         
@@ -181,9 +185,11 @@ class VAE(Autoencoder):
         return self.decoder(z)
 
     def forward(self, x):
+        
         mu, logvar = self.encode(x)
         z = self.reparameterize(mu, logvar)
-        #return torch.zeros_like(x)
-        return self.decode(z)
+        #return torch.ones_like(x)
+        reconstruction = self.decode(z)
+        return reconstruction
         return self.decode(z), mu, logvar
  

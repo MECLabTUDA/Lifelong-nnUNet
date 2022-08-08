@@ -13,26 +13,32 @@ import torch
 
 from nnunet_ext.network_architecture.superclasses.autoencoder import Autoencoder
 
+import traceback
+
 class expert_gate_autoencoder(Autoencoder):
 
     
     def __init__(self) -> None:
         super().__init__()
-        self.debug = torch.nn.Conv2d(1,1,3,padding='same')
+        
         self.encoder = torch.nn.Sequential(
-            nn.Conv2d(1,3,5,padding="same"),
-            nn.Sigmoid()
+            nn.Conv2d(1,16,3,padding="same"),
+            nn.ReLU()
         )
         self.decoder = torch.nn.Sequential(
             #nn.ConvTranspose2d(16,1,3,padding=3)
-            nn.Conv2d(3,1,5,padding="same")
+            nn.Conv2d(16,1,3,padding="same")
         )
 
         if torch.cuda.is_available():
             self.to('cuda')
 
     def forward(self, x: Tensor) -> Tensor: #TODO make sure that the input are features extracted by alexnet
-        return self.debug(x)
         x = self.encoder(x)
         x = self.decoder(x)
         return x
+
+    def load_state_dict(self, state_dict: 'OrderedDict[str, Tensor]', strict: bool = True):
+        print("\n\n\nreload state dict")
+        print(traceback.format_exc())
+        return super().load_state_dict(state_dict, strict)
