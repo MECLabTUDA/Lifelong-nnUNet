@@ -37,8 +37,3 @@ class expert_gate_autoencoder(Autoencoder):
         x = self.encoder(x)
         x = self.decoder(x)
         return x
-
-    def load_state_dict(self, state_dict: 'OrderedDict[str, Tensor]', strict: bool = True):
-        print("\n\n\nreload state dict")
-        print(traceback.format_exc())
-        return super().load_state_dict(state_dict, strict)
