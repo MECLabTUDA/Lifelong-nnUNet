@@ -8,6 +8,8 @@ from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet_ext.training.network_training.multihead.nnUNetTrainerMultiHead import nnUNetTrainerMultiHead
 
 from nnunet_ext.network_architecture.expert_gate_autoencoder import expert_gate_autoencoder
+from nnunet.dataset_conversion.utils import generate_dataset_json
+
 
 import numpy as np
 import os, copy, torch
@@ -89,7 +91,7 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
         #self.batch_size = 32
         self.net_pool_per_axis = stage_plans['num_pool_per_axis']
         self.patch_size = np.array(stage_plans['patch_size']).astype(int)
-        #self.patch_size = np.array([30,30,30]).astype(int)#TODO
+        #self.patch_size = np.array([256,256]).astype(int)#TODO
         self.do_dummy_2D_aug = stage_plans['do_dummy_2D_data_aug']
 
         if 'pool_op_kernel_sizes' not in stage_plans.keys():
@@ -691,9 +693,9 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
             return nn.L1Loss()(reconst, y) + (-0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp()))
 
         #TODO
-        self.loss= torch.nn.L1Loss()
+        #self.loss= torch.nn.L1Loss()
         #self.loss = internal_loss
-        #self.loss = torch.nn.MSELoss()
+        self.loss = torch.nn.MSELoss()
         #self.loss = torch.nn.CrossEntropyLoss()
         
         ################# END ###################
@@ -780,14 +782,14 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
         net_nonlin = nn.LeakyReLU
         net_nonlin_kwargs = {'negative_slope': 1e-2, 'inplace': True}
         print("#################input channels: ",  self.num_input_channels)
-        """
+        """"""
         self.network = expert_gate_UNet(self.num_input_channels, self.base_num_features, self.num_classes, net_numpool,
                                     self.conv_per_stage, 2, conv_op, norm_op, norm_op_kwargs, dropout_op,
                                     dropout_op_kwargs,
                                     net_nonlin, net_nonlin_kwargs, False, False, lambda x: x, InitWeights_He(1e-2),
                                     self.net_num_pool_op_kernel_sizes, self.net_conv_kernel_sizes, False, True, True)
         self.network.inference_apply_nonlin = lambda x : x
-        """
+        
         """TRAINED ON 21:
         self.network = ExpertGateMonaiAutoencoder(
             spatial_dims=2,
@@ -811,7 +813,7 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
             num_res_units=1
         )"""
         #self.network = VAE()
-        self.network = expert_gate_autoencoder()
+        #self.network = expert_gate_autoencoder()
         self.network.train()
         if torch.cuda.is_available():
             self.network.cuda()
@@ -836,6 +838,8 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
 
         current_mode = self.network.training
         self.network.eval()
+        #use_sliding_window = False
+        do_mirroring = False
         ret = self.network.predict_3D(data, do_mirroring=do_mirroring, mirror_axes=mirror_axes,
                                       use_sliding_window=use_sliding_window, step_size=step_size,
                                       patch_size=self.patch_size, regions_class_order=self.regions_class_order,

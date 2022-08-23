@@ -78,10 +78,6 @@ class ConvTranspose(nn.Module):
         return self.conv(x)
 
 class VAE(Autoencoder):
-    """
-    def predict_3D(self, x: np.ndarray, do_mirroring: bool, mirror_axes: Tuple[int, ...] = ..., use_sliding_window: bool = False, step_size: float = 0.5, patch_size: Tuple[int, ...] = None, regions_class_order: Tuple[int, ...] = None, use_gaussian: bool = False, pad_border_mode: str = "constant", pad_kwargs: dict = None, all_in_gpu: bool = False, verbose: bool = True, mixed_precision: bool = True) -> Tuple[np.ndarray, np.ndarray]:
-        return Autoencoder.predict_3D(self, x, do_mirroring, mirror_axes, use_sliding_window, step_size, patch_size, regions_class_order, use_gaussian, pad_border_mode, pad_kwargs, all_in_gpu, verbose, mixed_precision)
-    
     def _internal_maybe_mirror_and_pred_2D(self, x: Union[np.ndarray, torch.tensor], mirror_axes: tuple,
                                            do_mirroring: bool = True,
                                            mult: np.ndarray or torch.tensor = None) -> torch.tensor:
@@ -112,26 +108,27 @@ class VAE(Autoencoder):
 
         for m in range(mirror_idx):
             if m == 0:
-                pred = self(x)#[0]
+                pred = self(x)[0]
                 result_torch += 1 / num_results * pred
 
             if m == 1 and (1 in mirror_axes):
-                pred = self(torch.flip(x, (3, )))#[0]
+                pred = self(torch.flip(x, (3, )))[0]
                 result_torch += 1 / num_results * torch.flip(pred, (3, ))
 
             if m == 2 and (0 in mirror_axes):
-                pred = self(torch.flip(x, (2, )))#[0]
+                pred = self(torch.flip(x, (2, )))[0]
                 result_torch += 1 / num_results * torch.flip(pred, (2, ))
 
             if m == 3 and (0 in mirror_axes) and (1 in mirror_axes):
-                pred = self(torch.flip(x, (3, 2)))#[0]
+                pred = self(torch.flip(x, (3, 2)))[0]
                 result_torch += 1 / num_results * torch.flip(pred, (3, 2))
 
         if mult is not None:
             result_torch[:, :] *= mult
 
         return result_torch
-    """
+
+
     def __init__(self):
         super(VAE, self).__init__()
         
@@ -188,8 +185,5 @@ class VAE(Autoencoder):
         
         mu, logvar = self.encode(x)
         z = self.reparameterize(mu, logvar)
-        #return torch.ones_like(x)
-        reconstruction = self.decode(z)
-        return reconstruction
         return self.decode(z), mu, logvar
  

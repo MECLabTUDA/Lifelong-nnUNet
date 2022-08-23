@@ -22,12 +22,12 @@ class expert_gate_autoencoder(Autoencoder):
         super().__init__()
         
         self.encoder = torch.nn.Sequential(
-            nn.Conv2d(1,16,3,padding="same"),
-            nn.ReLU()
+            nn.Conv2d(1,3,5,padding="same"),
+            nn.Sigmoid()
         )
         self.decoder = torch.nn.Sequential(
             #nn.ConvTranspose2d(16,1,3,padding=3)
-            nn.Conv2d(16,1,3,padding="same")
+            nn.Conv2d(3,1,5,padding="same")
         )
 
         if torch.cuda.is_available():
