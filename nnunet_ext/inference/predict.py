@@ -264,18 +264,19 @@ def predict_cases(params_ext, model, list_of_lists, output_filenames, folds, sav
     # first load the postprocessing properties if they are present. Else raise a well visible warning
     if not disable_postprocessing:
         results = []
-        pp_file = join(model, "postprocessing.json")
-        if isfile(pp_file):
-            print("postprocessing...")
-            shutil.copy(pp_file, os.path.abspath(os.path.dirname(output_filenames[0])))
-            # for_which_classes stores for which of the classes everything but the largest connected component needs to be
-            # removed
-            for_which_classes, min_valid_obj_size = load_postprocessing(pp_file)
-            results.append(pool.starmap_async(load_remove_save,
-                                              zip(output_filenames, output_filenames,
-                                                  [for_which_classes] * len(output_filenames),
-                                                  [min_valid_obj_size] * len(output_filenames))))
-            _ = [i.get() for i in results]
+        if not no_load:
+            pp_file = join(model, "postprocessing.json")
+            if isfile(pp_file):
+                print("postprocessing...")
+                shutil.copy(pp_file, os.path.abspath(os.path.dirname(output_filenames[0])))
+                # for_which_classes stores for which of the classes everything but the largest connected component needs to be
+                # removed
+                for_which_classes, min_valid_obj_size = load_postprocessing(pp_file)
+                results.append(pool.starmap_async(load_remove_save,
+                                                zip(output_filenames, output_filenames,
+                                                    [for_which_classes] * len(output_filenames),
+                                                    [min_valid_obj_size] * len(output_filenames))))
+                _ = [i.get() for i in results]
         else:
             print("WARNING! Cannot run postprocessing because the postprocessing file is missing. Make sure to run "
                   "consolidate_folds in the output folder of the model first!\nThe folder you need to run this in is "
