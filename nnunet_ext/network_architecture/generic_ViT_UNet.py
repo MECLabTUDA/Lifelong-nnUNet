@@ -226,7 +226,7 @@ class Generic_ViT_UNet(Generic_UNet):
             self.ViT = ViT
         if self.registration is None:
             self.seg_outputs = seg_outputs  # Segmentation head
-
+            
         # -- Define the list of names in case the network gets split onto multiple GPUs -- #
         self.split_names = ['ViT']
 

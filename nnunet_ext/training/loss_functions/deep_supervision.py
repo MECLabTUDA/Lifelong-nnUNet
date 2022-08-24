@@ -42,7 +42,6 @@ class MultipleOutputLossRegistration(nn.Module):
         self.loss_weights = loss_weights
         self.grad = Grad(penalty='l2')
         self.ncc = NCC()
-        # self.dice = DiceLoss()
     
     def dice(self, y_true, y_pred):
         y_true = torch.sigmoid(y_true)
@@ -59,19 +58,18 @@ class MultipleOutputLossRegistration(nn.Module):
             param x: Moved image * deformation field
             param y: Fixed image (GT)
             param seg_x: Moved image segmentation * deformation field
-            param seg_y: Fixed image segmentation (GT)
+            param seg_y: Fixed image segsmentation (GT)
             param flow: deformation field
         """
         # -- Start loss with segmentation loss -- #
-        loss = self.dice(seg_y, seg_x)
-        # loss = self.dice(seg_x, seg_y)
-        # loss = 0
+        # loss = self.dice(seg_y, seg_x)
         # -- Add MSE to it -- #
-        loss += self.loss_weights[0] * torch.mean((y - x) ** 2)
-        # y_ = y.unsqueeze(1)
-        # loss += 1e-5 * self.ncc.loss(y_, x)
+        # loss = self.loss_weights[0] * torch.mean((y - x) ** 2)
+        y_ = y.unsqueeze(1)
+        loss = self.ncc.loss(torch.sigmoid(y_), torch.sigmoid(x))
+        # loss = self.loss_weights[0] * self.ncc.loss(torch.sigmoid(y_), torch.sigmoid(x))
         # -- Add Grad to it -- #
-        loss += self.loss_weights[1] * self.grad.loss(y, flow if len(flow)==5 else flow.unsqueeze(1))
+        # loss += self.loss_weights[1] * self.grad.loss(y, flow if len(flow)==5 else flow.unsqueeze(1))
         return loss#/3
     
 # -- Loss function for the Elastic Weight Consolidation approach -- #

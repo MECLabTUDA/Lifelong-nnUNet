@@ -313,16 +313,19 @@ class nnViTUNetTrainer(nnUNetTrainerV2): # Inherit default trainer class for 2D,
                 if self.registration is not None:
                     f_i, m_i, m_s_ = data[:, 0, ...], data[:, 1, ...], data[:, 2, ...]
                     output, flow = self.network(source=m_i, target=f_i, registration=False)
+                    # m_s, _ = self.network(source=m_s_, target=target[0], registration=True)
                     # m_s = self.network.transformer(m_s_.unsqueeze(1), flow) # When int_downsize=1
-                    flow = self.network.fullsize(self.network.integrate(flow))
-                    m_s = self.network.transformer(m_s_.unsqueeze(1), flow)
+                    #else
+                    # flow = self.network.fullsize(self.network.integrate(flow))
+                    # m_s = self.network.transformer(m_s_.unsqueeze(1), flow)
                 else:
                     output = self.network(data)
                 del data
                 if not no_loss:
                     if self.registration is not None:
-                        l = self.loss(output, f_i, m_s, target[0], flow)
-                        l = self.loss(output, f_i, m_s_, target[0], flow)
+                        l = self.loss(output, f_i, None, target[0], flow)
+                        # l = self.loss(output, f_i, m_s, target[0], flow)
+                        # l = self.loss(output, f_i, m_s_, target[0], flow)
                     else:
                         l = self.loss(output, target)
                         
@@ -336,16 +339,18 @@ class nnViTUNetTrainer(nnUNetTrainerV2): # Inherit default trainer class for 2D,
             if self.registration is not None:
                 f_i, m_i, m_s_ = data[:, 0, ...], data[:, 1, ...], data[:, 2, ...]
                 output, flow = self.network(source=m_i, target=f_i, registration=False)
-                # m_s = self.network.transformer(m_s_.unsqueeze(1), flow)
-                flow = self.network.fullsize(self.network.integrate(flow))
-                m_s = self.network.transformer(m_s_.unsqueeze(1), flow) # When int_downsize=1
+                # m_s, _ = self.network(source=m_s_, target=target[0], registration=True)
+                # # m_s = self.network.transformer(m_s_.unsqueeze(1), flow)
+                # flow = self.network.fullsize(self.network.integrate(flow))
+                # m_s = self.network.transformer(m_s_.unsqueeze(1), flow) # When int_downsize=1
             else:
                 output = self.network(data)
             del data
             if not no_loss:
                 if self.registration is not None:
-                        l = self.loss(output, f_i, m_s_, target[0], flow)
-                        l = self.loss(output, f_i, m_s, target[0], flow)
+                        # l = self.loss(output, f_i, m_s_, target[0], flow)
+                        # l = self.loss(output, f_i, m_s, target[0], flow)
+                        l = self.loss(output, f_i, None, target[0], flow)
                 else:
                     l = self.loss(output, target)
 
@@ -356,6 +361,7 @@ class nnViTUNetTrainer(nnUNetTrainerV2): # Inherit default trainer class for 2D,
 
         if run_online_evaluation:
             if self.registration is not None:
+                m_s, _ = self.network(source=m_s_, target=target[0], registration=True)
                 self.run_online_evaluation(m_s, target[0]) # --> Calculate dice between m_s and f_s
                 # self.run_online_evaluation(output, f_i) # --> Calculate dice between m_s and f_s
                 # mse = torch.mean((f_i - output) ** 2)
@@ -377,13 +383,16 @@ class nnViTUNetTrainer(nnUNetTrainerV2): # Inherit default trainer class for 2D,
         if self.registration is not None:
             # mse = torch.mean((target - output) ** 2)
             # self.mean_dice.append(mse.detach().cpu().numpy())
-            dice = -1 * self.loss.dice(target, output)
-            # output = torch.sigmoid(output)
+            # dice = -1 * self.loss.dice(target, output)
+            # self.mean_dice = [dice.detach().cpu().numpy()]
+            
+            output = torch.sigmoid(output)
+            _, channel_dices_per_batch = mean_dice_coef(target, output, self.num_classes-1, True)
+            self.mean_dice = [np.mean(v) for _, v in channel_dices_per_batch.items()]
             # output = output.view(-1)
             # target = target.view(-1)
             # intersection = (output * target).sum()
-            # self.mean_dice = (2.*intersection)/(output.sum() + target.sum())
-            self.mean_dice = [dice.detach().cpu().numpy()]
+            # self.mean_dice = [((2.*intersection)/(output.sum() + target.sum())).detach().cpu().numpy()]
         else:
             super().run_online_evaluation(output, target)
             
@@ -399,7 +408,7 @@ class nnViTUNetTrainer(nnUNetTrainerV2): # Inherit default trainer class for 2D,
             self.mean_dice = []
         else:
             super().finish_online_evaluation()
-    
+
     def maybe_update_lr(self, epoch=None):
         r"""Only update lr if VoxelMorph is not used. In caase of VoxelMorph, the lr is always 10e-4.
         """

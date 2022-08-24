@@ -56,7 +56,7 @@ class ViT_Voxing(VoxelMorph_):
 class VoxelMorph(VoxelMorph_):
     def __init__(self, inshape, nb_unet_features=None, nb_unet_levels=None, unet_feat_mult=1,
                  int_steps=7, int_downsize=2, bidir=False, use_probs=False):
-        r"""Do this unnecessary initialization so bidir is True as default.
+        r"""Initialize.
         """
         super().__init__(inshape, nb_unet_features, nb_unet_levels, unet_feat_mult, int_steps, int_downsize,
                          bidir, use_probs)
