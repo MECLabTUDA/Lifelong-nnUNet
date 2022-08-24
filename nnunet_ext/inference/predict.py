@@ -5,11 +5,10 @@
 
 from copy import deepcopy
 from typing import Tuple, Union, List
-import sys
 
 import numpy as np
 from batchgenerators.augmentations.utils import resize_segmentation
-from nnunet.inference.segmentation_export import save_segmentation_nifti_from_softmax, save_segmentation_nifti
+from nnunet.inference.segmentation_export import save_segmentation_nifti_from_softmax
 from batchgenerators.utilities.file_and_folder_operations import *
 from multiprocessing import Process, Queue
 import torch
@@ -119,7 +118,8 @@ def predict_cases(params_ext, model, list_of_lists, output_filenames, folds, sav
                   num_threads_nifti_save, segs_from_prev_stage=None, do_tta=True, mixed_precision=True,
                   overwrite_existing=False,
                   all_in_gpu=False, step_size=0.5, checkpoint_name="model_final_checkpoint",
-                  segmentation_export_kwargs: dict = None, disable_postprocessing: bool = False):
+                  segmentation_export_kwargs: dict = None, disable_postprocessing: bool = False,
+                  no_load=False, trainer=None, params=None):
     """
     :param segmentation_export_kwargs:
     :param model: folder where the model is saved, must contain fold_x subfolders
@@ -168,8 +168,11 @@ def predict_cases(params_ext, model, list_of_lists, output_filenames, folds, sav
     torch.cuda.empty_cache()
 
     print("loading parameters for folds,", folds)
-    trainer, params, all_best_model_files = load_model_and_checkpoint_files(params_ext, model, folds, mixed_precision=mixed_precision,
-                                                      checkpoint_name=checkpoint_name)
+    if not no_load:
+        trainer, params, all_best_model_files = load_model_and_checkpoint_files(params_ext, model, folds, mixed_precision=mixed_precision,
+                                                        checkpoint_name=checkpoint_name)
+    else:
+        assert trainer is not None and params is not None, 'If no_load is True, then you have to provide the restored trainer and its parameters..'
 
     if segmentation_export_kwargs is None:
         if 'segmentation_export_params' in trainer.plans.keys():
@@ -324,7 +327,8 @@ def predict_from_folder(params_ext, model: str, input_folder: str, output_folder
                         part_id: int, num_parts: int, tta: bool, mixed_precision: bool = True,
                         overwrite_existing: bool = True, mode: str = 'normal', overwrite_all_in_gpu: bool = None,
                         step_size: float = 0.5, checkpoint_name: str = "model_final_checkpoint",
-                        segmentation_export_kwargs: dict = None, disable_postprocessing: bool = False):
+                        segmentation_export_kwargs: dict = None, disable_postprocessing: bool = False, no_load=False,
+                        trainer=None, params=None, plans_path_=None, copy_plans=True):
     """
         here we use the standard naming scheme to generate list_of_lists and output_files needed by predict_cases
     :param model:
@@ -343,19 +347,22 @@ def predict_from_folder(params_ext, model: str, input_folder: str, output_folder
     :return:
     """
     maybe_mkdir_p(output_folder)
-
-
+    
+    if no_load:
+        assert trainer is not None and params is not None and plans_path_ is not None, 'If no_load is True, then you have to provide the restored trainer and its parameters as well as plans_path_..'
+        plans_path = plans_path_
     # In Lifelong-nnUNet, the plans.pkl is only created for teh first task, for
     # which parameters are selected. The trainer path leads to "SEQ", we need
     # to go up four levels and select only the first task, then rebuild the path
-
-    original_path = model
-    original_path = os.path.normpath(original_path)
-    splitted_path = original_path.split(os.sep)
-    splitted_path[-4] = '_'.join(splitted_path[-4].split('_')[:2])
-    plans_path = '/'+os.path.join(*splitted_path)
+    else:
+        original_path = model
+        original_path = os.path.normpath(original_path)
+        splitted_path = original_path.split(os.sep)
+        splitted_path[-4] = '_'.join(splitted_path[-4].split('_')[:2])
+        plans_path = '/'+os.path.join(*splitted_path)
     
-    shutil.copy(join(plans_path, 'plans.pkl'), output_folder)
+    if copy_plans:
+        shutil.copy(join(plans_path, 'plans.pkl'), output_folder)
 
     assert isfile(join(plans_path, "plans.pkl")), "Folder with saved model weights must contain a plans.pkl file"
     expected_num_modalities = load_pickle(join(plans_path, "plans.pkl"))['num_modalities']
@@ -389,6 +396,6 @@ def predict_from_folder(params_ext, model: str, input_folder: str, output_folder
                              all_in_gpu=all_in_gpu,
                              step_size=step_size, checkpoint_name=checkpoint_name,
                              segmentation_export_kwargs=segmentation_export_kwargs,
-                             disable_postprocessing=disable_postprocessing)
+                             disable_postprocessing=disable_postprocessing, no_load=no_load, trainer=trainer, params=params)
     else:
         raise ValueError("unrecognized mode. Must be normal")
