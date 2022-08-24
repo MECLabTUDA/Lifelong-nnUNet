@@ -49,6 +49,25 @@ def restore_model(pkl_file, checkpoint=None, train=False, fp16=True, use_extensi
     init = info['init']
     name = info['name']
     
+    # init_ = []
+    # for i in init:
+    #     try:
+    #         i = i.replace('/home/aranem_locale/Desktop/mnts/local', '/local')
+    #         i = i.replace('/home/aranem_locale/Storage', '/local/scratch/aranem')
+    #     except:
+    #         pass
+    #     init_.append(i)
+    # info['init'] = init_
+    # print(pkl_file)
+    # write_pickle(info, pkl_file)
+    
+    # info['init'] = ('/home/aranem_locale/Desktop/mnts/local/scratch/aranem/Lifelong-nnUNet-storage/nnUNet_preprocessed/Task031_LungCT/nnUNetPlansv2.1_plans_2D.pkl', 0, '/home/aranem_locale/Storage/Lifelong-nnUNet-storage/nnUNet_trained_models/nnUNet_ext/2d/Task031_LungCT/nnViTUNetTrainer__nnUNetPlansv2.1/ViT_VoxingV2/base/not_task_specific/reg/', '/home/aranem_locale/Desktop/mnts/local/scratch/aranem/Lifelong-nnUNet-storage/nnUNet_preprocessed/Task031_LungCT',
+    #                 True, 0, True, False, True, 25, True, 2, 'base',
+    #                 False, False, None, False, False, False, False, 0.35, None, 10,
+    #                 False, 'none', None, False, False, False, 'ViT_Voxing', [1., 0.01])
+    
+    # write_pickle(info, pkl_file)
+    
     # -- Reset arguments if a Generic_ViT_UNet is used -- #
     if use_extension and nnViTUNetTrainer.__name__ in pkl_file:
         # Only occurs during evaluation when building a MH network which sets a wrong extension_type
@@ -85,7 +104,6 @@ def restore_model(pkl_file, checkpoint=None, train=False, fp16=True, use_extensi
     assert issubclass(tr, nnUNetTrainer), "The network trainer was found but is not a subclass of nnUNetTrainer. " \
                                           "Please make it so!"
     # -------------------- From nnUNet implementation (modifed, but same output) -------------------- #
-
     if use_extension and extension_type is not None:    # Only for extensions, with the exception of ViT_U-Net
         assert network is not None, "Please provide the network setting that is used.."
         trainer = tr(*init, network=network)
@@ -93,9 +111,8 @@ def restore_model(pkl_file, checkpoint=None, train=False, fp16=True, use_extensi
         trainer.param_split = param_search
     else:
         trainer = tr(*init)
-        
-    trainer.initialize(train)
 
+    trainer.initialize(train)
     # -------------------- From nnUNet implementation (modifed, but same output) -------------------- #
     if fp16 is not None:
         trainer.fp16 = fp16
