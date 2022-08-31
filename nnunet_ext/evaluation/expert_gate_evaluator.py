@@ -21,6 +21,7 @@ class expert_gate_evaluator():
     def __init__(self, network: str, network_trainer: str, tasks_for_folder: list[str], extension: str):
         self.extension = extension
         self.network = network
+        self.ae_network = "2d"#TODO
         self.network_trainer = network_trainer
         self.tasks_for_folder = tasks_for_folder
         self.plans_identifier = "nnUNetPlansv2.1"
@@ -32,18 +33,18 @@ class expert_gate_evaluator():
             #create Evaluator
             print("run basic autoencoder evaluation on ", self.tasks_for_folder[index-1])
             print(self.extension)
-            evaluator = Evaluator(self.network, "nnUNetTrainerExpertGate2", ([self.tasks_for_folder[index-1]], '_'),([self.tasks_for_folder[index-1]], '_'),
+
+            evaluator = Evaluator(self.ae_network, "nnUNetTrainerExpertGate2", ([self.tasks_for_folder[index-1]], '_'),([self.tasks_for_folder[index-1]], '_'),
             extension="expert_gate2", transfer_heads=True)
             #run evaluator
             output_path = None #maybe set this?
             evaluator.evaluate_on(folds,self.tasks_for_folder,output_path=output_path)
-        """
-        """
+        
         for index in range(1,len(self.tasks_for_folder)+1):
             #create Evaluator
-            print("run basic segmentation evaluation on ", self.tasks_for_folder[0:index])
+            print("run basic segmentation evaluation on ", [self.tasks_for_folder[index-1]])
             print(self.extension)
-            evaluator = Evaluator(self.network, self.network_trainer, (self.tasks_for_folder, '_'),(self.tasks_for_folder[0:index], '_'),
+            evaluator = Evaluator(self.network, self.network_trainer, ([self.tasks_for_folder[index-1]], '_'),([self.tasks_for_folder[index-1]], '_'),
             extension=self.extension, transfer_heads=True)
             #run evaluator
             output_path = None #maybe set this?
@@ -55,7 +56,7 @@ class expert_gate_evaluator():
             #ae_results = pd.DataFrame()
             for index in range(1,len(self.tasks_for_folder)+1):
                 #get the path to the out folder of evaluations
-                in_ae_evaluation_csv_path = join(evaluation_output_dir, self.network, 
+                in_ae_evaluation_csv_path = join(evaluation_output_dir, self.ae_network, 
                     join_texts_with_char([self.tasks_for_folder[index-1]],'_'),#trained on
                     join_texts_with_char([self.tasks_for_folder[index-1]],'_'), #use model
                     "nnUNetTrainerExpertGate2"+"__"+self.plans_identifier,Generic_UNet.__name__,
@@ -107,17 +108,59 @@ class expert_gate_evaluator():
             target = torch.LongTensor([self.tasks_for_folder.index(row) for row in ae_results['Task'].to_numpy() ])
             input = torch.Tensor(ae_results[self.tasks_for_folder].to_numpy())
             cross_entropy = torch.nn.CrossEntropyLoss()(input, target).item()
+            cross_entropy /= len(ae_results.index)
             #print(interm.values.tolist())
             print(ae_results)
             print("accuracy (higher is better): ", ae_accuracy)
             print("cross entropy loss (lower is better): ", cross_entropy)
             
             
-        
+            ae_results = ae_results.drop(columns=self.tasks_for_folder)
+            overallResults = pd.DataFrame(columns=["Task", "subject_id", "decision", "metric", "value"])
+            #overallResults = ae_results.drop(columns=self.tasks_for_folder)
+            for task in self.tasks_for_folder:
+                in_seg_evaluation_csv_path = join(evaluation_output_dir, self.network, 
+                    join_texts_with_char([task],'_'),#trained on
+                    join_texts_with_char([task],'_'), #use model
+                    self.network_trainer +"__"+self.plans_identifier,Generic_UNet.__name__,
+                    'SEQ','corresponding_head',
+                    'fold_'+str(t_fold) #the specific fold
+                )
+                in_evaluation_csv = pd.read_csv(join(in_seg_evaluation_csv_path, 'val_metrics_eval.csv'), delimiter='\t')
+                intermediate = ae_results.loc[ae_results['decision'] == task]
 
+                #merge on subject_id == subject_id
+                #take only values from left
+                intermediate = pd.merge(intermediate, in_evaluation_csv, on=['subject_id', 'Task'])
                 
-            #build new output csv
-            #output_csv = pd.concat(ae_results)
-            #store output csv
-            #dumpDataFrameToCsv(output_csv,in_evaluation_csv_path,"agnostic_evaluation.csv")
-            #print("wrote results to: ", join(in_evaluation_csv_path,"agnostic_evaluation.csv"))
+                #append these to overallResults
+                overallResults = overallResults.append(intermediate, ignore_index=True)
+
+            overallResults = overallResults.sort_values(by=['Task', 'subject_id', 'metric'])
+            print(overallResults)
+
+
+            output_csv_summarized = pd.DataFrame([], columns = ['Task', 'metric', 'mean +/- std', 'mean +/- std [in %]'])
+            for task in self.tasks_for_folder:
+                for metric in ["IoU", "Dice"]:
+                    intermediate = overallResults.loc[(overallResults['Task'] == task) & (overallResults['metric'] == metric)]
+                    arr = intermediate['value'].to_numpy()
+                    mean = np.mean(arr)
+                    std = np.std(arr)
+                    output_csv_summarized = output_csv_summarized.append({'Task':task, 
+                        'metric': metric, 
+                        'mean +/- std': '{:0.4f} +/- {:0.4f}'.format(mean, std), 
+                        'mean +/- std [in %]': '{:0.2f}% +/- {:0.2f}%'.format(100*mean, 100*std)}, ignore_index=True)
+
+
+
+
+
+            outpath = join(evaluation_output_dir, join_texts_with_char(self.tasks_for_folder, '_'), "expert_gate")
+            maybe_mkdir_p(outpath)
+            dumpDataFrameToCsv(overallResults, outpath, "expert_gate_evaluation.csv")
+            dumpDataFrameToCsv(output_csv_summarized, outpath, "summarized_expert_gate_evaluation.csv")
+
+
+            print("wrote results to: ", join(outpath, "expert_gate_evaluation.csv"))
+
