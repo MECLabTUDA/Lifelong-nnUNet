@@ -60,16 +60,16 @@ class Autoencoder(SegmentationNetwork):
                 out = []
                 for s in range(x.shape[1]):
 
-                    #fig = plt.figure()
+                    fig = plt.figure()
                     
-                    #ax = fig.add_subplot(1,2,1)
-                    #ax.set_title('Input')
+                    ax = fig.add_subplot(1,2,1)
+                    ax.set_title('Input')
 
 
                     input = x[:,s,:,:]
 
-                    #plt.imshow(input.transpose(1,2,0)[:,:,0])
-                    #plt.colorbar(ticks=[0.1, 0.3, 0.5, 0.7], orientation='horizontal')
+                    plt.imshow(input.transpose(1,2,0)[:,:,0])
+                    plt.colorbar(ticks=[0.1, 0.3, 0.5, 0.7], orientation='horizontal')
 
 
                     input = maybe_to_torch(input)
@@ -81,21 +81,22 @@ class Autoencoder(SegmentationNetwork):
                     self.train()
                     one = self(input[None])
 
-                    #ax = fig.add_subplot(1,2,2)
-                    #ax.set_title('Output')
+                    ax = fig.add_subplot(1,2,2)
+                    ax.set_title('Output')
 
                     #b,c,y,z
-                    #plt.imshow(one.detach().cpu().numpy().transpose(0,2,3,1)[0,:,:,0].astype(float))
-                    #plt.colorbar(ticks=[0.1, 0.3, 0.5, 0.7], orientation='horizontal')
-
-                    #plt.savefig("/gris/gris-f/homelv/nilemke/Output/" + str(s) + ".png")
-                    #plt.close(fig)
+                    plt.imshow(one.detach().cpu().numpy().transpose(0,2,3,1)[0,:,:,0].astype(float))
+                    plt.colorbar(ticks=[0.1, 0.3, 0.5, 0.7], orientation='horizontal')
+                    print("safe slice" + str(s))
+                    plt.savefig("/gris/gris-f/homelv/nilemke/Output/" + str(s) + ".png")
+                    plt.close(fig)
                     assert input.shape == one.shape, "out shape"
                     assert len(one.shape) == 3, "out dim"
                     one = one.detach().cpu().numpy()
                     out.append(one)
                 out = np.vstack(out)
                 out = out.transpose(1,0,2,3)
+                exit()
                 return out, out
                 if False: #self.conv_op == nn.Conv3d:
                     if use_sliding_window:

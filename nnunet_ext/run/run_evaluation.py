@@ -242,6 +242,8 @@ def build_agnostic_argparser():
     parser.add_argument('--store_csv', required=False, default=False, action="store_true",
                         help='Set this flag if the validation data and any other data if applicable should be stored'
                             ' as a .csv file as well. Default: .csv are not created.')
+    parser.add_argument('--dont_rerun_evaluation', action='store_true', default=False,
+                        help='Set this flag if the evaluation of all models has already been done.')
     return parser
 
 
@@ -299,7 +301,7 @@ def main_expert_gate():
         tasks_for_folder.append(t)
 
     evaluator = expert_gate_evaluator(args.network, args.network_trainer, tasks_for_folder, EXT_MAP[args.network_trainer])
-    evaluator.evaluate(list(map(int, args.folds)))
+    evaluator.evaluate(list(map(int, args.folds)), rerun_evaluation=not args.dont_rerun_evaluation)
 
 if __name__ == "__main__":
     run_evaluation()

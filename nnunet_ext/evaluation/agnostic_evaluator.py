@@ -64,7 +64,7 @@ class AgnosticEvaluator():
             output_csv_summarized = pd.concat(all_restults_summarized)
             output_csv_summarized = output_csv_summarized.sort_values(by=['trained on', 'metric'])
             #store output csv
-            outpath = join(evaluation_output_dir, join_texts_with_char(self.tasks_for_folder, '_'), "agnostic")
+            outpath = join(evaluation_output_dir, "agnostic", join_texts_with_char(self.tasks_for_folder, '_'))
             maybe_mkdir_p(outpath)
 
             dumpDataFrameToCsv(output_csv, outpath, "agnostic_evaluation.csv")

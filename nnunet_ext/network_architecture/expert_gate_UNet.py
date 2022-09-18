@@ -14,6 +14,21 @@ from nnunet.network_architecture.neural_network import NeuralNetwork
 
 from typing import Tuple
 from batchgenerators.augmentations.utils import pad_nd_image
+import numpy as np
+from batchgenerators.augmentations.utils import pad_nd_image
+from nnunet.utilities.random_stuff import no_op
+from nnunet.utilities.to_torch import to_cuda, maybe_to_torch
+from torch import nn
+import torch
+from scipy.ndimage.filters import gaussian_filter
+from typing import Union, Tuple, List, Sequence, Optional, Any
+from torch.cuda.amp import autocast
+from torch import nn, Tensor, prelu, relu
+import torch
+from nnunet.network_architecture.neural_network import SegmentationNetwork
+
+import matplotlib
+import matplotlib.pyplot as plt
 
 class expert_gate_UNet(Generic_UNet):
     """
@@ -225,7 +240,7 @@ class expert_gate_UNet(Generic_UNet):
             ))
 
         for ds in range(len(self.conv_blocks_localization)):
-            self.seg_outputs.append(conv_op(self.conv_blocks_localization[ds][-1].output_channels, 1,
+            self.seg_outputs.append(conv_op(self.conv_blocks_localization[ds][-1].output_channels, num_classes,
                                             1, 1, 0, 1, 1, seg_output_use_bias))
 
         self.upscale_logits_ops = []
@@ -253,6 +268,7 @@ class expert_gate_UNet(Generic_UNet):
         if self.weightInitializer is not None:
             self.apply(self.weightInitializer)
             # self.apply(print_module_training_status)
+        
     def forward(self, x):
         skips = []
         seg_outputs = []
@@ -284,13 +300,58 @@ class expert_gate_UNet(Generic_UNet):
     pad_kwargs: dict = None, verbose: bool = True) -> Tuple[np.ndarray, np.ndarray]:
         raise NotImplementedError
 
-    """
+    """"""
     def predict_3D(self, x: np.ndarray, do_mirroring: bool, mirror_axes: Tuple[int, ...] = ..., 
     use_sliding_window: bool = False, step_size: float = 0.5, patch_size: Tuple[int, ...] = None, 
     regions_class_order: Tuple[int, ...] = None, use_gaussian: bool = False, pad_border_mode: str = "constant", 
     pad_kwargs: dict = None, all_in_gpu: bool = False, verbose: bool = True, mixed_precision: bool = True) -> Tuple[np.ndarray, np.ndarray]:
-        return x, x
-    """
+            with torch.no_grad():
+                out = []
+                for s in range(x.shape[1]):
+
+                    fig = plt.figure()
+                    
+                    ax = fig.add_subplot(1,2,1)
+                    ax.set_title('Input')
+
+
+                    input = x[:,s,:,:]
+
+                    plt.imshow(input.transpose(1,2,0)[:,:,0])
+                    plt.colorbar(ticks=[0.1, 0.3, 0.5, 0.7], orientation='horizontal')
+
+
+                    input = maybe_to_torch(input)
+                    input = to_cuda(input)
+
+
+                    print(input.shape)
+                    assert len(input.shape) == 3, "in dim"
+                    self.train()
+                    one = self(input[None])
+
+                    ax = fig.add_subplot(1,2,2)
+                    ax.set_title('Output')
+
+                    #b,c,y,z
+                    plt.imshow(one.detach().cpu().numpy().transpose(0,2,3,1)[0,:,:,0].astype(float))
+                    plt.colorbar(ticks=[0.1, 0.3, 0.5, 0.7], orientation='horizontal')
+                    print("safe slice" + str(s))
+                    plt.savefig("/gris/gris-f/homelv/nilemke/Output/" + str(s) + ".png")
+                    plt.close(fig)
+                    assert input.shape == one.shape, "out shape"
+                    assert len(one.shape) == 3, "out dim"
+                    one = one.detach().cpu().numpy()
+                    out.append(one)
+                out = np.vstack(out)
+                out = out.transpose(1,0,2,3)
+                exit()
+    
+
+
+
+
+
     def _internal_predict_3D_3Dconv(self, x: np.ndarray, min_size: Tuple[int, ...], 
     do_mirroring: bool, mirror_axes: tuple = ..., regions_class_order: tuple = None, 
     pad_border_mode: str = "constant", pad_kwargs: dict = None, verbose: bool = True) -> Tuple[np.ndarray, np.ndarray]:

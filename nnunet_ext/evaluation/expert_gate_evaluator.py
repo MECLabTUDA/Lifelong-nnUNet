@@ -1,5 +1,6 @@
 
 from keyword import softkwlist
+from turtle import position
 import pandas as pd
 from nnunet_ext.training.model_restore import restore_model
 from nnunet_ext.paths import network_training_output_dir, evaluation_output_dir
@@ -17,6 +18,13 @@ from nnunet_ext.utilities.helpful_functions import dumpDataFrameToCsv, join_text
 import torch
 from nnunet.utilities.to_torch import maybe_to_torch, to_cuda
 
+from sklearn.metrics import confusion_matrix
+import matplotlib.pyplot as plt
+import glob
+import os.path
+import shutil 
+
+
 class expert_gate_evaluator():
     def __init__(self, network: str, network_trainer: str, tasks_for_folder: list[str], extension: str):
         self.extension = extension
@@ -27,30 +35,31 @@ class expert_gate_evaluator():
         self.plans_identifier = "nnUNetPlansv2.1"
         pd.set_option('display.max_rows', 1000)
 
-    def evaluate(self, folds: list[int]):
-        """
-        for index in range(1,len(self.tasks_for_folder)+1):
-            #create Evaluator
-            print("run basic autoencoder evaluation on ", self.tasks_for_folder[index-1])
-            print(self.extension)
+    def evaluate(self, folds: list[int], rerun_evaluation: bool = True):
+        if rerun_evaluation:
+            for index in range(1,len(self.tasks_for_folder)+1):
+                #create Evaluator
+                print("run basic autoencoder evaluation on ", self.tasks_for_folder[index-1])
+                print(self.extension)
 
-            evaluator = Evaluator(self.ae_network, "nnUNetTrainerExpertGate2", ([self.tasks_for_folder[index-1]], '_'),([self.tasks_for_folder[index-1]], '_'),
-            extension="expert_gate2", transfer_heads=True)
-            #run evaluator
-            output_path = None #maybe set this?
-            evaluator.evaluate_on(folds,self.tasks_for_folder,output_path=output_path)
+                evaluator = Evaluator(self.ae_network, "nnUNetTrainerExpertGate2", ([self.tasks_for_folder[index-1]], '_'),([self.tasks_for_folder[index-1]], '_'),
+                extension="expert_gate2", transfer_heads=True)
+                #run evaluator
+                output_path = None #maybe set this?
+                evaluator.evaluate_on(folds,self.tasks_for_folder,output_path=output_path)
+            
+            for index in range(1,len(self.tasks_for_folder)+1):
+                #create Evaluator
+                print("run basic segmentation evaluation on ", [self.tasks_for_folder[index-1]])
+                print(self.extension)
+                evaluator = Evaluator(self.network, self.network_trainer, ([self.tasks_for_folder[index-1]], '_'),([self.tasks_for_folder[index-1]], '_'),
+                extension=self.extension, transfer_heads=True)
+                #run evaluator
+                output_path = None #maybe set this?
+                evaluator.evaluate_on(folds,self.tasks_for_folder,output_path=output_path)
         
-        for index in range(1,len(self.tasks_for_folder)+1):
-            #create Evaluator
-            print("run basic segmentation evaluation on ", [self.tasks_for_folder[index-1]])
-            print(self.extension)
-            evaluator = Evaluator(self.network, self.network_trainer, ([self.tasks_for_folder[index-1]], '_'),([self.tasks_for_folder[index-1]], '_'),
-            extension=self.extension, transfer_heads=True)
-            #run evaluator
-            output_path = None #maybe set this?
-            evaluator.evaluate_on(folds,self.tasks_for_folder,output_path=output_path)
-        """
-
+        
+        ############################# QUERY AND COMPUTE EXPERT GATE DECISIONS ##################
         for t_fold in folds:
             #iterate over all the tasks
             #ae_results = pd.DataFrame()
@@ -113,8 +122,10 @@ class expert_gate_evaluator():
             print(ae_results)
             print("accuracy (higher is better): ", ae_accuracy)
             print("cross entropy loss (lower is better): ", cross_entropy)
+            decisionResults = ae_results
             
-            
+
+            ######################### QUERY SEGMENTATION EVALUATIONS #####################
             ae_results = ae_results.drop(columns=self.tasks_for_folder)
             overallResults = pd.DataFrame(columns=["Task", "subject_id", "decision", "metric", "value"])
             #overallResults = ae_results.drop(columns=self.tasks_for_folder)
@@ -137,9 +148,8 @@ class expert_gate_evaluator():
                 overallResults = overallResults.append(intermediate, ignore_index=True)
 
             overallResults = overallResults.sort_values(by=['Task', 'subject_id', 'metric'])
-            print(overallResults)
 
-
+            ###################### SUMMARIZE EXPERT GATE EVALUATION #####################
             output_csv_summarized = pd.DataFrame([], columns = ['Task', 'metric', 'mean +/- std', 'mean +/- std [in %]'])
             for task in self.tasks_for_folder:
                 for metric in ["IoU", "Dice"]:
@@ -153,14 +163,44 @@ class expert_gate_evaluator():
                         'mean +/- std [in %]': '{:0.2f}% +/- {:0.2f}%'.format(100*mean, 100*std)}, ignore_index=True)
 
 
+            ########################### BUILD CONFUSION MATRIX #######################
+            y_pred = decisionResults[["decision"]].to_numpy()
+            y_true = decisionResults[["Task"]].to_numpy()
+
+            conf_matrix = confusion_matrix(y_true, y_pred, labels=self.tasks_for_folder)
+            fig, px = plt.subplots(figsize=(7.5, 7.5))
+            px.matshow(conf_matrix, cmap=plt.cm.YlOrRd, alpha=0.5)
+            for m in range(conf_matrix.shape[0]):
+                for n in range(conf_matrix.shape[1]):
+                    px.text(x=n,y=m,s=conf_matrix[m, n], va='center', ha='center', size='xx-large')
+            plt.xlabel('Predictions', fontsize=16)
+            plt.ylabel('Actuals', fontsize=16)
+            #plt.title('Confusion Matrix', fontsize=15)
+            px.xaxis.set_ticklabels(['DUMMY'] + self.tasks_for_folder)
+            px.yaxis.set_ticklabels(['DUMMY'] + self.tasks_for_folder)
+            px.yaxis.set_label_position('right')
+            plt.yticks(rotation=70)#, va='center')
+            plt.xticks(rotation=20)
+            
 
 
 
-            outpath = join(evaluation_output_dir, join_texts_with_char(self.tasks_for_folder, '_'), "expert_gate")
+
+
+            outpath = join(evaluation_output_dir, "expert_gate", join_texts_with_char(self.tasks_for_folder, '_'))
             maybe_mkdir_p(outpath)
+            plt.savefig(join(outpath, "confMatrix"))
+            dumpDataFrameToCsv(decisionResults, outpath, "expert_gate_decisions.csv")
             dumpDataFrameToCsv(overallResults, outpath, "expert_gate_evaluation.csv")
             dumpDataFrameToCsv(output_csv_summarized, outpath, "summarized_expert_gate_evaluation.csv")
-
+            ## copy training log of one of the AEs so we got its architecture saved
+            logFilePath = join(network_training_output_dir, "2d", self.tasks_for_folder[0], self.tasks_for_folder[0],
+                    "nnUNetTrainerExpertGate2"+"__"+self.plans_identifier,Generic_UNet.__name__,
+                    'SEQ', 'fold_'+str(t_fold))
+            ## writing this file does not work properly because other applications also write txt files
+            listOfFiles = glob.glob(logFilePath + "/*.txt")#
+            latestFile = max(listOfFiles, key=os.path.getctime)
+            shutil.copy(latestFile, outpath)
 
             print("wrote results to: ", join(outpath, "expert_gate_evaluation.csv"))
 
