@@ -16,6 +16,7 @@ from nnunet.network_architecture.neural_network import SegmentationNetwork
 import matplotlib
 import matplotlib.pyplot as plt
 
+
 class Autoencoder(SegmentationNetwork):
     
     def predict_3D(self, x: np.ndarray, do_mirroring: bool, mirror_axes: Tuple[int, ...] = (0, 1, 2),
@@ -25,6 +26,7 @@ class Autoencoder(SegmentationNetwork):
                    pad_kwargs: dict = None, all_in_gpu: bool = False,
                    verbose: bool = True, mixed_precision: bool = True) -> Tuple[np.ndarray, np.ndarray]:
         torch.cuda.empty_cache()
+
 
         assert step_size <= 1, 'step_size must be smaller than 1. Otherwise there will be a gap between consecutive ' \
                                'predictions'
@@ -56,9 +58,10 @@ class Autoencoder(SegmentationNetwork):
 
         with context():
             with torch.no_grad():
-                """"""
                 out = []
                 for s in range(x.shape[1]):
+                    print("BEGIN IMAGE")
+                    print("________________________________________________")
 
                     fig = plt.figure()
                     
@@ -84,20 +87,29 @@ class Autoencoder(SegmentationNetwork):
                     ax = fig.add_subplot(1,2,2)
                     ax.set_title('Output')
 
-                    #b,c,y,z
+                    #c,y,z
                     plt.imshow(one.detach().cpu().numpy().transpose(0,2,3,1)[0,:,:,0].astype(float))
                     plt.colorbar(ticks=[0.1, 0.3, 0.5, 0.7], orientation='horizontal')
-                    print("safe slice" + str(s))
-                    plt.savefig("/gris/gris-f/homelv/nilemke/Output/" + str(s) + ".png")
+
+                    plt.savefig("/gris/gris-f/homelv/mngo/slice_plots/" + str(s) + ".png")
                     plt.close(fig)
-                    assert input.shape == one.shape, "out shape"
-                    assert len(one.shape) == 3, "out dim"
+                    #assert input.shape == one.shape, "out shape"
+                    #assert len(one.shape) == 3, "out dim"
                     one = one.detach().cpu().numpy()
                     out.append(one)
                 out = np.vstack(out)
+                #x,c,y,z
                 out = out.transpose(1,0,2,3)
-                exit()
+                print(out.shape)
+                print("END IMAGE")
+                #print("out {}".format(out))
+                #print("out all {}".format(out.all))
+
+                np.save(file='/gris/gris-f/homelv/mngo/inference_tensors/' + str(self.index) + "out.npy", arr=out)
+                self.index = self.index + 1
+                print("________________________________________________")
                 return out, out
+                
                 if False: #self.conv_op == nn.Conv3d:
                     if use_sliding_window:
                         res = self._internal_predict_3D_3Dconv_tiled(x, step_size, do_mirroring, mirror_axes, patch_size,
