@@ -52,13 +52,13 @@ def restore_model(pkl_file, checkpoint=None, train=False, fp16=True, use_extensi
     # init_ = []
     # for i in init:
     #     try:
+    #         #i = i.replace('Task031_LungCT', 'Task034_OASIS')
     #         i = i.replace('/home/aranem_locale/Desktop/mnts/local', '/local')
     #         i = i.replace('/home/aranem_locale/Storage', '/local/scratch/aranem')
     #     except:
     #         pass
     #     init_.append(i)
     # info['init'] = init_
-    # print(pkl_file)
     # write_pickle(info, pkl_file)
     
     # info['init'] = ('/home/aranem_locale/Desktop/mnts/local/scratch/aranem/Lifelong-nnUNet-storage/nnUNet_preprocessed/Task031_LungCT/nnUNetPlansv2.1_plans_2D.pkl', 0, '/home/aranem_locale/Storage/Lifelong-nnUNet-storage/nnUNet_trained_models/nnUNet_ext/2d/Task031_LungCT/nnViTUNetTrainer__nnUNetPlansv2.1/ViT_VoxingV2/base/not_task_specific/reg/', '/home/aranem_locale/Desktop/mnts/local/scratch/aranem/Lifelong-nnUNet-storage/nnUNet_preprocessed/Task031_LungCT',

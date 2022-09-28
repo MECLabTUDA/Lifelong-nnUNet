@@ -6,15 +6,15 @@
 import os, torch
 import torch.nn as nn
 from nnunet_ext.utilities.helpful_functions import *
-from nnunet.utilities.nd_softmax import softmax_helper
 from nnunet.training.learning_rate.poly_lr import poly_lr
+from nnunet_ext.network_architecture.vit_voxing import ViT_Voxing
 from nnunet.network_architecture.generic_UNet import Generic_UNet
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet.network_architecture.initialization import InitWeights_He
 from nnunet.training.dataloading.dataset_loading import unpack_dataset
 from nnunet.training.network_training.nnUNetTrainerV2 import nnUNetTrainerV2
 from nnunet_ext.network_architecture.generic_ViT_UNet import Generic_ViT_UNet
-from nnunet_ext.network_architecture.vit_voxing import ViT_Voxing, VoxelMorph
+from nnunet_ext.network_architecture.reg_baselines.voxelmorph import VoxelMorph
 from nnunet.training.loss_functions.deep_supervision import MultipleOutputLoss2
 from nnunet.training.data_augmentation.data_augmentation_noDA import get_no_augmentation
 from nnunet_ext.training.loss_functions.deep_supervision import MultipleOutputLossRegistration
@@ -30,7 +30,7 @@ class nnViTUNetTrainer(nnUNetTrainerV2): # Inherit default trainer class for 2D,
                  vit_type='base', split_gpu=False, ViT_task_specific_ln=False, first_task_name=None, do_LSA=False,
                  do_SPT=False, FeatScale=False, AttnScale=False, filter_rate=0.35, filter_with=None, nth_filter=10,
                  useFFT=False, f_map_type='none', conv_smooth=None, ts_msa=False, cross_attn=False, cbam=False,
-                 registration=None, reg_loss_weights=[1., 0.01]):
+                 registration=None, reg_loss_weights=[1., 0.01], backbone='ViTUNet'):
         r"""Constructor of ViT_U-Net Trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
         """
         # -- Set ViT task specific flags -- #
@@ -42,6 +42,7 @@ class nnViTUNetTrainer(nnUNetTrainerV2): # Inherit default trainer class for 2D,
 
         # -- Create the variable indicating which ViT Architecture to use, base, large or huge -- #
         self.vit_type = vit_type.lower()
+        self.backbone = backbone
 
         # -- LSA and SPT flags -- #
         self.LSA, self.SPT = do_LSA, do_SPT
@@ -79,6 +80,7 @@ class nnViTUNetTrainer(nnUNetTrainerV2): # Inherit default trainer class for 2D,
         
         if self.registration == 'VoxelMorph':
             self.initial_lr = 10e-4
+        self.padding = None
         
         # -- Define if the model should be split onto multiple GPUs -- #
         self.split_gpu = split_gpu
@@ -98,7 +100,10 @@ class nnViTUNetTrainer(nnUNetTrainerV2): # Inherit default trainer class for 2D,
 
         # -- Reduce the batch_size by half after it has been set by super class -- #
         # -- Do this so it fits onto GPU --> if it still does not, model needs to be put onto multiple GPUs -- #
-        self.batch_size = self.batch_size // 2
+        if self.registration == 'ViT_Voxing':
+            self.batch_size = self.batch_size // 3
+        else:
+            self.batch_size = self.batch_size // 2
 
 
     def initialize(self, training=True, force_load_plans=False, num_epochs=500, call_for_eval=False):
@@ -147,12 +152,12 @@ class nnViTUNetTrainer(nnUNetTrainerV2): # Inherit default trainer class for 2D,
                         "will wait all winter for your model to finish!")
 
                 self.tr_gen, self.val_gen = get_moreDA_augmentation(self.dl_tr, self.dl_val,
-                                                                        self.data_aug_params[
-                                                                            'patch_size_for_spatialtransform'],
-                                                                        self.data_aug_params,
-                                                                        deep_supervision_scales=self.deep_supervision_scales,
-                                                                        pin_memory=self.pin_memory,
-                                                                        use_nondetMultiThreadedAugmenter=False)
+                                                                    self.data_aug_params[
+                                                                        'patch_size_for_spatialtransform'],
+                                                                    self.data_aug_params,
+                                                                    deep_supervision_scales=self.deep_supervision_scales,
+                                                                    pin_memory=self.pin_memory,
+                                                                    use_nondetMultiThreadedAugmenter=False)
                 
                 # if self.registration is None:
                 #     self.tr_gen, self.val_gen = get_moreDA_augmentation(self.dl_tr, self.dl_val,
@@ -190,6 +195,7 @@ class nnViTUNetTrainer(nnUNetTrainerV2): # Inherit default trainer class for 2D,
         # -- Copied from original implementation -- #
         
         # -- Set nr_epochs to provided number -- #
+        self.eval = call_for_eval
         self.max_num_epochs = num_epochs
 
     def initialize_network(self):
@@ -210,6 +216,12 @@ class nnViTUNetTrainer(nnUNetTrainerV2): # Inherit default trainer class for 2D,
         dropout_op_kwargs = {'p': 0, 'inplace': True}
         net_nonlin = nn.LeakyReLU
         net_nonlin_kwargs = {'negative_slope': 1e-2, 'inplace': True}
+        
+        # -- Determine patch_size dynamically based on the list: [16, 32, 64, 128] -- #
+        # -- First that does not throw an error during sample forward of nnUNet will be used --> remember OOM error might occur as well -- #
+        if self.registration != 'VoxelMorph' and 'ViTUNet' not in self.backbone:
+            self.patch_size = np.asarray([x if x < 64 else 64 for x in self.patch_size.tolist()])
+        
         vit_kwargs = {'input_channels':self.num_input_channels, 'base_num_features':self.base_num_features,\
                       'num_classes':self.num_classes, 'num_pool':len(self.net_num_pool_op_kernel_sizes),\
                       'patch_size':self.patch_size.tolist(), 'num_conv_per_stage': self.conv_per_stage,\
@@ -283,6 +295,7 @@ class nnViTUNetTrainer(nnUNetTrainerV2): # Inherit default trainer class for 2D,
         
         # -- Run the training from parent class -- #
         self.iteration = 0
+        self.network.train()
         ret = super().run_training()
 
         return ret  # Finished with training for the specific task
@@ -298,13 +311,41 @@ class nnViTUNetTrainer(nnUNetTrainerV2): # Inherit default trainer class for 2D,
         data_dict = next(data_generator)
         data = data_dict['data']
         target = data_dict['target']
-
+        
         data = maybe_to_torch(data)
         target = maybe_to_torch(target)
 
         if torch.cuda.is_available():
             data = to_cuda(data)
             target = to_cuda(target)
+            
+        # -- Split input data into patches for registration -- #
+        data_ = list()
+        target_ = list()
+        # -- If registration and ViT Voxing, extract patches from the image -- #
+        if self.registration != 'VoxelMorph' and 'ViTUNet' not in self.backbone:   # <-- Currently only for 2D data
+            for i in range(data.size(1)):
+                if self.padding is None:
+                    pad_2 = abs(data[:, i, ...].size(-1)-int(np.ceil(data[:, i, ...].size(-1) / self.patch_size[0]))*self.patch_size[0])
+                    pad_1 = abs(data[:, i, ...].size(-2)-int(np.ceil(data[:, i, ...].size(-2) / self.patch_size[0]))*self.patch_size[0])
+                    self.padding = nn.ReflectionPad2d((0, pad_2, 0, pad_1))   # left, right, top, bottom
+                pad = self.padding(data[:, i, ...]).unfold(2, self.patch_size[0], self.patch_size[0]).unfold(1, self.patch_size[0], self.patch_size[0])
+                pad = pad.contiguous().view(-1, self.patch_size[0], self.patch_size[0])
+                data_.append(pad.unsqueeze(1).clone())
+                if i == 0:
+                    pad = self.padding(target[i].squeeze()).unfold(2, self.patch_size[0], self.patch_size[0]).unfold(1, self.patch_size[0], self.patch_size[0])
+                    pad = pad.contiguous().view(-1, self.patch_size[0], self.patch_size[0])
+                    target_.append(pad.clone())
+                else:
+                    target_.append(target[i].clone())
+            
+            data = maybe_to_torch(torch.cat(data_, dim=1))
+            target = maybe_to_torch(target_)
+        
+            if torch.cuda.is_available():
+                data = to_cuda(data)
+                target = to_cuda(target)
+            del data_, target_
 
         self.optimizer.zero_grad()
 
@@ -402,6 +443,8 @@ class nnViTUNetTrainer(nnUNetTrainerV2): # Inherit default trainer class for 2D,
         if self.registration is not None:
             self.all_val_eval_metrics.append(np.mean(self.mean_dice))
             self.print_to_log_file("Average Dice:", [np.round(i, 4) for i in self.mean_dice])
+            if len(self.mean_dice) > 1:
+                self.print_to_log_file("Mean Dice:", np.round(np.mean(self.mean_dice), 4))
             # self.print_to_log_file("Average MSE:", [np.round(np.mean(self.mean_dice), 4)])
             self.print_to_log_file("(interpret this as an estimate for the Dice of the different classes. This is not "
                                    "exact.)")
@@ -467,3 +510,69 @@ class nnViTUNetTrainer(nnUNetTrainerV2): # Inherit default trainer class for 2D,
                     
         # -- Return the folder -- #
         return output_folder
+
+    def predict(self, data: np.ndarray):
+        """
+        :param data:
+        :return:
+        """
+        torch.cuda.empty_cache()
+        current_mode = self.network.training
+        self.network.eval()
+        # -- Prepare data for inference --> extract patches -- #
+        data = maybe_to_torch(data)
+        if self.registration != 'VoxelMorph' and 'ViTUNet' not in self.backbone:
+            data, orig_size, pad_size, unfold_shape = self._fold_into_patches(data)
+        if torch.cuda.is_available():
+            data = to_cuda(data, gpu_id=next(self.network.parameters()).device.type)
+        # -- Do registration here -- #
+        with torch.no_grad():
+            F_i, m_i, F_s, m_s = data
+            M_i, flow_i = self.network(F_i, m_i, registration=True)
+            M_s, flow_s = self.network(F_s, m_s, registration=True)
+        # -- Bring data back to original size -- #
+        if self.registration != 'VoxelMorph' and 'ViTUNet' not in self.backbone:
+            ret = self._unfold_into_image([F_i, M_i, F_s, M_s, m_i, m_s, flow_i, flow_s], unfold_shape, pad_size, orig_size)
+        else:
+            ret = [F_i, M_i, F_s, M_s, m_i, m_s, flow_i, flow_s]
+        self.network.train(current_mode)
+        return ret
+    
+    def _fold_into_patches(self, data):
+        r"""Fold the input data into desired patch size --> for inference only.
+        """
+        data_ = list()
+        orig_size = data.size()[1:]
+        for i in range(data.size(0)):
+            if self.padding is None:
+                pad_2 = abs(data[i, ...].size(-1)-int(np.ceil(data[i, ...].size(-1) / self.patch_size[0]))*self.patch_size[0])
+                pad_1 = abs(data[i, ...].size(-2)-int(np.ceil(data[i, ...].size(-2) / self.patch_size[0]))*self.patch_size[0])
+                self.padding = nn.ReflectionPad2d((0, pad_2, 0, pad_1))   # left, right, top, bottom
+            pad = self.padding(data[i, ...])
+            pad_size = pad.size()
+            pad = pad.unfold(2, self.patch_size[0], self.patch_size[0]).unfold(1, self.patch_size[0], self.patch_size[0])
+            unfold_shape = pad.size()
+            pad = pad.contiguous().view(-1, self.patch_size[0], self.patch_size[0])
+            data_.append(pad.unsqueeze(0).clone())
+        data = maybe_to_torch(torch.cat(data_, dim=0))
+        return data, orig_size, pad_size, unfold_shape
+
+    def _unfold_into_image(self, data, unfold_shape, pad_size, orig_size):
+        r"""Unfold the patches into the original size after processing the data.
+        """
+        # -- Reshape and crop d to size -- #
+        data_ = list()
+        for i, d in enumerate(data):
+            # -- Fold the patches back together into one image -- #
+            if i == 6 or i == 7:    # <-- Flow has 2 channels, not only one
+                d = d.view(unfold_shape[0], 2, *unfold_shape[1:])   # <-- Crop to original size, as we performed a padding
+                d = d.permute(0, 1, 2, 4, 3, 5).contiguous()    # [B, C, HxP, WxP]
+                d = d.view(pad_size[0], 2, *pad_size[1:])    # <-- Reshape to padding size
+            else:
+                d = d.view(unfold_shape)# <-- First reshape to folding size
+                d = d.permute(0, 1, 4, 2, 3).contiguous()   # [B, HxP, WxP]
+                d = d.view(pad_size)    # <-- Reshape to padding size
+                
+            d = d[..., :orig_size[-2], :orig_size[-1]]   # <-- Crop to original size, as we performed a padding
+            data_.append(d.unsqueeze(0).clone())
+        return data_

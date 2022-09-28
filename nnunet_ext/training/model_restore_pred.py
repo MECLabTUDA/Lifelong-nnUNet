@@ -5,8 +5,11 @@
 
 import torch, os
 from nnunet_ext.training.model_restore import restore_model
+from nnunet_ext.network_architecture.vit_voxing import ViT_Voxing
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet_ext.run.default_configuration import get_default_configuration
+from nnunet_ext.network_architecture.reg_baselines.voxelmorph import VoxelMorph
+from nnunet_ext.utilities.helpful_functions import get_ViT_LSA_SPT_scale_folder_name
 from nnunet.run.default_configuration import get_default_configuration as get_default_configuration_orig
 
 # -- Import the trainer classes -- #
@@ -63,40 +66,56 @@ def load_model_and_checkpoint_files(params, folder, folds=None, mixed_precision=
             _ = get_default_configuration_orig(params['network'], params['tasks_list_with_char'][0][0], params['network_trainer'], params['plans_identifier'])
         else:   # ViT_U-Net
             plans_file, prev_trainer_path, dataset_directory, batch_dice, stage, \
-            _ = get_default_configuration(params['network'], params['tasks_list_with_char'][0][0], None, params['network_trainer'], None,
-                                            params['plans_identifier'], extension_type=None)
+            trainer_class = get_default_configuration(params['network'], params['tasks_list_with_char'][0][0], None, params['network_trainer'], None,
+                                          params['plans_identifier'], extension_type=None)
+
             # -- Modify prev_trainer_path based on desired version and ViT type -- #
-            if not nnViTUNetTrainer.__name__+'V' in prev_trainer_path:
-                prev_trainer_path = prev_trainer_path.replace(nnViTUNetTrainer.__name__, nnViTUNetTrainer.__name__+params['version'])
+            arch = nnViTUNetTrainer.__name__+params['version'] if params['registration'] is None else VoxelMorph.__name__ if params['registration'] == 'VoxelMorph' else ViT_Voxing.__name__+params['version']
+            prev_trainer_path = os.path.join(prev_trainer_path, arch)
+            folder_n = get_ViT_LSA_SPT_scale_folder_name(False, False, False, False, registration=params['registration'])
+            
+            # if not nnViTUNetTrainer.__name__+'V' in prev_trainer_path:
+            #     prev_trainer_path = prev_trainer_path.replace(nnViTUNetTrainer.__name__, nnViTUNetTrainer.__name__+params['version'])
+                # prev_trainer_path = prev_trainer_path.replace(nnViTUNetTrainer.__name__, nnViTUNetTrainer.__name__+params['version'])
+            
             if params['vit_type'] != prev_trainer_path.split(os.path.sep)[-1] and params['vit_type'] not in prev_trainer_path:
                 prev_trainer_path = os.path.join(prev_trainer_path, params['vit_type'])
+            prev_trainer_path = os.path.join(prev_trainer_path, 'task_specific' if params['ViT_task_specific_ln'] else 'not_task_specific', folder_n)
 
-        # -- Build a simple MultiHead Trainer so we can use the perform validation function without re-coding it -- #
-        trainer = nnUNetTrainerMultiHead('seg_outputs', params['tasks_list_with_char'][0][0], plans_file, t_fold, output_folder=trainer_path,\
-                                         dataset_directory=dataset_directory, tasks_list_with_char=(params['tasks_list_with_char'][0], params['tasks_list_with_char'][1]),\
-                                         batch_dice=batch_dice, stage=stage, already_trained_on=None, use_param_split=params['param_split'], network=params['network'])
-        trainer.initialize(False, num_epochs=0, prev_trainer_path=prev_trainer_path, call_for_eval=True)
-        # -- Reset the epoch -- #
-        trainer.epoch = epoch
-        # -- Remove the Generic_UNet/MH part from the ouptput folder -- #
-        if 'nnUNetTrainerV2' in trainer.output_folder:
-            fold_ = trainer.output_folder.split(os.path.sep)[-1]
-            trainer.output_folder = join(os.path.sep, *trainer.output_folder.split(os.path.sep)[:-3], fold_)
-
+        if params['registration'] is None:
+            # -- Build a simple MultiHead Trainer so we can use the perform validation function without re-coding it -- #
+            trainer = nnUNetTrainerMultiHead('seg_outputs', params['tasks_list_with_char'][0][0], plans_file, t_fold, output_folder=trainer_path,\
+                                            dataset_directory=dataset_directory, tasks_list_with_char=(params['tasks_list_with_char'][0], params['tasks_list_with_char'][1]),\
+                                            batch_dice=batch_dice, stage=stage, already_trained_on=None, use_param_split=params['param_split'], network=params['network'])
+            trainer.initialize(False, num_epochs=0, prev_trainer_path=prev_trainer_path, call_for_eval=True)
+            # -- Reset the epoch -- #
+            trainer.epoch = epoch
+            # -- Remove the Generic_UNet/MH part from the ouptput folder -- #
+            if 'nnUNetTrainerV2' in trainer.output_folder:
+                fold_ = trainer.output_folder.split(os.path.sep)[-1]
+                trainer.output_folder = join(os.path.sep, *trainer.output_folder.split(os.path.sep)[:-3], fold_)
+        else:
+            trainer = trainer_class(plans_file, t_fold, output_folder=trainer_path, ViT_task_specific_ln = params['ViT_task_specific_ln'],\
+                                    dataset_directory=dataset_directory, registration=params['registration'])
+            trainer.initialize(False, num_epochs=0, call_for_eval=True)
+            # -- Reset the epoch -- #
+            trainer.epoch = epoch
+            
     # -- Set trainer output path -- #
     trainer.output_folder = trainer_path
     os.makedirs(trainer.output_folder, exist_ok=True)
         
     # -- Set the head based on the users input -- #
-    use_head = params['use_head']
-    if params['use_head'] is None:
-        use_head = list(trainer.mh_network.heads.keys())[-1]
-    
-    trainer.network = trainer.mh_network.assemble_model(use_head)
+    if params['registration'] is None:
+        use_head = params['use_head']
+        if params['use_head'] is None:
+            use_head = list(trainer.mh_network.heads.keys())[-1]
+        
+        trainer.network = trainer.mh_network.assemble_model(use_head)
 
-    # -- Set the correct task_name for training -- #
-    if trainer.use_vit and trainer.ViT_task_specific_ln:
-        trainer.network.ViT.use_task(use_head)
+        # -- Set the correct task_name for training -- #
+        if trainer.use_vit and trainer.ViT_task_specific_ln:
+            trainer.network.ViT.use_task(use_head)
 
     # -- Create a new log_file in the evaluation folder based on changed output_folder -- #
     trainer.print_to_log_file("The {} model trained on {} will be used for this evaluation with the {} head.".format(params['network_trainer'], ', '.join(params['tasks_list_with_char'][0]), params['use_head']))

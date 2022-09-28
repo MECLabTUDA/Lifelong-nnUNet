@@ -15,15 +15,16 @@ from nnunet.utilities.nd_softmax import softmax_helper
 from nnunet.utilities.tensor_utilities import sum_tensor
 from nnunet_ext.training.model_restore import restore_model
 from nnunet.utilities.to_torch import maybe_to_torch, to_cuda
+from nnunet_ext.network_architecture.vit_voxing import ViT_Voxing
 from nnunet.network_architecture.generic_UNet import Generic_UNet
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet.training.loss_functions.dice_loss import DC_and_CE_loss
 from nnunet_ext.run.default_configuration import get_default_configuration
 from nnunet.training.network_training.nnUNetTrainerV2 import nnUNetTrainerV2
-from nnunet_ext.network_architecture.vit_voxing import ViT_Voxing, VoxelMorph
 from nnunet_ext.network_architecture.MultiHead_Module import MultiHead_Module
 from nnunet_ext.network_architecture.generic_ViT_UNet import Generic_ViT_UNet
 from nnunet.training.loss_functions.deep_supervision import MultipleOutputLoss2
+from nnunet_ext.network_architecture.reg_baselines.voxelmorph import VoxelMorph
 from nnunet_ext.training.network_training.nnViTUNetTrainer import nnViTUNetTrainer
 from nnunet.training.data_augmentation.data_augmentation_noDA import get_no_augmentation
 from nnunet_ext.training.loss_functions.deep_supervision import MultipleOutputLossRegistration
@@ -321,6 +322,8 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # -- Do this so it fits onto GPU --> if it still does not, model needs to be put onto multiple GPUs -- #
         if self.use_vit:
             self.batch_size = self.batch_size // 2
+        elif self.registration == 'ViT_Voxing':
+            self.batch_size = self.batch_size // 3
 
     def initialize(self, training=True, force_load_plans=False, num_epochs=500, prev_trainer_path=None, call_for_eval=False):
         r"""Overwrite parent function, since we want to include a prev_trainer that is used as a base for the Multi Head Trainer.
@@ -531,6 +534,12 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                                                input_channels=self.num_input_channels, base_num_features=self.base_num_features,\
                                                num_classes=self.num_classes, num_pool=len(self.net_num_pool_op_kernel_sizes))
         elif self.trainer_model.__class__.__name__ == nnViTUNetTrainer.__name__:   # Important when doing evaluation, since nnViTUNetTrainer has no mh_network
+            # # -- Determine patch_size dynamically based on the list: [16, 32, 64, 128] -- #
+            # # -- First that does not throw an error during sample forward of nnUNet will be used --> remember OOM error might occur as well -- #
+            # if self.registration == 'ViT_Voxing':
+            #     patch_size = np.asarray([x if x < 64 else 64 for x in self.patch_size.tolist()])
+            # else:
+            #     patch_size = self.patch_size
             vit_kwargs = {'input_channels':self.num_input_channels, 'base_num_features':self.base_num_features,\
                           'num_classes':self.num_classes, 'num_pool':len(self.net_num_pool_op_kernel_sizes),\
                           'patch_size':patch_size.tolist(), 'vit_version':self.version, 'vit_type':self.vit_type,\
@@ -731,6 +740,39 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             data = to_cuda(data)
             target = to_cuda(target)
 
+        # print(data.size())
+
+        # # -- Split input data into patches for registration -- #
+        # data_ = list()
+        # target_ = list()
+        # # -- If registration and ViT Voxing, extract patches from the image -- #
+        # if self.registration == 'ViT_Voxing':   # <-- Currently only for 2D data
+        #     for i in range(data.size(1)):
+        #         if self.padding is None:
+        #             pad_2 = abs(data[:, i, ...].size(-1)-int(np.ceil(data[:, i, ...].size(-1) / self.patch_size[0]))*self.patch_size[0])
+        #             pad_1 = abs(data[:, i, ...].size(-2)-int(np.ceil(data[:, i, ...].size(-2) / self.patch_size[0]))*self.patch_size[0])
+        #             self.padding = nn.ReflectionPad2d((0, pad_2, 0, pad_1))   # left, right, top, bottom
+        #         pad = self.padding(data[:, i, ...]).unfold(2, self.patch_size[0], self.patch_size[0]).unfold(1, self.patch_size[0], self.patch_size[0])
+        #         pad = pad.contiguous().view(-1, self.patch_size[0], self.patch_size[0])
+        #         data_.append(pad.unsqueeze(1).clone())
+        #         if i == 0:
+        #             pad = self.padding(target[i].squeeze()).unfold(2, self.patch_size[0], self.patch_size[0]).unfold(1, self.patch_size[0], self.patch_size[0])
+        #             pad = pad.contiguous().view(-1, self.patch_size[0], self.patch_size[0])
+        #             target_.append(pad.clone())
+        #         else:
+        #             target_.append(target[i].clone())
+            
+        #     data = maybe_to_torch(torch.cat(data_, dim=1))
+        #     target = maybe_to_torch(target_)
+        
+        #     if torch.cuda.is_available():
+        #         data = to_cuda(data)
+        #         target = to_cuda(target)
+        #     del data_, target_
+            
+        # print(data.size())
+        # raise
+            
         self.optimizer.zero_grad()
 
         if self.fp16:

@@ -6,6 +6,7 @@
 import numpy as np
 import os, argparse, copy, warnings, nnunet_ext
 from nnunet_ext.utilities.helpful_functions import *
+from nnunet_ext.network_architecture.vit_voxing import ViT_Voxing
 from nnunet.network_architecture.generic_UNet import Generic_UNet
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet.training.model_restore import recursive_find_python_class
@@ -13,7 +14,7 @@ from nnunet.run.load_pretrained_weights import load_pretrained_weights
 from nnunet_ext.run.default_configuration import get_default_configuration
 from nnunet.utilities.task_name_id_conversion import convert_id_to_task_name
 from nnunet_ext.network_architecture.generic_ViT_UNet import Generic_ViT_UNet
-from nnunet_ext.network_architecture.vit_voxing import ViT_Voxing, VoxelMorph
+from nnunet_ext.network_architecture.reg_baselines.voxelmorph import VoxelMorph
 from nnunet_ext.paths import default_plans_identifier, network_training_output_dir
 
 TRAINER_MAP = dict()

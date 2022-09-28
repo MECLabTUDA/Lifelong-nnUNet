@@ -8,11 +8,9 @@ from torch import nn
 from torch.autograd import Variable
 from nnunet.utilities.to_torch import to_cuda
 from nnunet_ext.utilities.helpful_functions import *
-from nnunet.utilities.nd_softmax import softmax_helper
-from nnunet_ext.utilities.helpful_functions import commDiv
 from nnunet.network_architecture.initialization import InitWeights_He
 from nnunet.network_architecture.generic_UNet import ConvDropoutNormNonlin, Generic_UNet
-from nnunet_ext.network_architecture.vision_transformer import PatchEmbed, VisionTransformer
+from nnunet_ext.network_architecture.architectural_components.vision_transformer import PatchEmbed, VisionTransformer
 
 class Generic_ViT_UNet(Generic_UNet):
     r"""This class is a Module that can be used for any segmentation task. It represents a generic combination of the

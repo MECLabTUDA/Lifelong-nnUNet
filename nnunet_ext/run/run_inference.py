@@ -2,21 +2,32 @@
 #----------------------------This class allows the user to make predictions-----------------------------#
 #########################################################################################################
 
-import os, argparse
-from nnunet_ext.evaluation.evaluator import Evaluator
+import os, argparse, nnunet_ext, multiprocessing
+from nnunet_ext.paths import network_training_output_dir
+from nnunet_ext.inference.predict import predict_from_folder
+from nnunet.network_architecture.generic_UNet import Generic_UNet
+from nnunet_ext.network_architecture.vit_voxing import ViT_Voxing
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet_ext.utilities.helpful_functions import join_texts_with_char
 from nnunet_ext.paths import evaluation_output_dir, default_plans_identifier
-from nnunet_ext.inference.predict import predict_from_folder
 from nnunet.utilities.task_name_id_conversion import convert_id_to_task_name
-from nnunet_ext.paths import network_training_output_dir
-from nnunet.paths import network_training_output_dir as network_training_output_dir_orig
-from nnunet_ext.utilities.helpful_functions import get_ViT_LSA_SPT_scale_folder_name
-from nnunet_ext.training.network_training.nnViTUNetTrainer import nnViTUNetTrainer
-from nnunet.network_architecture.generic_UNet import Generic_UNet
 from nnunet_ext.network_architecture.generic_ViT_UNet import Generic_ViT_UNet
+from nnunet_ext.network_architecture.reg_baselines.voxelmorph import VoxelMorph
+from nnunet_ext.training.network_training.nnViTUNetTrainer import nnViTUNetTrainer
+from nnunet_ext.utilities.helpful_functions import get_ViT_LSA_SPT_scale_folder_name
+from nnunet.paths import network_training_output_dir as network_training_output_dir_orig
 
-import sys
+EXT_MAP = dict()
+# -- Extract all extensional trainers in a more generic way -- #
+extension_keys = [x for x in os.listdir(os.path.join(nnunet_ext.__path__[0], "training", "network_training")) if 'py' not in x]
+for ext in extension_keys:
+    trainer_name = [x[:-3] for x in os.listdir(os.path.join(nnunet_ext.__path__[0], "training", "network_training", ext)) if '.py' in x][0]
+    # trainer_keys.extend(trainer_name)
+    EXT_MAP[trainer_name] = ext
+# -- Add standard trainers as well -- #
+EXT_MAP['nnViTUNetTrainer'] = None
+EXT_MAP['nnUNetTrainerV2'] = 'standard'
+EXT_MAP['nnViTUNetTrainerCascadeFullRes'] = None
 
 def run_inference():
     # -- First of all check that evaluation_output_dir is set otherwise we do not perform an evaluation -- #
@@ -44,6 +55,8 @@ def run_inference():
     parser.add_argument("--enable_tta", required=False, default=False, action="store_true",
                         help="set this flag to disable test time data augmentation via mirroring. Speeds up inference "
                              "by roughly factor 4 (2D) or 8 (3D)")
+    parser.add_argument("--no_plans", required=False, default=False, action="store_true",
+                        help="set this flag to disable the copy process of the plans file in the output folder.")
     parser.add_argument("-p", help="plans identifier. Only change this if you created a custom experiment planner",
                         default=default_plans_identifier, required=False)
     parser.add_argument("-f", "--fold",  action='store', type=int,
@@ -67,6 +80,8 @@ def run_inference():
                         help='Try to train the model on the GPU device with <DEVICE> ID. '+
                             ' Valid IDs: 0, 1, ..., 7. A List of IDs can be provided as well.'+
                             ' Default: Only GPU device with ID 0 will be used.')
+    parser.add_argument('-reg', action='store', type=str, default=None, choices=['VoxelMorph', 'ViT_Voxing'],
+                        help='Set this flag along with an architecture if the Lifelong nnUNet should be used for registration.')
     parser.add_argument("-v", "--version", action='store', type=int, nargs=1, default=[1], choices=[1, 2, 3, 4],
                         help='Select the ViT input building version. Currently there are only four'+
                             ' possibilities: 1, 2, 3 or 4.'+
@@ -91,25 +106,13 @@ def run_inference():
                         help='If this is set, during the evaluation, always the last head will be used, '+
                              'for every dataset the evaluation is performed on. When an extension network was trained with '+
                              'the -transfer_heads flag then this should be set, i.e. nnUNetTrainerSequential or nnUNetTrainerFreezedViT.')
-    parser.add_argument('--no_pod', action='store_true', default=False,
-                        help='This will only be considered if our own trainers are used. If set, this flag indicates that the POD '+
-                             'embedding has not been used.')
+    # parser.add_argument('--no_pod', action='store_true', default=False,
+    #                     help='This will only be considered if our own trainers are used. If set, this flag indicates that the POD '+
+    #                          'embedding has not been used.')
     parser.add_argument('--do_LSA', action='store_true', default=False,
                         help='Set this flag if Locality Self-Attention should be used for the ViT.')
     parser.add_argument('--do_SPT', action='store_true', default=False,
                         help='Set this flag if Shifted Patch Tokenization should be used for the ViT.')
-
-    # -- Build mapping for network_trainer to corresponding extension name -- #
-    ext_map = {'nnViTUNetTrainer': None, 'nnViTUNetTrainerCascadeFullRes': None,
-               'nnUNetTrainerFreezedViT': 'freezed_vit', 'nnUNetTrainerEWCViT': 'ewc_vit',
-               'nnUNetTrainerFreezedNonLN': 'freezed_nonln', 'nnUNetTrainerEWCLN': 'ewc_ln',
-               'nnUNetTrainerMultiHead': 'multihead', 'nnUNetTrainerSequential': 'sequential',
-               'nnUNetTrainerFreezedUNet': 'freezed_unet', 'nnUNetTrainerEWCUNet': 'ewc_unet',
-               'nnUNetTrainerMiB': 'mib', 'nnUNetTrainerPLOP': 'plop', 'nnUNetTrainerV2': 'standard',
-               'nnUNetTrainerOwnM1': 'ownm1', 'nnUNetTrainerOwnM2': 'ownm2', 'nnUNetTrainerPOD': 'pod',
-               'nnUNetTrainerOwnM3': 'ownm3', 'nnUNetTrainerOwnM4': 'ownm4', 'nnUNetTrainerRW': 'rw',
-               'nnUNetTrainerRehearsal': 'rehearsal', 'nnUNetTrainerEWC': 'ewc', 'nnUNetTrainerLWF': 'lwf'}
-
 
     # -------------------------------
     # Extract arguments from parser
@@ -140,7 +143,7 @@ def run_inference():
     cuda = args.device
     mixed_precision = not args.fp32_used
     transfer_heads = not args.no_transfer_heads
-    do_pod = not args.no_pod
+    reg = args.reg
 
     # -- Extract ViT specific flags to as well -- #
     use_vit = args.use_vit
@@ -212,7 +215,7 @@ def run_inference():
     # ---------------------------------------------
 
     # -- Extract the folder name in case we have a ViT -- #
-    folder_n = get_ViT_LSA_SPT_scale_folder_name(do_LSA, do_SPT, False, False)
+    folder_n = get_ViT_LSA_SPT_scale_folder_name(do_LSA, do_SPT, False, False, registration=reg)
     version = 'V' + str(version)
 
     tasks_list_with_char = (tasks_for_folder, char_to_join_tasks)
@@ -226,12 +229,14 @@ def run_inference():
         output_path = join(evaluation_output_dir, network, tasks_joined_name, network_trainer+'__'+plans_identifier)
         output_path = output_path.replace('nnUNet_ext', 'nnUNet')
     elif nnViTUNetTrainer.__name__ in network_trainer: # always_last_head makes no sense here, there is only one head
-        trainer_path = join(network_training_output_dir, network, tasks_joined_name, network_trainer+'__'+plans_identifier, vit_type,\
+        arch = Generic_ViT_UNet.__name__+version if reg is None else VoxelMorph.__name__ if reg == 'VoxelMorph' else ViT_Voxing.__name__+version
+        # -- Load relevant information -- #
+        trainer_path = join(network_training_output_dir, network, tasks_joined_name, network_trainer+'__'+plans_identifier, arch, vit_type,\
                             'task_specific' if ViT_task_specific_ln else 'not_task_specific', folder_n)
-        output_path = join(evaluation_output_dir, network, tasks_joined_name, network_trainer+'__'+plans_identifier, vit_type,\
-                        'task_specific' if ViT_task_specific_ln else 'not_task_specific', folder_n)
-        trainer_path = trainer_path.replace(nnViTUNetTrainer.__name__, nnViTUNetTrainer.__name__+version)
-        output_path = output_path.replace(nnViTUNetTrainer.__name__, nnViTUNetTrainer.__name__+version)
+        output_path = join(evaluation_output_dir, network, tasks_joined_name, network_trainer+'__'+plans_identifier, arch, vit_type,\
+                          'task_specific' if ViT_task_specific_ln else 'not_task_specific', folder_n)
+        # trainer_path = trainer_path.replace(nnViTUNetTrainer.__name__, nnViTUNetTrainer.__name__+version)
+        # output_path = output_path.replace(nnViTUNetTrainer.__name__, nnViTUNetTrainer.__name__+version)
     else:   # Any other extension like CL extension for example (using MH Architecture)
         if use_vit:
             trainer_path = join(network_training_output_dir, network, tasks_joined_name, model_joined_name,\
@@ -245,12 +250,7 @@ def run_inference():
                                 network_trainer+'__'+plans_identifier, Generic_UNet.__name__, 'SEQ' if transfer_heads else 'MH')
             output_path = join(evaluation_output_dir, network, tasks_joined_name, model_joined_name,\
                                 network_trainer+'__'+plans_identifier, Generic_UNet.__name__, 'SEQ' if transfer_heads else 'MH')
-
-    # -- Re-Modify trainer path for own methods if necessary -- #
-    if 'OwnM' in network_trainer:
-        trainer_path = join(os.path.sep, *trainer_path.split(os.path.sep)[:-1], 'pod' if do_pod else 'no_pod')
-        output_path = join(os.path.sep, *output_path.split(os.path.sep)[:-1], 'pod' if do_pod else 'no_pod')
-
+            
     output_path = join(output_path, 'head_{}'.format(use_head), 'fold_'+str(fold), 'Preds_{}'.format(convert_id_to_task_name(evaluate_on)))
 
     # Note that unlike the trainer_path from run_evaluation, this does not include the fold because plans.pkl is one level above 
@@ -262,6 +262,7 @@ def run_inference():
     if output_folder is None:
         output_folder = output_path
     chk = args.chk
+    copy_plans = not args.no_plans
     overwrite_existing = args.overwrite_existing
     enable_tta = args.enable_tta
     lowres_segmentations = None
@@ -274,12 +275,11 @@ def run_inference():
     num_threads_nifti_save = 2
     step_size = 0.5
 
-
     # Additional parameters needed for restoring extension trainers/models
     params_ext = {
         'use_head': use_head,
         'always_use_last_head': always_use_last_head,
-        'extension': ext_map[network_trainer],
+        'extension': EXT_MAP[network_trainer],
         'param_split': False,
         'network': network,
         'network_trainer': network_trainer,
@@ -287,7 +287,9 @@ def run_inference():
         'tasks_list_with_char': tasks_list_with_char,
         'plans_identifier': plans_identifier,
         'vit_type': vit_type,
-        'version': version
+        'version': version,
+        'ViT_task_specific_ln': ViT_task_specific_ln,
+        'registration': reg
     }
 
     if input_folder is None:
@@ -299,7 +301,7 @@ def run_inference():
                             num_threads_nifti_save, lowres_segmentations, part_id, num_parts, enable_tta,
                             overwrite_existing=overwrite_existing, mode="normal", overwrite_all_in_gpu=all_in_gpu,
                             mixed_precision=mixed_precision,
-                            step_size=step_size, checkpoint_name=chk)
+                            step_size=step_size, checkpoint_name=chk, copy_plans=copy_plans)
 
 # -- Main function for setup execution -- #
 def main():

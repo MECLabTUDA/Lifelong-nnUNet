@@ -502,6 +502,12 @@ def smooth_blur(in_filters, sfilter=(1, 1), pad_mode="constant"):
         layer = Blur(in_filters, sfilter=sfilter, pad_mode=pad_mode)
     return layer
 
+def Identity(x):
+    return x
+
+def softmax_helper(x):
+    return F.softmax(x, 1)
+
 @contextmanager
 def suppress_stdout():
     r"""This can be used to surpress the output when executing a function.

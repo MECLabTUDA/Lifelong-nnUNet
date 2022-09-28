@@ -65,8 +65,12 @@ class MultipleOutputLossRegistration(nn.Module):
         # loss = self.dice(seg_y, seg_x)
         # -- Add MSE to it -- #
         # loss = self.loss_weights[0] * torch.mean((y - x) ** 2)
+        # loss = torch.mean((y - x) ** 2)
+        
         y_ = y.unsqueeze(1)
         loss = self.ncc.loss(torch.sigmoid(y_), torch.sigmoid(x))
+        
+        
         # loss = self.loss_weights[0] * self.ncc.loss(torch.sigmoid(y_), torch.sigmoid(x))
         # -- Add Grad to it -- #
         # loss += self.loss_weights[1] * self.grad.loss(y, flow if len(flow)==5 else flow.unsqueeze(1))

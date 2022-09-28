@@ -3,11 +3,12 @@ from torch import nn
 from torch.distributions.normal import Normal
 from voxelmorph.torch.networks import VxmDense as VoxelMorph_
 from nnunet_ext.network_architecture.generic_ViT_UNet import Generic_ViT_UNet
+from nnunet_ext.network_architecture.architectural_components.bev_regnet import Image_To_BEV_Network
 
 class ViT_Voxing(VoxelMorph_):
     r"""ViT Voxing based on the VoxelMorph replacing the U-Net with the nnUNet."""
     def __init__(self, inshape, nb_unet_features=None, nb_unet_levels=None, unet_feat_mult=1,
-                 int_steps=7, int_downsize=2, bidir=False, use_probs=False, **vitunet_kwargs):
+                 int_steps=7, int_downsize=2, bidir=False, use_probs=False, backbone='ViTUNet_', **vitunet_kwargs):
         """ 
         Parameters:
             inshape: Input shape. e.g. (192, 192, 192)
@@ -21,15 +22,17 @@ class ViT_Voxing(VoxelMorph_):
                 is not downsampled when this value is 1.
             bidir: Enable bidirectional cost function. Default is False.
             use_probs: Use probabilities in flow field. Default is False.
+            backbone: Which backbone to use for ViT Voxing (ViTUNet or any other architecture)
         """
         super().__init__(inshape, nb_unet_features, nb_unet_levels, unet_feat_mult, int_steps, int_downsize,
                          bidir, use_probs)
                 
         # -- Replace the unet with the ViT U-Net -- #
-        self.unet_model = Generic_ViT_UNet(**vitunet_kwargs)
+        self.unet_model = Generic_ViT_UNet(**vitunet_kwargs) if backbone == 'ViTUNet' else Image_To_BEV_Network(**vitunet_kwargs)
         
         # -- Add this so we don't get an error during training with the nnUNet pipeline -- #
         self.do_ds = None
+        self.backbone = backbone
         
         # -- Update all flows and Convs accordingly as we use different dimensions -- #
         ndims = len(inshape)
@@ -51,26 +54,10 @@ class ViT_Voxing(VoxelMorph_):
             target = target.unsqueeze(1)
         
         ret = super().forward(source, target, registration)
-        return ret        
-        
-class VoxelMorph(VoxelMorph_):
-    def __init__(self, inshape, nb_unet_features=None, nb_unet_levels=None, unet_feat_mult=1,
-                 int_steps=7, int_downsize=2, bidir=False, use_probs=False):
-        r"""Initialize.
-        """
-        super().__init__(inshape, nb_unet_features, nb_unet_levels, unet_feat_mult, int_steps, int_downsize,
-                         bidir, use_probs)
-        # -- Add this so we don't get an error during training with the nnUNet pipeline -- #
-        self.do_ds = None
-        
-    def forward(self, source, target, registration=False):
-        r"""Adapt the forward pass accordingly so we don't get any errors.
-        """
-        if len(source.size()) == 3:
-            source = source.unsqueeze(1)
-        if len(target.size()) == 3:
-            target = target.unsqueeze(1)
-        
-        # -- Do changes here to get VoxelMorph running in nnUNet as well -- #
-        ret = super().forward(source, target, registration)
         return ret
+    
+    def get_device(self):
+        if next(self.parameters()).device.type == "cpu":
+            return "cpu"
+        else:
+            return next(self.parameters()).device.index
