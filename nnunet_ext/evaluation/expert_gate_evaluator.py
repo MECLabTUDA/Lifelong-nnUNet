@@ -24,12 +24,17 @@ import glob
 import os.path
 import shutil 
 
+from nnunet_ext.training.network_training.expert_gate2.nnUNetTrainerExpertGate2 import expert_gate_experiment
 
 class expert_gate_evaluator():
     def __init__(self, network: str, network_trainer: str, tasks_for_folder: list[str], extension: str):
         self.extension = extension
         self.network = network
-        self.ae_network = "2d"#TODO
+        if expert_gate_experiment in ["expert_gate_simple_ae_UNet_features"]:
+            self.ae_network = "3d"
+        else:
+            self.ae_network = "2d"
+
         self.network_trainer = network_trainer
         self.tasks_for_folder = tasks_for_folder
         self.plans_identifier = "nnUNetPlansv2.1"
