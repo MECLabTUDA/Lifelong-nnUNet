@@ -5,15 +5,12 @@
 
 #expert_gate_experiment = "expert_gate_monai"
 #expert_gate_experiment = "expert_gate_monai_alex_features"
-#expert_gate_experiment = "expert_gate_monai_UNet_features"      #TODO implement/test
+expert_gate_experiment = "expert_gate_monai_UNet_features"      #TODO test
 #expert_gate_experiment = "expert_gate_simple_ae"
 #expert_gate_experiment = "expert_gate_simple_ae_alex_features"
-expert_gate_experiment = "expert_gate_simple_ae_UNet_features"  #TODO implement/test
+#expert_gate_experiment = "expert_gate_simple_ae_UNet_features"  #TODO test
 #expert_gate_experiment = "expert_gate_UNet"
 #expert_gate_experiment = "expert_gate_UNet_alex_features"
-
-
-
 
 
 
@@ -819,7 +816,15 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
                 num_res_units=4
             )
         elif expert_gate_experiment in ["expert_gate_monai_UNet_features"]:
-            raise NotImplementedError
+            self.network = ExpertGateMonaiAutoencoder(
+                spatial_dims=3,
+                in_channels=32,
+                out_channels=32,
+                channels=(16,8),
+                strides=(1,1),
+                inter_channels=(8,),
+                num_res_units=3
+            )        
         elif expert_gate_experiment in ["expert_gate_simple_ae", 
             "expert_gate_simple_ae_alex_features", 
             "expert_gate_simple_ae_UNet_features"]:
