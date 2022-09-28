@@ -1,6 +1,22 @@
 #########################################################################################################
-#------------------This class represents the nnUNet trainer for sequential training.--------------------#
+#------------------This class represents the nnUNet trainer for expert gate training.--------------------#
 #########################################################################################################
+
+
+#expert_gate_experiment = "expert_gate_monai"
+#expert_gate_experiment = "expert_gate_monai_alex_features"
+#expert_gate_experiment = "expert_gate_monai_UNet_features"      #TODO implement/test
+#expert_gate_experiment = "expert_gate_simple_ae"
+#expert_gate_experiment = "expert_gate_simple_ae_alex_features"
+expert_gate_experiment = "expert_gate_simple_ae_UNet_features"  #TODO implement/test
+#expert_gate_experiment = "expert_gate_UNet"
+#expert_gate_experiment = "expert_gate_UNet_alex_features"
+
+
+
+
+
+
 
 from nnunet_ext.network_architecture.expert_gate_UNet import expert_gate_UNet
 from nnunet_ext.paths import default_plans_identifier
@@ -41,6 +57,8 @@ from nnunet.network_architecture.initialization import InitWeights_He
 from torch import Tensor, nn
 from nnunet.training.network_training.nnUNetTrainer import nnUNetTrainer
 
+from nnunet_ext.training.network_training.sequential import nnUNetTrainerSequential
+from nnunet_ext.network_architecture.generic_UNet_features import genericUNet_features
 
 #from monai.networks.nets import AutoEncoder
 from nnunet_ext.network_architecture.expert_gate_monai_ae import ExpertGateMonaiAutoencoder
@@ -66,17 +84,6 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
                          save_csv, del_log, use_vit, vit_type, version, split_gpu, True, ViT_task_specific_ln, do_LSA, do_SPT,
                          network, use_param_split)
         self.online_eval_mse = []
-        #self.num_batches_per_epoch = 10        #TODO
-        #self.initial_lr = 1
-    """
-    def initialize_optimizer_and_scheduler(self):#TODO
-        assert self.network is not None, "self.initialize_network must be called first"
-        self.optimizer = torch.optim.SGD(self.network.parameters(), self.initial_lr, weight_decay=self.weight_decay, momentum=0, nesterov=False)
-        #self.optimizer = torch.optim.Adam(self.network.parameters(), 0.001)
-        self.lr_scheduler = None
-    def maybe_update_lr(self, epoch=None):
-        pass
-    """
 
     def process_plans(self, plans):
         if self.stage is None:
@@ -87,11 +94,9 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
         self.plans = plans
 
         stage_plans = self.plans['plans_per_stage'][self.stage]
-        self.batch_size = stage_plans['batch_size'] #TODO
-        #self.batch_size = 32
+        self.batch_size = stage_plans['batch_size']
         self.net_pool_per_axis = stage_plans['num_pool_per_axis']
         self.patch_size = np.array(stage_plans['patch_size']).astype(int)
-        #self.patch_size = np.array([256,256]).astype(int)#TODO
         self.do_dummy_2D_aug = stage_plans['do_dummy_2D_data_aug']
 
         if 'pool_op_kernel_sizes' not in stage_plans.keys():
@@ -306,7 +311,6 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
         #self.network = expert_gate_autoencoder(self.patch_size[0] * self.patch_size[1] * self.patch_size[2])
         self.initialize_network2()
 
-
         self.initialize_optimizer_and_scheduler()
         
         # -- Delete the trainer_model (used for restoring) -- #
@@ -354,23 +358,34 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
         data = data_dict['data']
         #target = data_dict['target']
 
-        #TODO
         data = maybe_to_torch(data)
-        #data = torch.sigmoid(data)
-        target = data
-        #target = copy.deepcopy(data)
-
+        if expert_gate_experiment in [ "expert_gate_monai_alex_features",
+            "expert_gate_simple_ae_alex_features",
+            "expert_gate_UNet_alex_features" ]:
+            data = data.repeat(1,3,1,1)
+            
+        if expert_gate_experiment in ["expert_gate_UNet_alex_features"]:
+            data = data[:,:,:244,:244]
 
         if torch.cuda.is_available():
             data = to_cuda(data)
-            target = to_cuda(target)
+
+        if expert_gate_experiment in ["expert_gate_monai_alex_features",
+            "expert_gate_monai_UNet_features",
+            "expert_gate_simple_ae_alex_features",
+            "expert_gate_simple_ae_UNet_features",
+            "expert_gate_UNet_alex_features"]:
+            data = self.feature_extractor(data)
+
+        target = data
+
 
         self.optimizer.zero_grad()
 
         if self.fp16:
             with autocast():
                 output = self.network(data)
-                #del data
+                del data
                 if not no_loss:
                     l = self.loss(output, target)
 
@@ -781,39 +796,83 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
         dropout_op_kwargs = {'p': 0, 'inplace': True}
         net_nonlin = nn.LeakyReLU
         net_nonlin_kwargs = {'negative_slope': 1e-2, 'inplace': True}
-        print("#################input channels: ",  self.num_input_channels)
-        """"""
-        self.network = expert_gate_UNet(self.num_input_channels, self.base_num_features, self.num_classes, net_numpool,
-                                    self.conv_per_stage, 2, conv_op, norm_op, norm_op_kwargs, dropout_op,
-                                    dropout_op_kwargs,
-                                    net_nonlin, net_nonlin_kwargs, False, False, lambda x: x, InitWeights_He(1e-2),
-                                    self.net_num_pool_op_kernel_sizes, self.net_conv_kernel_sizes, False, True, True)
-        self.network.inference_apply_nonlin = lambda x : x
+
+
+        if expert_gate_experiment in ["expert_gate_monai"]:
+            self.network = ExpertGateMonaiAutoencoder(
+                spatial_dims=2,
+                in_channels=1,
+                out_channels=1,
+                channels=(8,16,32,64),
+                strides=(1,1,1,1),
+                inter_channels=(64,),
+                num_res_units=4
+            )
+        elif expert_gate_experiment in ["expert_gate_monai_alex_features"]:
+            self.network = ExpertGateMonaiAutoencoder(
+                spatial_dims=2,
+                in_channels=256,
+                out_channels=256,
+                channels=(128,64,32,64,256),
+                strides=(1,1,1,1,1),
+                inter_channels=(64,),
+                num_res_units=4
+            )
+        elif expert_gate_experiment in ["expert_gate_monai_UNet_features"]:
+            raise NotImplementedError
+        elif expert_gate_experiment in ["expert_gate_simple_ae", 
+            "expert_gate_simple_ae_alex_features", 
+            "expert_gate_simple_ae_UNet_features"]:
+            self.network = expert_gate_autoencoder()            # the expert_gate_autoencoder architecture also depends on expert_gate_experiment
+        elif expert_gate_experiment in ["expert_gate_UNet"]:
+            self.network = expert_gate_UNet(self.num_input_channels, self.base_num_features, self.num_input_channels,net_numpool,
+                                        self.conv_per_stage, 2, conv_op, norm_op, norm_op_kwargs, dropout_op,
+                                        dropout_op_kwargs,
+                                        net_nonlin, net_nonlin_kwargs, False, False, lambda x: x, InitWeights_He(1e-2),
+                                        self.net_num_pool_op_kernel_sizes, self.net_conv_kernel_sizes, False, True, True)
+            self.network.inference_apply_nonlin = lambda x : x
+        elif expert_gate_experiment in ["expert_gate_UNet_alex_features"]:
+            self.network = expert_gate_UNet(256, self.base_num_features, 256,1, 
+                                        self.conv_per_stage, 2, conv_op, norm_op, norm_op_kwargs, dropout_op,
+                                        dropout_op_kwargs,
+                                        net_nonlin, net_nonlin_kwargs, False, False, lambda x: x, InitWeights_He(1e-2),
+                                        self.net_num_pool_op_kernel_sizes, self.net_conv_kernel_sizes, False, True, True)
+            self.network.inference_apply_nonlin = lambda x : x
+        else:
+            raise NotImplementedError("specified expert_gate_experiment is not correct.")
+
+
+        if expert_gate_experiment in ["expert_gate_monai_UNet_features",
+            "expert_gate_simple_ae_UNet_features"]:
+            checkpoint = join(self.output_folder.replace("2d", "3d_fullres").replace("nnUNetTrainerExpertGate2", "nnUNetTrainerSequential"),"model_final_checkpoint.model")
+            featureExtractionTrainer: nnUNetTrainerSequential.nnUNetTrainerSequential = restore_model(checkpoint + ".pkl", checkpoint=checkpoint, 
+            use_extension=True, 
+            extension_type="sequential",
+            network="3d_fullres")
+            assert isinstance(featureExtractionTrainer, nnUNetTrainerSequential.nnUNetTrainerSequential)
+            self.feature_extractor: Generic_UNet = featureExtractionTrainer.mh_network.assemble_model(self.task)
+            self.feature_extractor.__class__ = genericUNet_features
+
+
+        if expert_gate_experiment in ["expert_gate_monai_alex_features",
+            "expert_gate_simple_ae_alex_features",
+            "expert_gate_UNet_alex_features"]:
+            assert self.num_input_channels == 1, "alexNet features require a single input channel."
+            alex_net = torch.hub.load('pytorch/vision:v0.10.0', 'alexnet', pretrained=True)
+            self.feature_extractor = alex_net.features
         
-        """TRAINED ON 21:
-        self.network = ExpertGateMonaiAutoencoder(
-            spatial_dims=2,
-            in_channels=1,
-            out_channels=1,
-            channels=(8,16,32,64),
-            strides=(1,1,1,1),
-            inter_channels=(64,),
-            num_res_units=4
-        )"""
-        
-        """TRAINED ON 41:
-        
-        self.network = ExpertGateMonaiAutoencoder(
-            spatial_dims=2,
-            in_channels=1,
-            out_channels=1,
-            channels=(256,),
-            strides=(1,),
-            inter_channels=(256,),
-            num_res_units=1
-        )"""
-        #self.network = VAE()
-        #self.network = expert_gate_autoencoder()
+
+        if expert_gate_experiment in ["expert_gate_monai_alex_features",
+        "expert_gate_monai_UNet_features",
+        "expert_gate_simple_ae_alex_features",
+        "expert_gate_simple_ae_UNet_features",
+        "expert_gate_UNet_alex_features"]:
+            if torch.cuda.is_available():
+                self.feature_extractor.cuda()
+            self.feature_extractor.eval()
+
+
+
         self.network.train()
         if torch.cuda.is_available():
             self.network.cuda()
