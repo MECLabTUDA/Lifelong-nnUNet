@@ -30,7 +30,7 @@ class expert_gate_evaluator():
     def __init__(self, network: str, network_trainer: str, tasks_for_folder: list[str], extension: str):
         self.extension = extension
         self.network = network
-        if expert_gate_experiment in ["expert_gate_simple_ae_UNet_features"]:
+        if expert_gate_experiment in ["expert_gate_simple_ae_UNet_features", "expert_gate_monai_UNet_features"]:
             self.ae_network = "3d_fullres"
         else:
             self.ae_network = "2d"
