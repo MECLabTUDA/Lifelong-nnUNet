@@ -5,11 +5,11 @@
 
 #expert_gate_experiment = "expert_gate_monai"
 #expert_gate_experiment = "expert_gate_monai_alex_features"
-expert_gate_experiment = "expert_gate_monai_UNet_features"      #TODO test
+#expert_gate_experiment = "expert_gate_monai_UNet_features"      #TODO test
 #expert_gate_experiment = "expert_gate_simple_ae"
 #expert_gate_experiment = "expert_gate_simple_ae_alex_features"
 #expert_gate_experiment = "expert_gate_simple_ae_UNet_features"  #TODO test
-#expert_gate_experiment = "expert_gate_UNet"
+expert_gate_experiment = "expert_gate_UNet"
 #expert_gate_experiment = "expert_gate_UNet_alex_features"
 
 

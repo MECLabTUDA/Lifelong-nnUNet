@@ -190,6 +190,7 @@ def predict_cases(params_ext, model, list_of_lists, output_filenames, folds, sav
                                              segs_from_prev_stage)
     print("starting prediction...")
     all_output_files = []
+    parameters = []
     for preprocessed in preprocessing:
         output_filename, (d, dct) = preprocessed
         all_output_files.append(all_output_files)
@@ -243,23 +244,35 @@ def predict_cases(params_ext, model, list_of_lists, output_filenames, folds, sav
         bytes_per_voxel = 4
         if all_in_gpu:
             bytes_per_voxel = 2  # if all_in_gpu then the return value is half (float16)
-        if np.prod(softmax.shape) > (2e9 / bytes_per_voxel * 0.85):  # * 0.85 just to be save
+        #if np.prod(softmax.shape) > (2e9 / bytes_per_voxel * 0.85):  # * 0.85 just to be save
+        if True:
             print(
                 "This output is too large for python process-process communication. Saving output temporarily to disk")
-            np.save(output_filename[:-7] + ".npy", softmax)
+            np.save(output_filename[:-7] + ".npy", softmax[0])
             softmax = output_filename[:-7] + ".npy"
+        else:
+            softmax = softmax[0]
 
         #results.append(pool.starmap_async(save_segmentation_nifti_from_softmax,
         #                                  ((softmax, output_filename, dct, interpolation_order, region_class_order,
         #                                    None, None,
         #                                    npz_file, None, force_separate_z, interpolation_order_z),)
         #                                  ))
-        results.append(pool.starmap_async(save_image_nifti,
-                                          ((softmax[0], output_filename, dct, interpolation_order, force_separate_z, interpolation_order_z),)
-                                          ))
+        #results.append(pool.starmap_async(save_image_nifti,
+        #                                  ((softmax, output_filename, dct, interpolation_order, force_separate_z, interpolation_order_z),)
+        #                                 ))
+
+        parameters.append((softmax, output_filename, dct, interpolation_order, force_separate_z, interpolation_order_z))
+
 
     print("inference done. Now waiting for the segmentation export to finish...")
-    _ = [i.get() for i in results]
+    for x in parameters:
+        softmax, output_filename, dct, interpolation_order, force_separate_z, interpolation_order_z = x
+        save_image_nifti(softmax, output_filename, dct, interpolation_order, force_separate_z, interpolation_order_z)
+
+
+
+    #_ = [i.get() for i in results]
     # now apply postprocessing
     # first load the postprocessing properties if they are present. Else raise a well visible warning
     if not disable_postprocessing:
@@ -419,11 +432,11 @@ def save_image_nifti(segmentation, out_fname, dct, order=1, force_separate_z=Non
     """
     # suppress output
     print("force_separate_z:", force_separate_z, "interpolation order:", order)
-    sys.stdout = open(os.devnull, 'w')
+    #sys.stdout = open(os.devnull, 'w')
 
     if isinstance(segmentation, str):
         assert isfile(segmentation), "If isinstance(segmentation_softmax, str) then " \
-                                     "isfile(segmentation_softmax) must be True"
+                                     "isfile(segmentation_softmax) must be True " + segmentation
         del_file = deepcopy(segmentation)
         segmentation = np.load(segmentation)
         os.remove(del_file)
@@ -434,7 +447,6 @@ def save_image_nifti(segmentation, out_fname, dct, order=1, force_separate_z=Non
     shape_original_before_cropping = dct.get('original_size_of_raw_data')
     # current_spacing = dct.get('spacing_after_resampling')
     # original_spacing = dct.get('original_spacing')
-
     if np.any(np.array(current_shape) != np.array(shape_original_after_cropping)):
         if order == 0:
             seg_old_spacing = resize_segmentation(segmentation, shape_original_after_cropping, 0, 0)
@@ -457,7 +469,7 @@ def save_image_nifti(segmentation, out_fname, dct, order=1, force_separate_z=Non
                     lowres_axis = None
 
             print("separate z:", do_separate_z, "lowres axis", lowres_axis)
-            seg_old_spacing = resample_data_or_seg(segmentation[None], shape_original_after_cropping, is_seg=True,
+            seg_old_spacing = resample_data_or_seg(segmentation[None], shape_original_after_cropping, is_seg=False,
                                                    axis=lowres_axis, order=order, do_separate_z=do_separate_z, cval=0,
                                                    order_z=order_z)[0]
     else:

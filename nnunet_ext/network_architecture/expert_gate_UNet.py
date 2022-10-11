@@ -300,7 +300,7 @@ class expert_gate_UNet(Generic_UNet):
     pad_kwargs: dict = None, verbose: bool = True) -> Tuple[np.ndarray, np.ndarray]:
         raise NotImplementedError
 
-    """"""
+    """
     def predict_3D(self, x: np.ndarray, do_mirroring: bool, mirror_axes: Tuple[int, ...] = ..., 
     use_sliding_window: bool = False, step_size: float = 0.5, patch_size: Tuple[int, ...] = None, 
     regions_class_order: Tuple[int, ...] = None, use_gaussian: bool = False, pad_border_mode: str = "constant", 
@@ -346,7 +346,7 @@ class expert_gate_UNet(Generic_UNet):
                 out = np.vstack(out)
                 out = out.transpose(1,0,2,3)
                 exit()
-    
+    """
 
 
 
