@@ -92,6 +92,7 @@ class expert_gate_evaluator():
                 #print(in_evaluation_csv)
 
             print(ae_results)
+            reconstructionErrors = ae_results.copy(deep=True)
 
             #calculate confidence using softmax
             temperature = 1.0
@@ -197,9 +198,10 @@ class expert_gate_evaluator():
             dumpDataFrameToCsv(decisionResults, outpath, "expert_gate_decisions.csv")
             dumpDataFrameToCsv(overallResults, outpath, "expert_gate_evaluation.csv")
             dumpDataFrameToCsv(output_csv_summarized, outpath, "summarized_expert_gate_evaluation.csv")
+            dumpDataFrameToCsv(reconstructionErrors, outpath, "expert_gate_reconstruction_errors.csv")
 
 
-            self.summarize_results(outpath, overallResults)
+            self.summarize_results(outpath, overallResults, ae_accuracy)
 
             ## copy training log of one of the AEs so we got its architecture saved
             logFilePath = join(network_training_output_dir, "2d", self.tasks_for_folder[0], self.tasks_for_folder[0],
@@ -218,7 +220,7 @@ class expert_gate_evaluator():
 
 
     @staticmethod
-    def summarize_results(outPath, in_csv):
+    def summarize_results(outPath, in_csv, ae_accuracy):
         dice_csv = in_csv[in_csv.metric == "Dice"]
         iou_csv = in_csv[in_csv.metric == "IoU"]
         with open(join(outPath, "summarized_results.txt"), 'w') as out:
@@ -231,7 +233,8 @@ class expert_gate_evaluator():
             out.write("mean Dice (+/- std):\t {} +/- {}\n".format(dice_mean, dice_std))
             out.write("mean IoU (+/- std):\t {} +/- {}\n".format(iou_mean, iou_std))
             out.write("mean Dice (+/- std) [in %]:\t {:0.2f}% +/- {:0.2f}%\n".format(dice_mean*100, dice_std*100))
-            out.write("mean IoU (+/- std) [in %]:\t {:0.2f}% +/- {:0.2f}%\n".format(iou_mean*100, iou_std*100))
+            out.write("mean IoU (+/- std) [in %]:\t {:0.2f}% +/- {:0.2f}%\n\n".format(iou_mean*100, iou_std*100))
+            out.write("AE accuracy: \t {:0.2f}%\n".format(ae_accuracy*100))
 
         
 
