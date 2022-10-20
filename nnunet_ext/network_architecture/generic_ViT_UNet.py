@@ -139,7 +139,7 @@ class Generic_ViT_UNet(Generic_UNet):
             self.in_chans = list()
             for img_size in self.img_size:
                 # patch_dim = min(min(img_size), 32)  # Max patch size is 16
-                patch_dim = max([x for x in commDiv(img_size[0], img_size[1]) if x <= 16])  # Max patch size is 16*16, ie. 32
+                patch_dim = max([x for x in commDiv(img_size[0], img_size[1]) if x <= 16])  # Max patch size is 16x16
                 # self.patch_size.append((patch_dim//2, patch_dim//2))
                 self.patch_size.append((patch_dim, patch_dim))
                 self.in_chans.append(img_size[0])
@@ -147,7 +147,7 @@ class Generic_ViT_UNet(Generic_UNet):
             self.img_size = [img_size[1:] for img_size in self.img_size]
         else:
             # patch_dim = min(min(self.img_size), 32) if not do_SPT else min(min(self.img_size), 16)
-            patch_dim = max([x for x in commDiv(self.img_size[0], self.img_size[1]) if x <= 16])  # Max patch size is 16*16, ie. 32
+            patch_dim = max([x for x in commDiv(self.img_size[0], self.img_size[1]) if x <= 16])  # Max patch size is 16x16
             self.patch_size = (patch_dim, patch_dim)
             # self.patch_size = (patch_dim//2, patch_dim//2)
             self.in_chans = self.skip_sizes[self.use_skip][1]   # Use 1 since skip_size are torch tensors with batch dimension

@@ -190,6 +190,7 @@ def flattendict(data, delim):
             get = flattendict(data[i], delim)
             # -- Loop through keys again -- #
             for j in get.keys():
+                i = str(i)  # <-- So we don't get any int and str not compatible errors..
                 # -- Register the joint keys using the delimeter as key and add the leaf value as correpsonding value -- #
                 val[i + delim + j] = get[j]
         else:

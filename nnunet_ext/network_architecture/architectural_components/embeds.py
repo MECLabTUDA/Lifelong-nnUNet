@@ -25,7 +25,7 @@ class PatchEmbed(PatchEmbed2D):
             assert img_depth is not None, 'Please provide the depth of the image when using a three dimensional patch embedding..'
             # -- Perform assertion checks wrt img_size and patch_size -- #
             assert len(img_size) == 2 and len(patch_size) == 2,\
-            'Please provide the img_size and patch_size as two dimensional tuples (height, width)..'
+            'Please provide the img_size and patch_size as two dimensional tuples (height, width) as the depth is already known..'
             # -- Reset image size, patch size and num_patches since they now should be in a tuple of length 3 -- #
             # -- dimensions: (img_depth, height, width)
             self.img_size = (img_depth, *img_size)

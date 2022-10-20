@@ -2,11 +2,11 @@
 #----------------------------This class allows the user to make predictions-----------------------------#
 #########################################################################################################
 
-import os, argparse, nnunet_ext, multiprocessing
+import os, argparse, nnunet_ext
 from nnunet_ext.paths import network_training_output_dir
+from nnunet_ext.network_architecture.vit_voxing import *
 from nnunet_ext.inference.predict import predict_from_folder
 from nnunet.network_architecture.generic_UNet import Generic_UNet
-from nnunet_ext.network_architecture.vit_voxing import ViT_Voxing
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet_ext.utilities.helpful_functions import join_texts_with_char
 from nnunet_ext.paths import evaluation_output_dir, default_plans_identifier
@@ -80,7 +80,7 @@ def run_inference():
                         help='Try to train the model on the GPU device with <DEVICE> ID. '+
                             ' Valid IDs: 0, 1, ..., 7. A List of IDs can be provided as well.'+
                             ' Default: Only GPU device with ID 0 will be used.')
-    parser.add_argument('-reg', action='store', type=str, default=None, choices=['VoxelMorph', 'ViT_Voxing'],
+    parser.add_argument('-reg', action='store', type=str, default=None, choices=['VoxelMorph', 'ViT_Voxing', 'VoxelMorph_ViT'],
                         help='Set this flag along with an architecture if the Lifelong nnUNet should be used for registration.')
     parser.add_argument("-v", "--version", action='store', type=int, nargs=1, default=[1], choices=[1, 2, 3, 4],
                         help='Select the ViT input building version. Currently there are only four'+
@@ -229,7 +229,7 @@ def run_inference():
         output_path = join(evaluation_output_dir, network, tasks_joined_name, network_trainer+'__'+plans_identifier)
         output_path = output_path.replace('nnUNet_ext', 'nnUNet')
     elif nnViTUNetTrainer.__name__ in network_trainer: # always_last_head makes no sense here, there is only one head
-        arch = Generic_ViT_UNet.__name__+version if reg is None else VoxelMorph.__name__ if reg == 'VoxelMorph' else ViT_Voxing.__name__+version
+        arch = Generic_ViT_UNet.__name__+version if reg is None else VoxelMorph.__name__ if reg == 'VoxelMorph' else ViT_Voxing.__name__+version if reg == 'ViT_Voxing' else VoxelMorph_ViT.__name__
         # -- Load relevant information -- #
         trainer_path = join(network_training_output_dir, network, tasks_joined_name, network_trainer+'__'+plans_identifier, arch, vit_type,\
                             'task_specific' if ViT_task_specific_ln else 'not_task_specific', folder_n)

@@ -89,7 +89,7 @@ def main():
                         help='Try to train the model on the GPU device with <DEVICE> ID. '+
                             ' Valid IDs: 0, 1, ..., 7. A List of IDs can be provided as well.'+
                             ' Default: Only GPU device with ID 0 will be used.')
-    parser.add_argument('-reg', action='store', type=str, default=None, choices=['VoxelMorph', 'ViT_Voxing'],
+    parser.add_argument('-reg', action='store', type=str, default=None, choices=['VoxelMorph', 'ViT_Voxing', 'VoxelMorph_ViT'],
                         help='Set this flag along with an architecture if the Lifelong nnUNet should be used for registration.')
     parser.add_argument('-reg_w', action='store', type=float, nargs=2, required=False, default=[1., 0.01],
                         help='Specify the weights for the registration loss. Default: 1.0 (L_MSE) and 0.01 (L_Grad)')

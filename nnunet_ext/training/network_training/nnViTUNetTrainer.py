@@ -6,17 +6,17 @@
 import os, torch
 import torch.nn as nn
 from nnunet_ext.utilities.helpful_functions import *
+from nnunet_ext.network_architecture.vit_voxing import *
 from nnunet.training.learning_rate.poly_lr import poly_lr
-from nnunet_ext.network_architecture.vit_voxing import ViT_Voxing
 from nnunet.network_architecture.generic_UNet import Generic_UNet
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet.network_architecture.initialization import InitWeights_He
 from nnunet.training.dataloading.dataset_loading import unpack_dataset
 from nnunet.training.network_training.nnUNetTrainerV2 import nnUNetTrainerV2
 from nnunet_ext.network_architecture.generic_ViT_UNet import Generic_ViT_UNet
-from nnunet_ext.network_architecture.reg_baselines.voxelmorph import VoxelMorph
 from nnunet.training.loss_functions.deep_supervision import MultipleOutputLoss2
 from nnunet.training.data_augmentation.data_augmentation_noDA import get_no_augmentation
+from nnunet_ext.network_architecture.reg_baselines.voxelmorph import VoxelMorph#, Transform
 from nnunet_ext.training.loss_functions.deep_supervision import MultipleOutputLossRegistration
 from nnunet.training.data_augmentation.data_augmentation_moreDA import get_moreDA_augmentation
 
@@ -78,7 +78,7 @@ class nnViTUNetTrainer(nnUNetTrainerV2): # Inherit default trainer class for 2D,
         self.use_progress_bar = use_progress
         self.mean_dice = []
         
-        if self.registration == 'VoxelMorph':
+        if 'VoxelMorph' in self.registration:
             self.initial_lr = 10e-4
         self.padding = None
         
@@ -100,11 +100,12 @@ class nnViTUNetTrainer(nnUNetTrainerV2): # Inherit default trainer class for 2D,
 
         # -- Reduce the batch_size by half after it has been set by super class -- #
         # -- Do this so it fits onto GPU --> if it still does not, model needs to be put onto multiple GPUs -- #
-        if self.registration == 'ViT_Voxing':
+        if 'ViT' in self.registration:
             self.batch_size = self.batch_size // 3
         else:
             self.batch_size = self.batch_size // 2
-
+        if self.batch_size == 0:
+            self.batch_size = 1
 
     def initialize(self, training=True, force_load_plans=False, num_epochs=500, call_for_eval=False):
         r"""Overwrite parent function, since we want to include a prev_trainer that is used as a base for the Multi Head Trainer.
@@ -244,6 +245,11 @@ class nnViTUNetTrainer(nnUNetTrainerV2): # Inherit default trainer class for 2D,
         elif self.registration == 'VoxelMorph':
             # self.network = VoxelMorph(self.patch_size.tolist(), int_downsize=1)
             self.network = VoxelMorph(self.patch_size.tolist())
+            # self.warp_model = Transform(self.patch_size.tolist())
+        elif self.registration == 'VoxelMorph_ViT':
+            # self.network = VoxelMorph(self.patch_size.tolist(), int_downsize=1)
+            self.network = VoxelMorph_ViT(self.patch_size.tolist())
+            # self.warp_model = Transform(self.patch_size.tolist())
         else:
             self.network = Generic_ViT_UNet(**vit_kwargs)
             
@@ -323,7 +329,7 @@ class nnViTUNetTrainer(nnUNetTrainerV2): # Inherit default trainer class for 2D,
         data_ = list()
         target_ = list()
         # -- If registration and ViT Voxing, extract patches from the image -- #
-        if self.registration != 'VoxelMorph' and 'ViTUNet' not in self.backbone:   # <-- Currently only for 2D data
+        if 'VoxelMorph' not in self.registration and 'ViTUNet' not in self.backbone:   # <-- Currently only for 2D data
             for i in range(data.size(1)):
                 if self.padding is None:
                     pad_2 = abs(data[:, i, ...].size(-1)-int(np.ceil(data[:, i, ...].size(-1) / self.patch_size[0]))*self.patch_size[0])
@@ -455,7 +461,7 @@ class nnViTUNetTrainer(nnUNetTrainerV2): # Inherit default trainer class for 2D,
     def maybe_update_lr(self, epoch=None):
         r"""Only update lr if VoxelMorph is not used. In caase of VoxelMorph, the lr is always 10e-4.
         """
-        if self.registration != 'VoxelMorph':
+        if 'VoxelMorph' not in self.registration:
             if epoch is None:
                 ep = self.epoch + 1
             else:
@@ -482,7 +488,7 @@ class nnViTUNetTrainer(nnUNetTrainerV2): # Inherit default trainer class for 2D,
 
         # -- Update the output_folder accordingly -- #
         if self.version != output_folder.split(os.path.sep)[-1] and self.version not in output_folder:
-            arch = Generic_ViT_UNet.__name__+self.version if self.registration is None else VoxelMorph.__name__ if self.registration == 'VoxelMorph' else ViT_Voxing.__name__+self.version
+            arch = Generic_ViT_UNet.__name__+self.version if self.registration is None else VoxelMorph.__name__ if self.registration == 'VoxelMorph' else ViT_Voxing.__name__+self.version if self.registration == 'ViT_Voxing' else VoxelMorph_ViT.__name__
             if not meta_data:
                 output_folder = os.path.join(output_folder, arch)
             else:   # --> Path were meta data is stored, i.e. already_trained_on file
@@ -530,6 +536,10 @@ class nnViTUNetTrainer(nnUNetTrainerV2): # Inherit default trainer class for 2D,
             F_i, m_i, F_s, m_s = data
             M_i, flow_i = self.network(F_i, m_i, registration=True)
             M_s, flow_s = self.network(F_s, m_s, registration=True)
+            # -- Don't repeat registration for segmentations but warp the segmentation -- #
+            # print(m_s.size(), flow_i(), self.warp_model)
+            # raise
+            # M_s = self.warp_model(m_s, flow_i)
         # -- Bring data back to original size -- #
         if self.registration != 'VoxelMorph' and 'ViTUNet' not in self.backbone:
             ret = self._unfold_into_image([F_i, M_i, F_s, M_s, m_i, m_s, flow_i, flow_s], unfold_shape, pad_size, orig_size)

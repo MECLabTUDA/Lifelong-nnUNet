@@ -101,7 +101,7 @@ class Encoder(nn.Module):
                     continue_smooth = 0
                     prev_cbam = False
                 elif cbam and not prev_cbam:
-                    layer = CBAMBlock(in_out_channels, in_size, reduction_ratio=16)  # Change it mayve to 4 or 8?
+                    layer = CBAMBlock(in_out_channels, in_size, reduction_ratio=16)  # Change it maybe to 4 or 8?
                     continue_msa += 1
                     continue_smooth = 0
                     prev_cbam = True

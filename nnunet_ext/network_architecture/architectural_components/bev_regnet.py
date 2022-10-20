@@ -79,7 +79,7 @@ class Image_To_BEV_Network(nn.Module): #_full_nnUNet_ViT
             self.num_classesViT = np.prod(self.skip_sizes[j_][1:])
             
             # -- Calculate the patch dimension -- #
-            self.patch_dim = max([x for x in commDiv(self.img_size[0], self.img_size[1]) if x <= 16])  # Max patch size is 16*16, ie. 32
+            self.patch_dim = max([x for x in commDiv(self.img_size[0], self.img_size[1]) if x <= 16])  # Max patch size is 16x16
             vit_patch_size = (self.patch_dim, self.patch_dim)
             self.in_chans = self.skip_sizes[j_][1]   # Use 1 since skip_size are torch tensors with batch dimension
             
@@ -211,7 +211,7 @@ class Image_To_BEV_Network_full_nnUNet_ViT_Unet_start(nn.Module): #_full_nnUNet_
             self.num_classesViT = np.prod(self.skip_sizes[j_][1:])
             
             # -- Calculate the patch dimension -- #
-            self.patch_dim = max([x for x in commDiv(self.img_size[0], self.img_size[1]) if x <= 16])  # Max patch size is 16*16, ie. 32
+            self.patch_dim = max([x for x in commDiv(self.img_size[0], self.img_size[1]) if x <= 16])  # Max patch size is 16x16
             vit_patch_size = (self.patch_dim, self.patch_dim)
             self.in_chans = self.skip_sizes[j_][1]   # Use 1 since skip_size are torch tensors with batch dimension
             
@@ -533,7 +533,7 @@ class Image_To_BEV_Network_nnUNet_Encode_ViT(nn.Module): #_nnUNet_Encode_ViT
                 self.num_classesViT = np.prod([self.skip_sizes[0][1]//self.nr_blocks, *self.skip_sizes[0][2:]])
             
             # -- Calculate the patch dimension -- #
-            self.patch_dim = max([x for x in commDiv(self.img_size[0], self.img_size[1]) if x <= 16])  # Max patch size is 16*16, ie. 32
+            self.patch_dim = max([x for x in commDiv(self.img_size[0], self.img_size[1]) if x <= 16])  # Max patch size is 16x16
             vit_patch_size = (self.patch_dim, self.patch_dim)
             self.in_chans = self.skip_sizes[j_][1]   # Use 1 since skip_size are torch tensors with batch dimension
             
@@ -1158,7 +1158,7 @@ class Image_To_BEV_Network_nnUNet_Encode_crop_same_in_as_out_do_patches_for_tbev
         
         # -- Simulate a run to extract the size of the skip connections, we need -- #
         self.skip_sizes, self.patched_sizes, self.paddings = list(), list(), list()
-        self.patch_dim = 16 # Max patch size is 16*16, ie. 32 
+        self.patch_dim = 16 # Max patch size is 16x16 
         skips = list()
         
         # -- Define a random sample with the provided image size -- #

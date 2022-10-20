@@ -46,7 +46,6 @@ class ShiftedPatchTokenization(nn.Module):
             out = x if self.is_pe else rearrange(x, 'b (h w) d -> b d h w', h=int(math.sqrt(x.size(1))))
             out = self.patch_shifting(out)
             out = self.merging(out)    
-        
         return out
         
 class PatchShifting(nn.Module):
