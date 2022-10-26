@@ -60,39 +60,15 @@ class Autoencoder(SegmentationNetwork):
             with torch.no_grad():
                 out = []
                 for s in range(x.shape[1]):
-                    print("BEGIN IMAGE")
-                    print("________________________________________________")
-
-                    fig = plt.figure()
-                    
-                    ax = fig.add_subplot(1,2,1)
-                    ax.set_title('Input')
-
-
                     input = x[:,s,:,:]
-
-                    plt.imshow(input.transpose(1,2,0)[:,:,0])
-                    plt.colorbar(ticks=[0.1, 0.3, 0.5, 0.7], orientation='horizontal')
-
 
                     input = maybe_to_torch(input)
                     input = to_cuda(input)
 
-
-                    print(input.shape)
                     assert len(input.shape) == 3, "in dim"
                     self.train()
                     one = self(input[None])
 
-                    ax = fig.add_subplot(1,2,2)
-                    ax.set_title('Output')
-
-                    #c,y,z
-                    plt.imshow(one.detach().cpu().numpy().transpose(0,2,3,1)[0,:,:,0].astype(float))
-                    plt.colorbar(ticks=[0.1, 0.3, 0.5, 0.7], orientation='horizontal')
-
-                    plt.savefig("/gris/gris-f/homelv/mngo/slice_plots/" + str(s) + ".png")
-                    plt.close(fig)
                     #assert input.shape == one.shape, "out shape"
                     #assert len(one.shape) == 3, "out dim"
                     one = one.detach().cpu().numpy()
@@ -101,13 +77,8 @@ class Autoencoder(SegmentationNetwork):
                 #x,c,y,z
                 out = out.transpose(1,0,2,3)
                 print(out.shape)
-                print("END IMAGE")
-                #print("out {}".format(out))
-                #print("out all {}".format(out.all))
 
-                np.save(file='/gris/gris-f/homelv/mngo/inference_tensors/' + str(self.index) + "out.npy", arr=out)
                 self.index = self.index + 1
-                print("________________________________________________")
                 return out, out
                 
                 if False: #self.conv_op == nn.Conv3d:
