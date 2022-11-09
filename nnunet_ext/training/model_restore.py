@@ -63,8 +63,8 @@ def restore_model(pkl_file, checkpoint=None, train=False, fp16=True, use_extensi
             search_in = (nnunet_ext.__path__[0], "training", "network_training", extension_type)
             base_module = 'nnunet_ext.training.network_training.' + extension_type
     else:   # -- No extension search in nnunet
-        search_in = (nnunet.__path__[0], "training", "network_training")
-        base_module = 'nnunet.training.network_training'
+        search_in = (nnunet_ext.__path__[0], "training", "network_training")
+        base_module = 'nnunet_ext.training.network_training'
 
     # -- Search for the trainer class based on search_in, name of the trainer and base_module -- #
     tr = recursive_find_python_class([join(*search_in)], name, current_module=base_module)
