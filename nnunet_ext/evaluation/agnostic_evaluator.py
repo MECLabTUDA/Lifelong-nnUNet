@@ -5,6 +5,7 @@ from batchgenerators.utilities.file_and_folder_operations import maybe_mkdir_p, 
 from nnunet_ext.evaluation.evaluator import Evaluator
 from nnunet_ext.paths import network_training_output_dir, evaluation_output_dir
 from nnunet_ext.utilities.helpful_functions import dumpDataFrameToCsv, join_texts_with_char
+from nnunet_ext.evaluation.expert_gate_evaluator import expert_gate_evaluator
 
 
 class AgnosticEvaluator():    
@@ -29,7 +30,7 @@ class AgnosticEvaluator():
             print(self.extension)
             #evaluator = Evaluator(self.network, self.network_trainer, (self.tasks_for_folder, '_'),(self.tasks_for_folder[0:index], '_'),
             #extension=self.extension, transfer_heads=True)
-            evaluator = Evaluator(self.network, self.network_trainer, (self.tasks_for_folder[index-1:index], '_'),(self.tasks_for_folder[index-1:index], '_'),
+            evaluator = Evaluator(self.network, self.network_trainer, (self.tasks_for_folder, '_'),(self.tasks_for_folder[:index], '_'),
             extension=self.extension, transfer_heads=True)
             #run evaluator
             output_path = None #maybe set this?
@@ -43,8 +44,8 @@ class AgnosticEvaluator():
             for index in range(1,len(self.tasks_for_folder)+1):
                 #get the path to the out folder of evaluations
                 in_evaluation_csv_path = join(evaluation_output_dir, self.network, 
-                    join_texts_with_char(self.tasks_for_folder[index-1:index],'_'),#trained on
-                    join_texts_with_char(self.tasks_for_folder[index-1:index],'_'), #use model
+                    join_texts_with_char(self.tasks_for_folder,'_'),#trained on
+                    join_texts_with_char(self.tasks_for_folder[:index],'_'), #use model
                     self.network_trainer+"__"+self.plans_identifier,Generic_UNet.__name__,
                     'SEQ','corresponding_head',
                     'fold_'+str(t_fold) #the specific fold
@@ -64,11 +65,12 @@ class AgnosticEvaluator():
             output_csv_summarized = pd.concat(all_restults_summarized)
             output_csv_summarized = output_csv_summarized.sort_values(by=['trained on', 'metric'])
             #store output csv
-            outpath = join(evaluation_output_dir, "agnostic", join_texts_with_char(self.tasks_for_folder, '_'))
+            outpath = join(evaluation_output_dir, "expert_gate", join_texts_with_char(self.tasks_for_folder, '_'), "agnostic")
             maybe_mkdir_p(outpath)
 
             dumpDataFrameToCsv(output_csv, outpath, "agnostic_evaluation.csv")
             dumpDataFrameToCsv(output_csv_summarized, outpath, "summarized_agnostic_evaluation.csv")
+            expert_gate_evaluator.summarize_results(outpath,output_csv,None)
 
             print("wrote results to: ", join(outpath, "summarized_agnostic_evaluation.csv"))
 

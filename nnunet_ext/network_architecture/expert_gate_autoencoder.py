@@ -13,15 +13,14 @@ import torch
 
 from nnunet_ext.network_architecture.superclasses.autoencoder import Autoencoder
 
-from nnunet_ext.training.network_training.expert_gate2.nnUNetTrainerExpertGate2 import expert_gate_experiment
 
 class expert_gate_autoencoder(Autoencoder):
 
     
-    def __init__(self) -> None:
+    def __init__(self, experiment: str) -> None:
         super().__init__()
         
-        if expert_gate_experiment in ["expert_gate_simple_ae"]:
+        if experiment in ["expert_gate_simple_ae"]:
             self.encoder = torch.nn.Sequential(
                 nn.Conv2d(1,3,5,padding="same"),
                 nn.Sigmoid()
@@ -29,7 +28,7 @@ class expert_gate_autoencoder(Autoencoder):
             self.decoder = torch.nn.Sequential(
                 nn.Conv2d(3,1,5,padding="same")
             )
-        elif expert_gate_experiment in ["expert_gate_simple_ae_alex_features"]:
+        elif experiment in ["expert_gate_simple_ae_alex_features"]:
             self.encoder = torch.nn.Sequential(
                 nn.Conv2d(256,256,3,padding="same"),
                 nn.Sigmoid()
@@ -37,7 +36,7 @@ class expert_gate_autoencoder(Autoencoder):
             self.decoder = torch.nn.Sequential(
                 nn.Conv2d(256,256,3,padding="same")
             )
-        elif expert_gate_experiment in ["expert_gate_simple_ae_UNet_features"]:
+        elif experiment in ["expert_gate_simple_ae_UNet_features"]:
             self.encoder = torch.nn.Sequential(
                 nn.Conv3d(32,3,5,padding="same"),
                 nn.Sigmoid()
@@ -46,7 +45,7 @@ class expert_gate_autoencoder(Autoencoder):
                 nn.Conv3d(3,32,5,padding="same")
             )
         else:
-            raise NotImplementedError("did not expect expert_gate_autoencoder to be constructed with experiment: " + expert_gate_experiment)
+            raise NotImplementedError("did not expect expert_gate_autoencoder to be constructed with experiment: " + experiment)
 
     def forward(self, x: Tensor) -> Tensor:
         x = self.encoder(x)

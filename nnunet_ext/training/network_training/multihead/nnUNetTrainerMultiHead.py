@@ -29,6 +29,8 @@ from nnunet.training.data_augmentation.data_augmentation_moreDA import get_moreD
 from nnunet.training.dataloading.dataset_loading import load_dataset, DataLoader3D, DataLoader2D, unpack_dataset
 from nnunet_ext.paths import default_plans_identifier, evaluation_output_dir, preprocessing_output_dir, default_plans_identifier
 
+from nnunet.network_architecture.neural_network import SegmentationNetwork
+from torch import nn
 # -- Add this since default option file_descriptor has a limitation on the number of open files. -- #
 # -- Default config might cause the runtime error: RuntimeError: received 0 items of ancdata -- #
 torch.multiprocessing.set_sharing_strategy('file_system')
@@ -50,6 +52,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             All vit related arguments like vit_type, version and split_gpu are only used if use_vit is True, in such a case,
             the Generic_ViT_UNet is used instead of the Generic_UNet.
         """
+        print("nnUNetTrainerMultiHead")
         # -- Create a backup of the original output folder that is provided -- #
         self.output_folder_orig = output_folder
 
@@ -291,6 +294,84 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         if self.use_vit:
             self.batch_size = self.batch_size // 2
 
+    
+    def nnUNetTrainerV2_initialize(self, training=True, force_load_plans=False):
+        """
+        - replaced get_default_augmentation with get_moreDA_augmentation
+        - enforce to only run this code once
+        - loss function wrapper for deep supervision
+
+        :param training:
+        :param force_load_plans:
+        :return:
+        """
+        if not self.was_initialized:
+            maybe_mkdir_p(self.output_folder)
+
+            if force_load_plans or (self.plans is None):
+                self.load_plans_file()
+
+            self.process_plans(self.plans)
+
+            self.setup_DA_params()
+
+            ################# Here we wrap the loss for deep supervision ############
+            # we need to know the number of outputs of the network
+            net_numpool = len(self.net_num_pool_op_kernel_sizes)
+
+            # we give each output a weight which decreases exponentially (division by 2) as the resolution decreases
+            # this gives higher resolution outputs more weight in the loss
+            weights = np.array([1 / (2 ** i) for i in range(net_numpool)])
+
+            # we don't use the lowest 2 outputs. Normalize weights so that they sum to 1
+            mask = np.array([True] + [True if i < net_numpool - 1 else False for i in range(1, net_numpool)])
+            weights[~mask] = 0
+            weights = weights / weights.sum()
+            self.ds_loss_weights = weights
+            # now wrap the loss
+            self.loss = MultipleOutputLoss2(self.loss, self.ds_loss_weights)
+            ################# END ###################
+
+            self.folder_with_preprocessed_data = join(self.dataset_directory, self.plans['data_identifier'] +
+                                                      "_stage%d" % self.stage)
+            if training:
+                self.dl_tr, self.dl_val = self.get_basic_generators()
+                if self.unpack_data:
+                    print("unpacking dataset")
+                    unpack_dataset(self.folder_with_preprocessed_data)
+                    print("done")
+                else:
+                    print(
+                        "INFO: Not unpacking data! Training may be slow due to that. Pray you are not using 2d or you "
+                        "will wait all winter for your model to finish!")
+
+                self.tr_gen, self.val_gen = get_moreDA_augmentation(
+                    self.dl_tr, self.dl_val,
+                    self.data_aug_params[
+                        'patch_size_for_spatialtransform'],
+                    self.data_aug_params,
+                    deep_supervision_scales=self.deep_supervision_scales,
+                    pin_memory=self.pin_memory,
+                    use_nondetMultiThreadedAugmenter=False,
+                    seeds_train=np.arange(0, self.data_aug_params.get('num_threads')) if self.deterministic else None,
+                    seeds_val=np.arange(self.data_aug_params.get('num_threads'), self.data_aug_params.get('num_threads') + self.data_aug_params.get('num_threads')// 2) if self.deterministic else None
+                )
+                self.print_to_log_file("TRAINING KEYS:\n %s" % (str(self.dataset_tr.keys())),
+                                       also_print_to_console=False)
+                self.print_to_log_file("VALIDATION KEYS:\n %s" % (str(self.dataset_val.keys())),
+                                       also_print_to_console=False)
+            else:
+                pass
+
+            self.initialize_network()
+            self.initialize_optimizer_and_scheduler()
+
+            assert isinstance(self.network, (SegmentationNetwork, nn.DataParallel))
+        else:
+            self.print_to_log_file('self.was_initialized is True, not running self.initialize again')
+        self.was_initialized = True
+
+
     def initialize(self, training=True, force_load_plans=False, num_epochs=500, prev_trainer_path=None, call_for_eval=False):
         r"""Overwrite parent function, since we want to include a prev_trainer that is used as a base for the Multi Head Trainer.
             Further the num_epochs should be set by the user if desired.
@@ -305,7 +386,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             self.trainer_path = prev_trainer_path
         
         # -- Initialize using super class -- #
-        super().initialize(training, force_load_plans) # --> This updates the corresponding variables automatically since we inherit this class
+        self.nnUNetTrainerV2_initialize(training, force_load_plans) # --> This updates the corresponding variables automatically since we inherit this class
 
         # -- Set nr_epochs to provided number -- #
         self.max_num_epochs = num_epochs
@@ -499,7 +580,9 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                                                             self.data_aug_params,
                                                             deep_supervision_scales=self.deep_supervision_scales,
                                                             pin_memory=self.pin_memory,
-                                                            use_nondetMultiThreadedAugmenter=False)
+                                                            use_nondetMultiThreadedAugmenter=False,
+                                                            seeds_train=np.arange(0, self.data_aug_params.get('num_threads')) if self.deterministic else None,
+                                                            seeds_val=np.arange(self.data_aug_params.get('num_threads'), self.data_aug_params.get('num_threads') + self.data_aug_params.get('num_threads')// 2) if self.deterministic else None)
 
         #--------------------------------- Copied from original implementation ---------------------------------#
         self.print_to_log_file("TRAINING KEYS:\n %s" % (str(self.dataset_tr.keys())),
@@ -606,6 +689,9 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             target = to_cuda(target)
 
         self.optimizer.zero_grad()
+
+        #print(data.shape)
+        #exit()
 
         if self.fp16:
             with autocast():
@@ -750,7 +836,10 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                                                                     self.data_aug_params,
                                                                     deep_supervision_scales=self.deep_supervision_scales,
                                                                     pin_memory=self.pin_memory,
-                                                                    use_nondetMultiThreadedAugmenter=False)
+                                                                    use_nondetMultiThreadedAugmenter=False,
+                                                                    seeds_train=np.arange(0, self.data_aug_params.get('num_threads')) if self.deterministic else None,
+                                                                    seeds_val=np.arange(self.data_aug_params.get('num_threads'), self.data_aug_params.get('num_threads') + self.data_aug_params.get('num_threads')// 2) if self.deterministic else None
+                                                                    )
 
             # -- Update the log -- #
             self.print_to_log_file("Performing validation with validation data from task {}.".format(task))
@@ -829,7 +918,10 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                                                                 self.data_aug_params,
                                                                 deep_supervision_scales=self.deep_supervision_scales,
                                                                 pin_memory=self.pin_memory,
-                                                                use_nondetMultiThreadedAugmenter=False)
+                                                                use_nondetMultiThreadedAugmenter=False,
+                                                                seeds_train=np.arange(0, self.data_aug_params.get('num_threads')) if self.deterministic else None,
+                                                                seeds_val=np.arange(self.data_aug_params.get('num_threads'), self.data_aug_params.get('num_threads') + self.data_aug_params.get('num_threads')// 2) if self.deterministic else None
+                                                                )
             # -- Everything else is set as we evaluated on the current task just now -- #
 
 
@@ -893,6 +985,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         self.load_dataset()
         self.do_split()
 
+        print("\t\t", self.patch_size)
         if self.threeD:
             dl_tr = DataLoader3D(self.dataset_tr, self.basic_generator_patch_size if not use_all_data else self.patch_size,
                                  self.patch_size, self.batch_size, False, oversample_foreground_percent=self.oversample_foreground_percent,

@@ -24,13 +24,15 @@ import glob
 import os.path
 import shutil 
 
-from nnunet_ext.training.network_training.expert_gate2.nnUNetTrainerExpertGate2 import expert_gate_experiment
+#from nnunet_ext.training.network_training.expert_gate2.nnUNetTrainerExpertGate2 import expert_gate_experiment
 
 class expert_gate_evaluator():
-    def __init__(self, network: str, network_trainer: str, tasks_for_folder: list[str], extension: str):
+    def __init__(self, network: str, network_trainer: str, tasks_for_folder: list[str], extension: str, gate_trainer: str, gate_extension: str):
         self.extension = extension
         self.network = network
-        if expert_gate_experiment in ["expert_gate_simple_ae_UNet_features", "expert_gate_monai_UNet_features"]:
+        self.gate_trainer = gate_trainer
+        self.gate_extension = gate_extension
+        if gate_trainer in ["expert_gate_simple_ae_UNet_features", "expert_gate_monai_UNet_features"]:
             self.ae_network = "3d_fullres"
         else:
             self.ae_network = "2d"
@@ -47,8 +49,8 @@ class expert_gate_evaluator():
                 print("run basic autoencoder evaluation on ", self.tasks_for_folder[index-1])
                 print(self.extension)
 
-                evaluator = Evaluator(self.ae_network, "nnUNetTrainerExpertGate2", ([self.tasks_for_folder[index-1]], '_'),([self.tasks_for_folder[index-1]], '_'),
-                extension="expert_gate2", transfer_heads=True)
+                evaluator = Evaluator(self.ae_network, self.gate_trainer, ([self.tasks_for_folder[index-1]], '_'),([self.tasks_for_folder[index-1]], '_'),
+                extension=self.gate_extension, transfer_heads=True)
                 #run evaluator
                 output_path = None #maybe set this?
                 evaluator.evaluate_on(folds,self.tasks_for_folder,output_path=output_path)
@@ -57,7 +59,7 @@ class expert_gate_evaluator():
                 #create Evaluator
                 print("run basic segmentation evaluation on ", [self.tasks_for_folder[index-1]])
                 print(self.extension)
-                evaluator = Evaluator(self.network, self.network_trainer, ([self.tasks_for_folder[index-1]], '_'),([self.tasks_for_folder[index-1]], '_'),
+                evaluator = Evaluator(self.network, self.network_trainer, (self.tasks_for_folder, '_'),(self.tasks_for_folder[:index], '_'),
                 extension=self.extension, transfer_heads=True)
                 #run evaluator
                 output_path = None #maybe set this?
@@ -73,7 +75,7 @@ class expert_gate_evaluator():
                 in_ae_evaluation_csv_path = join(evaluation_output_dir, self.ae_network, 
                     join_texts_with_char([self.tasks_for_folder[index-1]],'_'),#trained on
                     join_texts_with_char([self.tasks_for_folder[index-1]],'_'), #use model
-                    "nnUNetTrainerExpertGate2"+"__"+self.plans_identifier,Generic_UNet.__name__,
+                    self.gate_trainer+"__"+self.plans_identifier,Generic_UNet.__name__,
                     'SEQ','corresponding_head',
                     'fold_'+str(t_fold) #the specific fold
                 )
@@ -133,18 +135,22 @@ class expert_gate_evaluator():
 
             ######################### QUERY SEGMENTATION EVALUATIONS #####################
             ae_results = ae_results.drop(columns=self.tasks_for_folder)
+            # ae_results: Task, subject_id, decision
             overallResults = pd.DataFrame(columns=["Task", "subject_id", "decision", "metric", "value"])
             #overallResults = ae_results.drop(columns=self.tasks_for_folder)
-            for task in self.tasks_for_folder:
+            for index in range(1,len(self.tasks_for_folder)+1):
                 in_seg_evaluation_csv_path = join(evaluation_output_dir, self.network, 
-                    join_texts_with_char([task],'_'),#trained on
-                    join_texts_with_char([task],'_'), #use model
+                    join_texts_with_char(self.tasks_for_folder,'_'),#trained on
+                    join_texts_with_char(self.tasks_for_folder[:index], '_'), #use model
                     self.network_trainer +"__"+self.plans_identifier,Generic_UNet.__name__,
                     'SEQ','corresponding_head',
                     'fold_'+str(t_fold) #the specific fold
                 )
                 in_evaluation_csv = pd.read_csv(join(in_seg_evaluation_csv_path, 'val_metrics_eval.csv'), delimiter='\t')
-                intermediate = ae_results.loc[ae_results['decision'] == task]
+                #in_evaluation_csv: Epoch, Task, subject_id, seg_mask, metric, value
+                intermediate = ae_results.loc[ae_results['decision'] == self.tasks_for_folder[index-1]]
+                # intermediate: Task, subject_id, decision
+                #               ?     ?           
 
                 #merge on subject_id == subject_id
                 #take only values from left
@@ -192,7 +198,7 @@ class expert_gate_evaluator():
 
 
 
-            outpath = join(evaluation_output_dir, "expert_gate", join_texts_with_char(self.tasks_for_folder, '_'))
+            outpath = join(evaluation_output_dir, "expert_gate", join_texts_with_char(self.tasks_for_folder, '_'), self.gate_trainer)
             maybe_mkdir_p(outpath)
             plt.savefig(join(outpath, "confMatrix"))
             dumpDataFrameToCsv(decisionResults, outpath, "expert_gate_decisions.csv")
@@ -205,7 +211,7 @@ class expert_gate_evaluator():
 
             ## copy training log of one of the AEs so we got its architecture saved
             logFilePath = join(network_training_output_dir, "2d", self.tasks_for_folder[0], self.tasks_for_folder[0],
-                    "nnUNetTrainerExpertGate2"+"__"+self.plans_identifier,Generic_UNet.__name__,
+                    self.gate_trainer+"__"+self.plans_identifier,Generic_UNet.__name__,
                     'SEQ', 'fold_'+str(t_fold))
             ## writing this file does not work properly because other applications also write txt files
             listOfFiles = glob.glob(logFilePath + "/*.txt")#
@@ -234,7 +240,8 @@ class expert_gate_evaluator():
             out.write("mean IoU (+/- std):\t {} +/- {}\n".format(iou_mean, iou_std))
             out.write("mean Dice (+/- std) [in %]:\t {:0.2f}% +/- {:0.2f}%\n".format(dice_mean*100, dice_std*100))
             out.write("mean IoU (+/- std) [in %]:\t {:0.2f}% +/- {:0.2f}%\n\n".format(iou_mean*100, iou_std*100))
-            out.write("AE accuracy: \t {:0.2f}%\n".format(ae_accuracy*100))
+            if ae_accuracy != None:
+                out.write("AE accuracy: \t {:0.2f}%\n".format(ae_accuracy*100))
 
         
 

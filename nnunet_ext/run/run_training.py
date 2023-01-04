@@ -230,6 +230,13 @@ def run_training(extension='multihead'):
         parser.add_argument('--adaptive', required=False, default=False, action="store_true",
                             help='Set this flag if the EWC loss should be changed during the frozen training process (ewc_lambda*e^{-1/3}). '
                                  ' Default: The EWC loss will not be altered.')
+    
+    if extension in ['expert_gate_monai_UNet_features','expert_gate_simple_ae_UNet_features']:
+        parser.add_argument("-e", "--feature_extractor_path",  action='store', type=str,
+                        help="Specify the feature extractor to be used", required=True)
+                        
+        parser.add_argument("--first_task",  action='store', type=str,
+                        help="Specify the first task", required=True)
 
     # -------------------------------
     # Extract arguments from parser
@@ -470,6 +477,9 @@ def run_training(extension='multihead'):
     if extension in ['froz_ewc']:
         assert use_vit, "The nnUNetTrainerFrozEWC can only be used with a ViT_U-Net.."
         adaptive = args.adaptive
+
+
+
     
     # -------------------------------
     # Transform tasks to task names
@@ -493,6 +503,13 @@ def run_training(extension='multihead'):
         # -- Map the fold to corresponding task in dictoinary -- #
         tasks_for_folds.append(t)
 
+    first_task = None
+    if extension in ['expert_gate_monai_UNet_features','expert_gate_simple_ae_UNet_features']:
+        first_task = args.first_task
+        if not args.first_task.startswith("Task"):
+            task_id = int(args.first_task)
+            first_task = convert_id_to_task_name(task_id)
+        first_task = first_task
     # ----------------------------------------------
     # Define dict with arguments for function calls
     # ----------------------------------------------
@@ -521,6 +538,13 @@ def run_training(extension='multihead'):
     ownm3_args = {'do_LSA': do_LSA, 'do_SPT': do_SPT, **ownm1_args, **basic_exts}
     ownm4_args = {'ewc_lambda': ewc_lambda, 'pod_lambda': pod_lambda, 'pod_scales': pod_scales, 'do_pod': do_pod, 'pseudo_alpha': pseudo_alpha, **basic_exts}
     
+    feature_extractor_path = None
+    if hasattr(args, 'feature_extractor_path'):
+        feature_extractor_path = args.feature_extractor_path
+
+    feature_extractor_args = {'feature_extractor_path': feature_extractor_path, 
+    'first_task': first_task, **basic_exts}
+
     # -- Join the dictionaries into a dictionary with the corresponding class name -- #
     args_f = {'nnUNetTrainerRW': rw_args, 'nnUNetTrainerMultiHead': basic_exts,
               'nnUNetTrainerFrozenViT': basic_exts, 'nnUNetTrainerEWCViT': ewc_args,
@@ -533,7 +557,17 @@ def run_training(extension='multihead'):
               'nnUNetTrainerOwnM1': ownm1_args, 'nnUNetTrainerOwnM2': ownm1_args,
               'nnUNetTrainerOwnM3': ownm3_args, 'nnUNetTrainerOwnM4': ownm4_args,
               'nnUNetTrainerAgnostic': basic_exts, 'nnUNetTrainerExpertGate': basic_exts,
-              'nnUNetTrainerExpertGate2': basic_exts }
+
+              # -- Expert Gate Trainers  -- #
+              'nnUNetTrainerExpertGate2': basic_exts,
+              'nnUNetTrainerExpertGateMonai': basic_exts,
+              'nnUNetTrainerExpertGateMonaiAlex': basic_exts,
+              'nnUNetTrainerExpertGateMonaiUNet': feature_extractor_args,
+              'nnUNetTrainerExpertGateSimple': basic_exts ,
+              'nnUNetTrainerExpertGateSimpleAlex': basic_exts ,
+              'nnUNetTrainerExpertGateSimpleUNet': feature_extractor_args,
+              'nnUNetTrainerExpertGateUNet': basic_exts ,
+              'nnUNetTrainerExpertGateUNetAlex': basic_exts   }
 
     
     # ---------------------------------------------
@@ -1017,3 +1051,47 @@ def main_expert_gate2():
     r"""Run training for expert gate Trainer
     """
     run_training(extension='expert_gate2')
+
+# -- Main function for setup execution of expert gate method -- #
+
+def main_expert_gate_monai():
+    r"""Run training for expert gate monai AE
+    """
+    run_training(extension='expert_gate_monai')
+
+def main_expert_gate_monai_alex_features():
+    r"""Run training for expert gate monai AE
+    """
+    run_training(extension='expert_gate_monai_alex_features')
+
+def main_expert_gate_monai_UNet_features():
+    r"""Run training for expert gate monai AE
+    """
+    run_training(extension='expert_gate_monai_UNet_features')
+
+###########################
+def main_expert_gate_simple_ae():
+    r"""Run training for expert gate monai AE
+    """
+    run_training(extension='expert_gate_simple_ae')
+
+def main_expert_gate_simple_ae_alex_features():
+    r"""Run training for expert gate monai AE
+    """
+    run_training(extension='expert_gate_simple_ae_alex_features')
+
+def main_expert_gate_simple_ae_UNet_features():
+    r"""Run training for expert gate monai AE
+    """
+    run_training(extension='expert_gate_simple_ae_UNet_features')
+
+#############################
+def main_expert_gate_UNet():
+    r"""Run training for expert gate monai AE
+    """
+    run_training(extension='expert_gate_UNet')
+
+def main_expert_gate_UNet_alex_features():
+    r"""Run training for expert gate monai AE
+    """
+    run_training(extension='expert_gate_UNet_alex_features')

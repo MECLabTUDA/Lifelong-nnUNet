@@ -3,13 +3,13 @@
 #########################################################################################################
 
 
-#expert_gate_experiment = "expert_gate_monai"
+expert_gate_experiment = "expert_gate_monai"
 #expert_gate_experiment = "expert_gate_monai_alex_features"
-#expert_gate_experiment = "expert_gate_monai_UNet_features"      #TODO test
+#expert_gate_experiment = "expert_gate_monai_UNet_features"
 #expert_gate_experiment = "expert_gate_simple_ae"
 #expert_gate_experiment = "expert_gate_simple_ae_alex_features"
-#expert_gate_experiment = "expert_gate_simple_ae_UNet_features"  #TODO test
-expert_gate_experiment = "expert_gate_UNet"
+#expert_gate_experiment = "expert_gate_simple_ae_UNet_features"
+#expert_gate_experiment = "expert_gate_UNet"
 #expert_gate_experiment = "expert_gate_UNet_alex_features"
 
 
@@ -71,16 +71,27 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
                  identifier=default_plans_identifier, extension='expert_gate2', tasks_list_with_char=None, mixed_precision=True,
                  save_csv=True, del_log=False, use_vit=False, vit_type='base', version=1, split_gpu=False, transfer_heads=True,
-                 ViT_task_specific_ln=False, do_LSA=False, do_SPT=False, network=None, use_param_split=False):
+                 ViT_task_specific_ln=False, do_LSA=False, do_SPT=False, network=None, use_param_split=False, feature_extractor_path = None):
         r"""Constructor of Sequential trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets. --> Note that the only
             difference to the Multi-Head Trainer is the transfer_heads flag which should always be True for this Trainer!
         """
         # -- Initialize using parent class -- #
-        super().__init__(split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic,
+        print("nnUNetTrainerExpertGate2")
+        super(nnUNetTrainerExpertGate2, self).__init__(split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic,
                          fp16, save_interval, already_trained_on, use_progress, identifier, extension, tasks_list_with_char, mixed_precision,
                          save_csv, del_log, use_vit, vit_type, version, split_gpu, True, ViT_task_specific_ln, do_LSA, do_SPT,
                          network, use_param_split)
         self.online_eval_mse = []
+        assert self.extension in [  "expert_gate_monai"                          ,
+                                    "expert_gate_monai_alex_features"           ,
+                                    "expert_gate_monai_UNet_features"           ,
+                                    "expert_gate_simple_ae"                     ,
+                                    "expert_gate_simple_ae_alex_features"       ,
+                                    "expert_gate_simple_ae_UNet_features"       ,
+                                    "expert_gate_UNet"                          ,
+                                    "expert_gate_UNet_alex_features"            
+                                ], self.extension
+        self.feature_extractor_path = feature_extractor_path
 
     def process_plans(self, plans):
         if self.stage is None:
@@ -158,7 +169,10 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
             # -- Specify if 2d or 3d plans is necessary -- #
             _2d_plans = "_plans_2D.pkl" in self.plans_file
             # -- Load the correct plans file, ie. the one from the first task -- #
-            self.process_plans(load_pickle(join(preprocessing_output_dir, self.tasks_list_with_char[0][0], self.identifier + "_plans_2D.pkl" if _2d_plans else self.identifier + "_plans_3D.pkl")))
+            self.process_plans(load_pickle(join(preprocessing_output_dir, 
+                self.first_task if hasattr(self, 'first_task') else self.tasks_list_with_char[0][0], 
+                self.identifier + "_plans_2D.pkl" if _2d_plans else self.identifier + "_plans_3D.pkl"))
+            )
             # -- Backup the patch_size since we need to restore it again -- #
             patch_size = self.patch_size
             net_num_pool_op_kernel_sizes = self.net_num_pool_op_kernel_sizes
@@ -310,6 +324,9 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
 
         self.initialize_optimizer_and_scheduler()
         
+        #self._update_loss_after_plans_change(self.net_num_pool_op_kernel_sizes, self.patch_size_to_use)
+        
+
         # -- Delete the trainer_model (used for restoring) -- #
         self.trainer_model = None
         
@@ -351,23 +368,37 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
                   function but expected by the user.
         """
         # -- Run iteration as usual --> copied and modified from nnUNetTrainerV2 -- #
+        
         data_dict = next(data_generator)
+        """
+        #print(data_dict.keys())
+        #print(data_dict.items())
+        #print(np.mean(data_dict['data']))
+        print(torch.mean(data_dict['data']).item())
+        print(data_dict['properties'][0]['list_of_data_files'])
+        exit()
+        """
         data = data_dict['data']
         #target = data_dict['target']
 
         data = maybe_to_torch(data)
-        if expert_gate_experiment in [ "expert_gate_monai_alex_features",
+        if self.extension in [ "expert_gate_monai_alex_features",
             "expert_gate_simple_ae_alex_features",
             "expert_gate_UNet_alex_features" ]:
             data = data.repeat(1,3,1,1)
             
-        if expert_gate_experiment in ["expert_gate_UNet_alex_features"]:
+        if self.extension in ["expert_gate_UNet_alex_features"]:
             data = data[:,:,:244,:244]
 
         if torch.cuda.is_available():
             data = to_cuda(data)
+            
+        print(data.shape)
+        print(self.patch_size)
+        print(self.patch_size_to_use)
+        exit()
 
-        if expert_gate_experiment in ["expert_gate_monai_alex_features",
+        if self.extension in ["expert_gate_monai_alex_features",
             "expert_gate_monai_UNet_features",
             "expert_gate_simple_ae_alex_features",
             "expert_gate_simple_ae_UNet_features",
@@ -488,9 +519,10 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
             self.folder_with_preprocessed_data = join(self.dataset_directory, self.plans['data_identifier'] +
                                                       "_stage%d" % stage)
                                                 
+            self.patch_size = self.patch_size_to_use
             # -- Create the corresponding dataloaders for train and val (dataset loading and split performed in function) -- #
             self.dl_tr, self.dl_val = self.get_basic_generators(use_all_data)
-
+                
             # -- Unpack the dataset if desired, since we might have to continue training so we have to unpack if desired -- #
             if self.unpack_data:
                 unpack_dataset(self.folder_with_preprocessed_data)
@@ -507,7 +539,10 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
                                                                     self.data_aug_params,
                                                                     deep_supervision_scales=self.deep_supervision_scales,
                                                                     pin_memory=self.pin_memory,
-                                                                    use_nondetMultiThreadedAugmenter=False)
+                                                                    use_nondetMultiThreadedAugmenter=False,
+                                                                    seeds_train=np.arange(0, self.data_aug_params.get('num_threads')) if self.deterministic else None,
+                                                                    seeds_val=np.arange(self.data_aug_params.get('num_threads'), self.data_aug_params.get('num_threads') + self.data_aug_params.get('num_threads')// 2) if self.deterministic else None
+                    )
 
             # -- Update the log -- #
             self.print_to_log_file("Performing validation with validation data from task {}.".format(task))
@@ -573,7 +608,10 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
                                                                 self.data_aug_params,
                                                                 deep_supervision_scales=self.deep_supervision_scales,
                                                                 pin_memory=self.pin_memory,
-                                                                use_nondetMultiThreadedAugmenter=False)
+                                                                use_nondetMultiThreadedAugmenter=False,
+                                                                seeds_train=np.arange(0, self.data_aug_params.get('num_threads')) if self.deterministic else None,
+                                                                seeds_val=np.arange(self.data_aug_params.get('num_threads'), self.data_aug_params.get('num_threads') + self.data_aug_params.get('num_threads')// 2) if self.deterministic else None
+                                                                )
             # -- Everything else is set as we evaluated on the current task just now -- #
 
 
@@ -795,7 +833,7 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
         net_nonlin_kwargs = {'negative_slope': 1e-2, 'inplace': True}
 
 
-        if expert_gate_experiment in ["expert_gate_monai"]:
+        if self.extension in ["expert_gate_monai"]:
             self.network = ExpertGateMonaiAutoencoder(
                 spatial_dims=2,
                 in_channels=1,
@@ -805,7 +843,7 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
                 inter_channels=(64,),
                 num_res_units=4
             )
-        elif expert_gate_experiment in ["expert_gate_monai_alex_features"]:
+        elif self.extension in ["expert_gate_monai_alex_features"]:
             self.network = ExpertGateMonaiAutoencoder(
                 spatial_dims=2,
                 in_channels=256,
@@ -815,7 +853,7 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
                 inter_channels=(64,),
                 num_res_units=4
             )
-        elif expert_gate_experiment in ["expert_gate_monai_UNet_features"]:
+        elif self.extension in ["expert_gate_monai_UNet_features"]:
             self.network = ExpertGateMonaiAutoencoder(
                 spatial_dims=3,
                 in_channels=32,
@@ -825,18 +863,18 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
                 inter_channels=(8,),
                 num_res_units=3
             )        
-        elif expert_gate_experiment in ["expert_gate_simple_ae", 
+        elif self.extension in ["expert_gate_simple_ae", 
             "expert_gate_simple_ae_alex_features", 
             "expert_gate_simple_ae_UNet_features"]:
-            self.network = expert_gate_autoencoder()            # the expert_gate_autoencoder architecture also depends on expert_gate_experiment
-        elif expert_gate_experiment in ["expert_gate_UNet"]:
+            self.network = expert_gate_autoencoder(self.extension)            # the expert_gate_autoencoder architecture also depends on expert_gate_experiment
+        elif self.extension in ["expert_gate_UNet"]:
             self.network = expert_gate_UNet(self.num_input_channels, self.base_num_features, self.num_input_channels,net_numpool,
                                         self.conv_per_stage, 2, conv_op, norm_op, norm_op_kwargs, dropout_op,
                                         dropout_op_kwargs,
                                         net_nonlin, net_nonlin_kwargs, False, False, lambda x: x, InitWeights_He(1e-2),
                                         self.net_num_pool_op_kernel_sizes, self.net_conv_kernel_sizes, False, True, True)
             self.network.inference_apply_nonlin = lambda x : x
-        elif expert_gate_experiment in ["expert_gate_UNet_alex_features"]:
+        elif self.extension in ["expert_gate_UNet_alex_features"]:
             self.network = expert_gate_UNet(256, self.base_num_features, 256,1, 
                                         self.conv_per_stage, 2, conv_op, norm_op, norm_op_kwargs, dropout_op,
                                         dropout_op_kwargs,
@@ -844,22 +882,28 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
                                         self.net_num_pool_op_kernel_sizes, self.net_conv_kernel_sizes, False, True, True)
             self.network.inference_apply_nonlin = lambda x : x
         else:
-            raise NotImplementedError("specified expert_gate_experiment is not correct.")
+            raise NotImplementedError("specified extension is not correct.")
 
-
-        if expert_gate_experiment in ["expert_gate_monai_UNet_features",
+        if self.extension in ["expert_gate_monai_UNet_features",
             "expert_gate_simple_ae_UNet_features"]:
-            checkpoint = join(self.output_folder.replace("2d", "3d_fullres").replace("nnUNetTrainerExpertGate2", "nnUNetTrainerSequential"),"model_final_checkpoint.model")
+            
+            assert self.feature_extractor_path != None
+            checkpoint = join(self.feature_extractor_path, "model_final_checkpoint.model")
+            #checkpoint = join(self.output_folder.replace("2d", "3d_fullres").replace("nnUNetTrainerExpertGate2", "nnUNetTrainerSequential"),"model_final_checkpoint.model")
             featureExtractionTrainer: nnUNetTrainerSequential.nnUNetTrainerSequential = restore_model(checkpoint + ".pkl", checkpoint=checkpoint, 
             use_extension=True, 
             extension_type="sequential",
             network="3d_fullres")
             assert isinstance(featureExtractionTrainer, nnUNetTrainerSequential.nnUNetTrainerSequential)
+            self.patch_size_to_use = featureExtractionTrainer.patch_size
+            
+            
+            print(self.patch_size)
             self.feature_extractor: Generic_UNet = featureExtractionTrainer.mh_network.assemble_model(self.task)
             self.feature_extractor.__class__ = genericUNet_features
 
 
-        if expert_gate_experiment in ["expert_gate_monai_alex_features",
+        if self.extension in ["expert_gate_monai_alex_features",
             "expert_gate_simple_ae_alex_features",
             "expert_gate_UNet_alex_features"]:
             assert self.num_input_channels == 1, "alexNet features require a single input channel."
@@ -867,7 +911,7 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
             self.feature_extractor = alex_net.features
         
 
-        if expert_gate_experiment in ["expert_gate_monai_alex_features",
+        if self.extension in ["expert_gate_monai_alex_features",
         "expert_gate_monai_UNet_features",
         "expert_gate_simple_ae_alex_features",
         "expert_gate_simple_ae_UNet_features",

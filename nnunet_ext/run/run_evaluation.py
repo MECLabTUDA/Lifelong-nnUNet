@@ -288,6 +288,9 @@ def main_agnostic():
 
 def main_expert_gate():
     parser = build_agnostic_argparser()
+    parser.add_argument("-g", "--gate_trainer",  action='store', type=str,
+                        help="Specify what gate to use", required=True)
+
     args = parser.parse_args()
     set_cuda(args)
 
@@ -300,7 +303,9 @@ def main_expert_gate():
         # -- Add corresponding task in dictoinary -- #
         tasks_for_folder.append(t)
 
-    evaluator = expert_gate_evaluator(args.network, args.network_trainer, tasks_for_folder, EXT_MAP[args.network_trainer])
+    evaluator = expert_gate_evaluator(args.network, args.network_trainer, tasks_for_folder, 
+            EXT_MAP[args.network_trainer], args.gate_trainer, EXT_MAP[args.gate_trainer]
+        )
     evaluator.evaluate(list(map(int, args.folds)), rerun_evaluation=not args.dont_rerun_evaluation)
 
 if __name__ == "__main__":
