@@ -15,6 +15,7 @@ expert_gate_experiment = "expert_gate_monai"
 
 
 
+import traceback
 from nnunet_ext.network_architecture.expert_gate_UNet import expert_gate_UNet
 from nnunet_ext.paths import default_plans_identifier
 from batchgenerators.utilities.file_and_folder_operations import *
@@ -322,6 +323,25 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
         #self.network = expert_gate_autoencoder(self.patch_size[0] * self.patch_size[1] * self.patch_size[2])
         self.initialize_network2()
 
+
+        #this works
+        #self.was_initialized = False
+        #self.initialize(num_epochs=self.max_num_epochs)
+
+        self.dl_tr, self.dl_val = self.get_basic_generators()
+        self.tr_gen, self.val_gen = get_moreDA_augmentation(
+                    self.dl_tr, self.dl_val,
+                    self.data_aug_params[
+                        'patch_size_for_spatialtransform'],
+                    self.data_aug_params,
+                    deep_supervision_scales=self.deep_supervision_scales,
+                    pin_memory=self.pin_memory,
+                    use_nondetMultiThreadedAugmenter=False,
+                    seeds_train=np.arange(0, self.data_aug_params.get('num_threads')) if self.deterministic else None,
+                    seeds_val=np.arange(self.data_aug_params.get('num_threads'), self.data_aug_params.get('num_threads') + self.data_aug_params.get('num_threads')// 2) if self.deterministic else None
+                )
+
+
         self.initialize_optimizer_and_scheduler()
         
         #self._update_loss_after_plans_change(self.net_num_pool_op_kernel_sizes, self.patch_size_to_use)
@@ -393,10 +413,10 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
         if torch.cuda.is_available():
             data = to_cuda(data)
             
-        print(data.shape)
-        print(self.patch_size)
-        print(self.patch_size_to_use)
-        exit()
+        #print(data.shape)
+        #print(self.patch_size)
+        #print(self.patch_size_to_use)
+        #exit()
 
         if self.extension in ["expert_gate_monai_alex_features",
             "expert_gate_monai_UNet_features",
@@ -519,7 +539,6 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
             self.folder_with_preprocessed_data = join(self.dataset_directory, self.plans['data_identifier'] +
                                                       "_stage%d" % stage)
                                                 
-            self.patch_size = self.patch_size_to_use
             # -- Create the corresponding dataloaders for train and val (dataset loading and split performed in function) -- #
             self.dl_tr, self.dl_val = self.get_basic_generators(use_all_data)
                 
@@ -896,7 +915,7 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
             network="3d_fullres")
             assert isinstance(featureExtractionTrainer, nnUNetTrainerSequential.nnUNetTrainerSequential)
             self.patch_size_to_use = featureExtractionTrainer.patch_size
-            
+            self.patch_size = self.patch_size_to_use
             
             print(self.patch_size)
             self.feature_extractor: Generic_UNet = featureExtractionTrainer.mh_network.assemble_model(self.task)
@@ -958,4 +977,22 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
         self.network.train(current_mode)
         return ret
 
-    
+    @property
+    def tr_gen(self):
+        return self._tr_gen
+
+    @tr_gen.setter
+    def tr_gen(self,value):
+        if hasattr(self, 'patch_size'):
+            print(self.patch_size)
+        self._tr_gen = value
+
+    @property
+    def patch_size(self):
+        if hasattr(self,'patch_size_to_use'):
+            return self.patch_size_to_use
+        return self._patch_size
+        
+    @patch_size.setter
+    def patch_size(self,value):
+        self._patch_size = value

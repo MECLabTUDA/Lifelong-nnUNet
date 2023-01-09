@@ -234,9 +234,6 @@ def run_training(extension='multihead'):
     if extension in ['expert_gate_monai_UNet_features','expert_gate_simple_ae_UNet_features']:
         parser.add_argument("-e", "--feature_extractor_path",  action='store', type=str,
                         help="Specify the feature extractor to be used", required=True)
-                        
-        parser.add_argument("--first_task",  action='store', type=str,
-                        help="Specify the first task", required=True)
 
     # -------------------------------
     # Extract arguments from parser
@@ -503,13 +500,6 @@ def run_training(extension='multihead'):
         # -- Map the fold to corresponding task in dictoinary -- #
         tasks_for_folds.append(t)
 
-    first_task = None
-    if extension in ['expert_gate_monai_UNet_features','expert_gate_simple_ae_UNet_features']:
-        first_task = args.first_task
-        if not args.first_task.startswith("Task"):
-            task_id = int(args.first_task)
-            first_task = convert_id_to_task_name(task_id)
-        first_task = first_task
     # ----------------------------------------------
     # Define dict with arguments for function calls
     # ----------------------------------------------
@@ -542,8 +532,7 @@ def run_training(extension='multihead'):
     if hasattr(args, 'feature_extractor_path'):
         feature_extractor_path = args.feature_extractor_path
 
-    feature_extractor_args = {'feature_extractor_path': feature_extractor_path, 
-    'first_task': first_task, **basic_exts}
+    feature_extractor_args = {'feature_extractor_path': feature_extractor_path, **basic_exts}
 
     # -- Join the dictionaries into a dictionary with the corresponding class name -- #
     args_f = {'nnUNetTrainerRW': rw_args, 'nnUNetTrainerMultiHead': basic_exts,
