@@ -84,7 +84,6 @@ class VAE(Autoencoder):
         # if cuda available:
         #   everything in here takes place on the GPU. If x and mult are not yet on GPU this will be taken care of here
         #   we now return a cuda tensor! Not numpy array!
-        #print("\n\n\n\n\t\t AAAAAAAAAAAAAA\n\n\n\n\n")
         assert len(x.shape) == 4, 'x must be (b, c, x, y)'
 
         x = maybe_to_torch(x)

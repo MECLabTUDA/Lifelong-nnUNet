@@ -3,7 +3,7 @@
 #########################################################################################################
 
 
-expert_gate_experiment = "expert_gate_monai"
+#expert_gate_experiment = "expert_gate_monai"
 #expert_gate_experiment = "expert_gate_monai_alex_features"
 #expert_gate_experiment = "expert_gate_monai_UNet_features"
 #expert_gate_experiment = "expert_gate_simple_ae"
@@ -539,6 +539,7 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
             self.folder_with_preprocessed_data = join(self.dataset_directory, self.plans['data_identifier'] +
                                                       "_stage%d" % stage)
                                                 
+            self.patch_size = self.patch_size_to_use
             # -- Create the corresponding dataloaders for train and val (dataset loading and split performed in function) -- #
             self.dl_tr, self.dl_val = self.get_basic_generators(use_all_data)
                 
