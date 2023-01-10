@@ -27,6 +27,7 @@ from nnunet_ext.training.network_training.nnViTUNetTrainer import nnViTUNetTrain
 from nnunet.training.dataloading.dataset_loading import load_dataset, unpack_dataset
 from nnunet.training.data_augmentation.data_augmentation_noDA import get_no_augmentation
 from nnunet.training.data_augmentation.data_augmentation_moreDA import get_moreDA_augmentation
+from nnunet.training.dataloading.dataset_loading import load_dataset, DataLoader3D, DataLoader2D, unpack_dataset
 from nnunet_ext.paths import default_plans_identifier, evaluation_output_dir, preprocessing_output_dir, default_plans_identifier
 
 # -- Add this since default option file_descriptor has a limitation on the number of open files. -- #
@@ -387,6 +388,10 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         self.trainer_model = restore_model(pkl_file, checkpoint, train=False, fp16=self.mixed_precision,\
                                            use_extension=use_extension, extension_type=self.extension,\
                                            param_search=self.param_split, network=self.network_name)
+
+        # -- Change deep_supervision scales after restore before loading data of new task -- #
+        self.deep_supervision_scales = [[1, 1, 1]] + list(list(i) for i in 1 / np.cumprod(
+            np.vstack(self.trainer_model.net_num_pool_op_kernel_sizes), axis=0))[:-1]
         self.trainer_model.initialize(True)
 
         # -- Delete the created log_file from the restored model and set it to None since we don't need it (eg. during eval) -- #
@@ -507,6 +512,26 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         self.print_to_log_file("VALIDATION KEYS:\n %s" % (str(self.dataset_val.keys())),
                                 also_print_to_console=False)
         #--------------------------------- Copied from original implementation ---------------------------------#
+
+    def get_basic_generators(self):
+        self.load_dataset()
+        self.do_split()
+
+        if self.threeD:
+            dl_tr = DataLoader3D(self.dataset_tr, self.patch_size, self.patch_size, self.batch_size,
+                                 False, oversample_foreground_percent=self.oversample_foreground_percent,
+                                 pad_mode="constant", pad_sides=self.pad_all_sides, memmap_mode='r')
+            dl_val = DataLoader3D(self.dataset_val, self.patch_size, self.patch_size, self.batch_size, False,
+                                  oversample_foreground_percent=self.oversample_foreground_percent,
+                                  pad_mode="constant", pad_sides=self.pad_all_sides, memmap_mode='r')
+        else:
+            dl_tr = DataLoader2D(self.dataset_tr, self.patch_size, self.patch_size, self.batch_size,
+                                 oversample_foreground_percent=self.oversample_foreground_percent,
+                                 pad_mode="constant", pad_sides=self.pad_all_sides, memmap_mode='r')
+            dl_val = DataLoader2D(self.dataset_val, self.patch_size, self.patch_size, self.batch_size,
+                                  oversample_foreground_percent=self.oversample_foreground_percent,
+                                  pad_mode="constant", pad_sides=self.pad_all_sides, memmap_mode='r')
+        return dl_tr, dl_val
 
     def run_training(self, task, output_folder, build_folder=True):
         r"""Perform training using Multi Head Trainer. Simply executes training method of parent class

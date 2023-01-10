@@ -283,7 +283,7 @@ def run_inference():
     if feature_paths is not None: 
         final_dir_name = 'features'
 
-    output_path = join(output_path, 'head_{}'.format(use_head), 'fold_'+str(fold), final_dir_name, evaluate_on)
+    output_path = join(output_path, 'head_{}'.format(use_head), 'fold_'+str(fold), args.chk, final_dir_name, evaluate_on)
     features_folder = output_path if feature_paths is not None else None
 
     # Note that unlike the trainer_path from run_evaluation, this does not include the fold because plans.pkl is one level above 
