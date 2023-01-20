@@ -15,6 +15,7 @@
 
 
 
+import math
 import traceback
 from nnunet_ext.network_architecture.expert_gate_UNet import expert_gate_UNet
 from nnunet_ext.paths import default_plans_identifier
@@ -62,6 +63,8 @@ from nnunet_ext.network_architecture.generic_UNet_features import genericUNet_fe
 from nnunet_ext.network_architecture.expert_gate_monai_ae import ExpertGateMonaiAutoencoder
 from nnunet_ext.network_architecture.expert_gate_autoencoder2 import VAE
 from typing import Tuple
+
+from  torch.nn.modules.upsampling import Upsample
 
 # -- Define globally the Hyperparameters for this trainer along with their type -- #
 HYPERPARAMS = {}
@@ -423,6 +426,12 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
             "expert_gate_simple_ae_alex_features",
             "expert_gate_simple_ae_UNet_features",
             "expert_gate_UNet_alex_features"]:
+            if np.any(data.shape[-2:] < self.patch_size[-2:]):
+                factors = self.patch_size[-2:] / data.shape[-2:]
+                factor = math.ceil(max(factors))
+                m = Upsample(scale_factor=factor, mode='nearest')
+                data = m(data)
+
             data = self.feature_extractor(data)
 
         target = data
@@ -539,7 +548,6 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
             self.folder_with_preprocessed_data = join(self.dataset_directory, self.plans['data_identifier'] +
                                                       "_stage%d" % stage)
                                                 
-            self.patch_size = self.patch_size_to_use
             # -- Create the corresponding dataloaders for train and val (dataset loading and split performed in function) -- #
             self.dl_tr, self.dl_val = self.get_basic_generators(use_all_data)
                 
@@ -929,6 +937,11 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
             assert self.num_input_channels == 1, "alexNet features require a single input channel."
             alex_net = torch.hub.load('pytorch/vision:v0.10.0', 'alexnet', pretrained=True)
             self.feature_extractor = alex_net.features
+            assert(len(self.patch_size) == 2)   #assert we are doing 2d
+            patch_size_too_small = self.patch_size < 256
+            self.patch_size_to_use = self.patch_size
+            self.patch_size_to_use[patch_size_too_small] = 256
+            self.patch_size = self.patch_size_to_use
         
 
         if self.extension in ["expert_gate_monai_alex_features",

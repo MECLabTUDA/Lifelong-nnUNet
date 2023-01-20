@@ -985,7 +985,8 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         self.load_dataset()
         self.do_split()
 
-        print("\t\t", self.patch_size)
+        print("\t\t patch_size:", self.patch_size)
+        print("\t\t basic_generator_patch_size:", self.basic_generator_patch_size)
         if self.threeD:
             dl_tr = DataLoader3D(self.dataset_tr, self.basic_generator_patch_size if not use_all_data else self.patch_size,
                                  self.patch_size, self.batch_size, False, oversample_foreground_percent=self.oversample_foreground_percent,

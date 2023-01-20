@@ -32,7 +32,7 @@ class expert_gate_evaluator():
         self.network = network
         self.gate_trainer = gate_trainer
         self.gate_extension = gate_extension
-        if gate_trainer in ["expert_gate_simple_ae_UNet_features", "expert_gate_monai_UNet_features"]:
+        if gate_trainer in ["nnUNetTrainerExpertGateMonaiUNet", "nnUNetTrainerExpertGateSimpleUNet"]:
             self.ae_network = "3d_fullres"
         else:
             self.ae_network = "2d"
@@ -200,7 +200,7 @@ class expert_gate_evaluator():
 
             outpath = join(evaluation_output_dir, "expert_gate", join_texts_with_char(self.tasks_for_folder, '_'), self.gate_trainer)
             maybe_mkdir_p(outpath)
-            plt.savefig(join(outpath, "confMatrix"))
+            plt.savefig(join(outpath, "confMatrix"), bbox_inches='tight')
             dumpDataFrameToCsv(decisionResults, outpath, "expert_gate_decisions.csv")
             dumpDataFrameToCsv(overallResults, outpath, "expert_gate_evaluation.csv")
             dumpDataFrameToCsv(output_csv_summarized, outpath, "summarized_expert_gate_evaluation.csv")
