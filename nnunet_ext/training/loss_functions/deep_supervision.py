@@ -206,9 +206,14 @@ class MultipleOutputLossLWF(MultipleOutputLoss2):
         # -- Update the loss as proposed in the paper and return this loss to the calling function instead -- #
         # -- Loop through the models that have been trained on previous tasks -- #
         # -- Compute distillation loss for each old task and add it to the current loss -- #
+
+        #assert self.pred_logits[0].shape == self.target_logits[0].shape, str(self.pred_logits[0].shape) + " " + str(self.target_logits[0].shape)
+        #assert len(self.target_logits) +1 ==len(self.pred_logits), str(len(self.target_logits)) + " " + str(len(self.pred_logits))  
+
         for idx, t_logit in enumerate(self.target_logits): # --> Use target, since pred has one element more, ie. the current task
             # -- loss = loss + dist_loss -- #
-            loss += self._distillation_loss(self.pred_logits[idx], t_logit, self.scale[idx])
+            #loss += self._distillation_loss(self.pred_logits[idx], t_logit, self.scale[idx])
+            loss += self._distillation_loss(self.pred_logits[idx], t_logit, 0)
         
         # -- Return the updated loss value -- #
         return loss

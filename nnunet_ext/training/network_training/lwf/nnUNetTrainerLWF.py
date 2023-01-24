@@ -310,6 +310,8 @@ class nnUNetTrainerLWF(nnUNetTrainerMultiHead):
             # -- Check if we are performing an iteration for validation purposes only, then we do not have to do all the following -- #
             if len(self.mh_network.heads) > 1: # --> only do this if we want backpropagation, ie. during training and we have at least one task
                 # Run per head and use LWF loss while updating the corresponding logits!
+                all_pred_logits = []
+                all_target_logits = []
                 for task in list(self.mh_network.heads.keys()):
                     # -- Build the current network -- #
                     self.network = self.mh_network.assemble_model(task)
@@ -335,20 +337,27 @@ class nnUNetTrainerLWF(nnUNetTrainerMultiHead):
                         with autocast():
                             output = self.network(x)[0]
                     else:
-                        output = self.network(x)[0]
+                        output = self.network(x)[0]     #use only highest resolution output
                         
                     # -- Do detach the output so the loss has no effect on the old network during backward step -- #
                     pred_logits = output.detach().cpu()
 
                     del x, output
-                    # -- Update the LwF loss -- #
-                    self.loss.update_logits(pred_logits, self.target_logits[task][self.batch_idx % 250])  # Use modulo since self.batch_idx is a running number
-                    # -- Add the softmax layer again by replacing the corresponding element with softmax_helper -- #
-                    self.network.inference_apply_nonlin = softmax_helper
-                    # -- Put model into train mode -- #
-                    self.network.train()
-                    # -- Run iteration as usual and return the loss -- #
-                    ret = super().run_iteration(tee(data_generator, 1)[0], do_backprop, run_online_evaluation)
+
+                    all_pred_logits.append(pred_logits)
+                    if task != list(self.mh_network.heads.keys())[-1]:
+                        #last target logit might not be available
+                        all_target_logits.append(self.target_logits[task][self.batch_idx % 250])
+                # END: For task
+
+                # -- Update the LwF loss -- #
+                self.loss.update_logits(all_pred_logits, all_target_logits)  # Use modulo since self.batch_idx is a running number
+                # -- Add the softmax layer again by replacing the corresponding element with softmax_helper -- #
+                self.network.inference_apply_nonlin = softmax_helper
+                # -- Put model into train mode -- #
+                self.network.train()
+                # -- Run iteration as usual and return the loss -- #
+                ret = super().run_iteration(tee(data_generator, 1)[0], do_backprop, run_online_evaluation)
 
                 # -- Get next element in the generator since we always use a deepcopy of the generator -- #
                 _ = next(data_generator)

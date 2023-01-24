@@ -255,7 +255,7 @@ def calculate_target_logits(mh_network, gen, num_batches_per_epoch, fp16, gpu_id
             del x, output
 
             # -- Append the result to target_logits -- #
-            target_logits[task].extend(task_logit)
+            target_logits[task].append(task_logit)
             del task_logit
 
     # -- Empty the GPU cache if a GPU was used -- #
