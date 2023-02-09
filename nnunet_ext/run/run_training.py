@@ -531,7 +531,8 @@ def run_training(extension='multihead'):
               'nnUNetTrainerPLOP': plop_args, 'nnUNetTrainerV2': basic_args, 'nnViTUNetTrainer': basic_vit,
               'nnUNetTrainerPOD': plop_args, 'nnUNetTrainerFrozEWC': froz_ewc_args,# 'nnUNetTrainerFrozEWCFinal': ewc_args,
               'nnUNetTrainerOwnM1': ownm1_args, 'nnUNetTrainerOwnM2': ownm1_args,
-              'nnUNetTrainerOwnM3': ownm3_args, 'nnUNetTrainerOwnM4': ownm4_args}
+              'nnUNetTrainerOwnM3': ownm3_args, 'nnUNetTrainerOwnM4': ownm4_args,
+              'nnUNetTrainerFrozenBody': basic_exts}
 
     
     # ---------------------------------------------
@@ -997,3 +998,9 @@ def main_rw():
     r"""Run training for RW Trainer --> this is equivalent to transfer learning of n tasks.
     """
     run_training(extension='rw')
+    
+# -- Main function for setup execution of frozen body method -- #
+def main_frozen_body_seq():
+    r"""Run training for Frozen Body Trainer --> this is equivalent to transfer learning of n tasks.
+    """
+    run_training(extension='frozen_body_seq')
