@@ -42,7 +42,7 @@ class expert_gate_evaluator():
         self.plans_identifier = "nnUNetPlansv2.1"
         pd.set_option('display.max_rows', 1000)
 
-    def evaluate(self, folds: list[int], rerun_evaluation: bool = True):
+    def run_evaluations_of_base_models(self, folds: list[int], rerun_evaluation: bool = True):
         if rerun_evaluation:
             for index in range(1,len(self.tasks_for_folder)+1):
                 #create Evaluator
@@ -64,17 +64,20 @@ class expert_gate_evaluator():
                 #run evaluator
                 output_path = None #maybe set this?
                 evaluator.evaluate_on(folds,self.tasks_for_folder,output_path=output_path)
-        
-        
+
+
+
+
+    def evaluate(self, folds: list[int], tasks_to_evaluate_on):        
         ############################# QUERY AND COMPUTE EXPERT GATE DECISIONS ##################
         for t_fold in folds:
             #iterate over all the tasks
             #ae_results = pd.DataFrame()
-            for index in range(1,len(self.tasks_for_folder)+1):
+            for index in range(1,len(tasks_to_evaluate_on)+1):
                 #get the path to the out folder of evaluations
                 in_ae_evaluation_csv_path = join(evaluation_output_dir, self.ae_network, 
-                    join_texts_with_char([self.tasks_for_folder[index-1]],'_'),#trained on
-                    join_texts_with_char([self.tasks_for_folder[index-1]],'_'), #use model
+                    join_texts_with_char([tasks_to_evaluate_on[index-1]],'_'),#trained on
+                    join_texts_with_char([tasks_to_evaluate_on[index-1]],'_'), #use model
                     self.gate_trainer+"__"+self.plans_identifier,Generic_UNet.__name__,
                     'SEQ','corresponding_head',
                     'fold_'+str(t_fold) #the specific fold
@@ -85,12 +88,12 @@ class expert_gate_evaluator():
                 #ae_results.append(in_evaluation_csv)
                 if index == 1:
                     ae_results = in_evaluation_csv
-                    ae_results = ae_results.rename(columns={"value": self.tasks_for_folder[index-1]})
+                    ae_results = ae_results.rename(columns={"value": tasks_to_evaluate_on[index-1]})
                     ae_results = ae_results.drop(columns=['Epoch','seg_mask','metric'])
                 else:
                     interm = in_evaluation_csv[['subject_id','value']]
                     ae_results = pd.merge(ae_results,interm,on='subject_id',how='inner')
-                    ae_results = ae_results.rename(columns={"value": self.tasks_for_folder[index-1]})
+                    ae_results = ae_results.rename(columns={"value": tasks_to_evaluate_on[index-1]})
                 #print(in_evaluation_csv)
 
             print(ae_results)
@@ -108,13 +111,14 @@ class expert_gate_evaluator():
             #print(out)
             out = out.numpy()
             out = out.T
-            for index in range(1,len(self.tasks_for_folder)+1):
+            for index in range(1,len(tasks_to_evaluate_on)+1):
                 ae_results.iloc[:,-index] = out[-index]
 
             interm = ae_results.drop(columns=['Task','subject_id'])
-            decisions = [self.tasks_for_folder[row.argmax()] for row in interm.to_numpy() ]
+            decisions = [tasks_to_evaluate_on[row.argmax()] for row in interm.to_numpy() ]
             ae_results['decision'] = decisions
 
+            """
             task = ae_results['Task'].to_numpy()
             decision = ae_results['decision'].to_numpy()
             hits = np.sum(task == decision)
@@ -122,19 +126,20 @@ class expert_gate_evaluator():
 
             #print(interm.to_numpy())
             #calculate cross entropy
-            target = torch.LongTensor([self.tasks_for_folder.index(row) for row in ae_results['Task'].to_numpy() ])
-            input = torch.Tensor(ae_results[self.tasks_for_folder].to_numpy())
+            target = torch.LongTensor([tasks_to_evaluate_on.index(row) for row in ae_results['Task'].to_numpy() ])
+            input = torch.Tensor(ae_results[tasks_to_evaluate_on].to_numpy())
             cross_entropy = torch.nn.CrossEntropyLoss()(input, target).item()
             cross_entropy /= len(ae_results.index)
             #print(interm.values.tolist())
             print(ae_results)
             print("accuracy (higher is better): ", ae_accuracy)
             print("cross entropy loss (lower is better): ", cross_entropy)
+            """
+            ae_accuracy = -1
             decisionResults = ae_results
-            
 
             ######################### QUERY SEGMENTATION EVALUATIONS #####################
-            ae_results = ae_results.drop(columns=self.tasks_for_folder)
+            ae_results = ae_results.drop(columns=tasks_to_evaluate_on)
             # ae_results: Task, subject_id, decision
             overallResults = pd.DataFrame(columns=["Task", "subject_id", "decision", "metric", "value"])
             #overallResults = ae_results.drop(columns=self.tasks_for_folder)
@@ -198,8 +203,17 @@ class expert_gate_evaluator():
 
 
 
-            outpath = join(evaluation_output_dir, "expert_gate", join_texts_with_char(self.tasks_for_folder, '_'), self.gate_trainer)
+            #outpath = join(evaluation_output_dir, "expert_gate", join_texts_with_char(self.tasks_for_folder, '_'), self.gate_trainer)
+            outpath = join(evaluation_output_dir, 
+            "expert_gate", 
+            join_texts_with_char(self.tasks_for_folder, '_'), 
+            join_texts_with_char(tasks_to_evaluate_on, '_'), 
+            self.gate_trainer,
+            "fold_" + str(t_fold))
+
+
             maybe_mkdir_p(outpath)
+
             plt.savefig(join(outpath, "confMatrix"), bbox_inches='tight')
             dumpDataFrameToCsv(decisionResults, outpath, "expert_gate_decisions.csv")
             dumpDataFrameToCsv(overallResults, outpath, "expert_gate_evaluation.csv")
@@ -215,8 +229,8 @@ class expert_gate_evaluator():
                     'SEQ', 'fold_'+str(t_fold))
             ## writing this file does not work properly because other applications also write txt files
             listOfFiles = glob.glob(logFilePath + "/*.txt")#
-            latestFile = max(listOfFiles, key=os.path.getctime)
-            shutil.copy(latestFile, outpath)
+            #latestFile = max(listOfFiles, key=os.path.getctime)
+            #shutil.copy(latestFile, outpath)
 
 
 

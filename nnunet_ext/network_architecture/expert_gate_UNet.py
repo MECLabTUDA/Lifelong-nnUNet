@@ -270,6 +270,7 @@ class expert_gate_UNet(Generic_UNet):
             # self.apply(print_module_training_status)
         
     def forward(self, x):
+        return x
         skips = []
         seg_outputs = []
         for d in range(len(self.conv_blocks_context) - 1):#down

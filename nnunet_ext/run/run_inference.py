@@ -109,7 +109,10 @@ def run_inference():
                'nnUNetTrainerOwnM1': 'ownm1', 'nnUNetTrainerOwnM2': 'ownm2', 'nnUNetTrainerPOD': 'pod',
                'nnUNetTrainerOwnM3': 'ownm3', 'nnUNetTrainerOwnM4': 'ownm4', 'nnUNetTrainerRW': 'rw',
                'nnUNetTrainerRehearsal': 'rehearsal', 'nnUNetTrainerEWC': 'ewc', 'nnUNetTrainerLWF': 'lwf',
-               'nnUNetTrainerExpertGate2': 'expert_gate2'}
+               'nnUNetTrainerExpertGate2': 'expert_gate2',
+               'nnUNetTrainerExpertGateUNet': 'expert_gate_UNet',
+               'nnUNetTrainerExpertGateMonai': 'expert_gate_monai',
+               'nnUNetTrainerExpertGateSimple': 'expert_gate_simple_ae'}
 
 
     # -------------------------------

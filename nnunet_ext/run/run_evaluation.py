@@ -306,7 +306,9 @@ def main_expert_gate():
     evaluator = expert_gate_evaluator(args.network, args.network_trainer, tasks_for_folder, 
             EXT_MAP[args.network_trainer], args.gate_trainer, EXT_MAP[args.gate_trainer]
         )
-    evaluator.evaluate(list(map(int, args.folds)), rerun_evaluation=not args.dont_rerun_evaluation)
+    evaluator.run_evaluations_of_base_models(list(map(int, args.folds)), rerun_evaluation=not args.dont_rerun_evaluation)
+    for i in range(len(tasks_for_folder)):
+        evaluator.evaluate(list(map(int, args.folds)), tasks_for_folder[:i+1])
 
 if __name__ == "__main__":
     run_evaluation()

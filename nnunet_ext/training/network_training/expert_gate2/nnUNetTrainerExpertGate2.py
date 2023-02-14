@@ -86,6 +86,7 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
                          save_csv, del_log, use_vit, vit_type, version, split_gpu, True, ViT_task_specific_ln, do_LSA, do_SPT,
                          network, use_param_split)
         self.online_eval_mse = []
+        assert deterministic, "did not initialize deterministic trainer"
         assert self.extension in [  "expert_gate_monai"                          ,
                                     "expert_gate_monai_alex_features"           ,
                                     "expert_gate_monai_UNet_features"           ,
@@ -433,6 +434,15 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
                 data = m(data)
 
             data = self.feature_extractor(data)
+            if self.extension == "expert_gate_UNet_alex_features":
+                if data.shape[-1] < 8 or data.shape[-2] < 12:    #TODO find better way to do this
+                    x_to_go_to = data.shape[-1] // 2
+                    x_to_go_to *= 2
+                    y_to_go_to = data.shape[-2] // 2
+                    y_to_go_to *= 2
+
+                    data = data[:,:,:y_to_go_to, :x_to_go_to]
+
 
         target = data
 
