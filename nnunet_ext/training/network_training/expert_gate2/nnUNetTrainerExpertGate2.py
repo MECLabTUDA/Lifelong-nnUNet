@@ -86,7 +86,6 @@ class nnUNetTrainerExpertGate2(nnUNetTrainerMultiHead):
                          save_csv, del_log, use_vit, vit_type, version, split_gpu, True, ViT_task_specific_ln, do_LSA, do_SPT,
                          network, use_param_split)
         self.online_eval_mse = []
-        assert deterministic, "did not initialize deterministic trainer"
         assert self.extension in [  "expert_gate_monai"                          ,
                                     "expert_gate_monai_alex_features"           ,
                                     "expert_gate_monai_UNet_features"           ,
