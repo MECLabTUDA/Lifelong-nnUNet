@@ -9,7 +9,7 @@ class UnbiasedKnowledgeDistillationLoss(nn.Module):
         self.alpha = alpha
 
     def forward(self, inputs, targets, mask=None):
-        new_cl = 1#inputs.shape[1] - targets.shape[1] if inputs.shape[1] != targets.shape[1] else inputs.shape[1]
+        new_cl = inputs.shape[1] - targets.shape[1] if inputs.shape[1] != targets.shape[1] else inputs.shape[1]
         targets = targets * self.alpha
         new_bkg_idx = torch.tensor([0] + [x for x in range(targets.shape[1], inputs.shape[1])]).to(inputs.device)
         den = torch.logsumexp(inputs, dim=1)                          # B, H, W

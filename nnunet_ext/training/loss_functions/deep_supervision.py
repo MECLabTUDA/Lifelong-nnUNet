@@ -408,7 +408,7 @@ class MultipleOutputLossMiB(MultipleOutputLoss2):
 
         # -- Knowledge Distillation on every head -- #
         weights = self.weight_factors if self.weight_factors is not None else [1] * len(x)
-        loss += weights[0] * self.lkd_loss(x[0], y[0])
+        #loss += weights[0] * self.lkd_loss(x[0], y[0])
         for i in range(len(x)):
             loss += weights[i] * self.lkd * self.lkd_loss(x[i], x_o[i])
 
