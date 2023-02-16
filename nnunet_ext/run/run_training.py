@@ -1001,6 +1001,6 @@ def main_rw():
     
 # -- Main function for setup execution of frozen body method -- #
 def main_frozen_body_seq():
-    r"""Run training for Frozen Body Trainer --> this is equivalent to transfer learning of n tasks.
+    r"""Run training for Frozen UNet Trainer --> this is equivalent to transfer learning of n tasks.
     """
     run_training(extension='frozen_body_seq')

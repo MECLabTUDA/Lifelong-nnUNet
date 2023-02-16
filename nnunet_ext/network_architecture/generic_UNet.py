@@ -2,15 +2,12 @@
 #----------This class represents a Generic ViT_U-Net model based on the ViT and nnU-Net architecture----------#
 ###############################################################################################################
 
-import torch
-import numpy as np
 from torch import nn
-from torch.autograd import Variable
-from nnunet.utilities.to_torch import to_cuda
 from nnunet_ext.utilities.helpful_functions import *
+from nnunet.utilities.nd_softmax import softmax_helper
 from nnunet.network_architecture.initialization import InitWeights_He
-from nnunet.network_architecture.generic_UNet import ConvDropoutNormNonlin, Generic_UNet_
-from nnunet_ext.network_architecture.architectural_components.vision_transformer import PatchEmbed, VisionTransformer
+from nnunet.network_architecture.generic_UNet import ConvDropoutNormNonlin
+from nnunet.network_architecture.generic_UNet import Generic_UNet as Generic_UNet_
 
 class Generic_UNet(Generic_UNet_):
     r"""This class is a Module that can be used for any segmentation task. It represents a generic combination of the
