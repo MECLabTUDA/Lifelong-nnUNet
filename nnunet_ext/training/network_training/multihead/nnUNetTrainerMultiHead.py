@@ -291,6 +291,15 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         if self.use_vit:
             self.batch_size = self.batch_size // 2
 
+    def initialize_optimizer_and_scheduler(self):
+        r"""Update this so params without gradients are never updated during training --> Don't forget to recall
+            if the gradients are changed during training..
+        """
+        assert self.network is not None, "self.initialize_network must be called first"
+        self.optimizer = torch.optim.SGD(filter(lambda p: p.requires_grad==True, self.network.parameters()), self.initial_lr, weight_decay=self.weight_decay,
+                                         momentum=0.99, nesterov=True)
+        self.lr_scheduler = None
+        
     def initialize(self, training=True, force_load_plans=False, num_epochs=500, prev_trainer_path=None, call_for_eval=False):
         r"""Overwrite parent function, since we want to include a prev_trainer that is used as a base for the Multi Head Trainer.
             Further the num_epochs should be set by the user if desired.
@@ -653,6 +662,9 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                  at every nth epoch which is not what we want. This will further lead into an error because too many
                  files will be then opened, thus we do it here.
         """
+        # -- Include this so the frozen parts in the network are not updated -- #
+        # self.initialize_optimizer_and_scheduler()
+        
         # -- Perform everything the parent class makes -- #
         res = super().on_epoch_end()
 
@@ -1374,3 +1386,23 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         self.loss = MultipleOutputLoss2(self.loss, self.ds_loss_weights)
         ################# END ###################
         #------------------------------------------ Partially copied from original implementation ------------------------------------------#
+        
+        
+    def reorder_UNet_components(self):
+        r"""Use this to reorder the networks components.
+        """
+        # -- Create copies of the different parts and delete them all again -- #
+        conv_blocks_localization = self.network.conv_blocks_localization
+        conv_blocks_context = self.network.conv_blocks_context
+        td = self.network.td
+        tu = self.network.tu
+        seg_outputs = self.network.seg_outputs
+        del self.network.conv_blocks_localization, self.network.conv_blocks_context, self.network.td, self.network.tu, self.network.seg_outputs
+
+        # -- Re-register all modules properly using backups to create a specific order -- #
+        # -- NEW Order: Encoder -- Decoder -- Segmentation Head
+        self.network.conv_blocks_context = conv_blocks_context  # Encoder part 1
+        self.network.td = td  # Encoder part 2
+        self.network.tu = tu   # Decoder part 1
+        self.network.conv_blocks_localization = conv_blocks_localization   # Decoder part 2
+        self.network.seg_outputs = seg_outputs  # Segmentation head

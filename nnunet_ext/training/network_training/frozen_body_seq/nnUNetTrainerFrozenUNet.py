@@ -2,8 +2,10 @@
 #------------------This class represents the nnUNet trainer for frozen ViT training.-------------------#
 #########################################################################################################
 
-import os
+import os, torch
+from torch.cuda.amp import autocast
 from nnunet_ext.training.model_restore import restore_model
+from nnunet.utilities.to_torch import maybe_to_torch, to_cuda
 from nnunet.network_architecture.generic_UNet import Generic_UNet
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet.training.network_training.nnUNetTrainerV2 import nnUNetTrainerV2
@@ -29,7 +31,18 @@ class nnUNetTrainerFrozenUNet(nnUNetTrainerMultiHead):
                          fp16, save_interval, already_trained_on, use_progress, identifier, extension, tasks_list_with_char, mixed_precision,
                          save_csv, del_log, use_vit, vit_type, version, split_gpu, True, ViT_task_specific_ln, do_LSA, do_SPT,
                          network, use_param_split)
-    
+        
+    def initialize(self, training=True, force_load_plans=False, num_epochs=500, prev_trainer_path=None, call_for_eval=False):
+        r"""Overwrite parent function, since we want to include a prev_trainer that is used as a base for the Multi Head Trainer.
+            Further the num_epochs should be set by the user if desired.
+        """
+        # -- Initialize using super class -- #
+        super().initialize(training, force_load_plans, num_epochs, prev_trainer_path, call_for_eval) # --> This updates the corresponding variables automatically since we inherit this class
+        
+        # -- Dirty fix because when tu split body still contains conv_blocks_localization -- #
+        if self.split == 'tu':
+            del self.mh_network.body.conv_blocks_localization
+            
     def initialize_network(self):
         r"""Extend Initialization of Network --> Load pre-trained model (specified to setup the network).
             Optimizer and lr initialization is still the same, since only the network is different.
@@ -151,7 +164,8 @@ class nnUNetTrainerFrozenUNet(nnUNetTrainerMultiHead):
         
         # -- Set self.network to the model in mh_network --> otherwise the network is not initialized and not in right type -- #
         self.network = self.trainer_model.network    # Does not matter what the model is, will be updated in run_training anyway
-   
+        
+        
     def run_training(self, task, output_folder, build_folder=True):
         r"""Perform training using mh trainer. After training on the first task, freeze the ViT module.
         """
@@ -180,6 +194,9 @@ class nnUNetTrainerFrozenUNet(nnUNetTrainerMultiHead):
         # -- Register the task if it does not exist in one of the heads -- #
         if task not in self.mh_network.heads:
             self.mh_network.add_new_task(task, use_init=not self.transfer_heads)
+        for _, param in self.mh_network.heads[task].named_parameters():
+            # -- Set requires_grad accordingly -- #
+            param.requires_grad = True
 
         # # -- Register the task in the ViT if task specific ViT is used -- #
         # if self.use_vit and self.ViT_task_specific_ln:
@@ -198,14 +215,41 @@ class nnUNetTrainerFrozenUNet(nnUNetTrainerMultiHead):
         else:
             # -- Activate the model based on task --> self.mh_network.active_task is now set to task as well -- #
             self.network = self.mh_network.assemble_model(task, freeze_body=False)
+        # -- Activate the model based on task --> self.mh_network.active_task is now set to task as well -- #
+        
         # -- Put model into train mode -- #
         self.network.train()
+        
+        for name, param in self.network.named_parameters():
+            print(name, param.requires_grad)
+
+        # # -- Freeze the body -- #
+        # if len(self.mh_network.heads) > 1:
+        #     body_parameters = [name for name, _ in self.mh_network.body.named_parameters()]
+        #     # -- Loop through the parameter names of the model -- #
+        #     for name, param in self.network.named_parameters():
+        #         # -- If the parameter name is in the list of the body_parameters, ie. param belongs to the body -- #
+        #         if name in body_parameters:
+        #             # -- Set requires_grad accordingly -- #
+        #             param.requires_grad = False
+        #     self.mh_network.update_after_iteration(update_body=True)
         
         # -- Delete the trainer_model (used for restoring) -- #
         self.trainer_model = None
         
+        # -- Update optimizer, so the frozen parts are not updated during training -- #
+        self.initialize_optimizer_and_scheduler()
+        
         # -- Run the training from parent class -- #
         ret = nnUNetTrainerV2.run_training(self)
+        
+        # # -- Freeze the body manually and the current task -- #
+        # for _, param in self.mh_network.body.named_parameters():
+        #     # -- Set requires_grad accordingly -- #
+        #     param.requires_grad = False
+        for _, param in self.mh_network.heads[task].named_parameters():
+            # -- Set requires_grad accordingly -- #
+            param.requires_grad = False
 
         # -- Reset the val_metrics_exist flag since the training is finished and restoring will fail otherwise -- #
         self.already_trained_on[str(self.fold)]['val_metrics_should_exist'] = False
@@ -232,22 +276,3 @@ class nnUNetTrainerFrozenUNet(nnUNetTrainerMultiHead):
         self.validation_results = dict()
 
         return ret  # Finished with training for the specific task
-        
-    def reorder_UNet_components(self):
-        r"""Use this to reorder the networks components.
-        """
-        # -- Create copies of the different parts and delete them all again -- #
-        conv_blocks_localization = self.network.conv_blocks_localization
-        conv_blocks_context = self.network.conv_blocks_context
-        td = self.network.td
-        tu = self.network.tu
-        seg_outputs = self.network.seg_outputs
-        del self.network.conv_blocks_localization, self.network.conv_blocks_context, self.network.td, self.network.tu, self.network.seg_outputs
-
-        # -- Re-register all modules properly using backups to create a specific order -- #
-        # -- NEW Order: Encoder -- Decoder -- Segmentation Head
-        self.network.conv_blocks_context = conv_blocks_context  # Encoder part 1
-        self.network.td = td  # Encoder part 2
-        self.network.tu = tu   # Decoder part 1
-        self.network.conv_blocks_localization = conv_blocks_localization   # Decoder part 2
-        self.network.seg_outputs = seg_outputs  # Segmentation head

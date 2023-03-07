@@ -153,7 +153,6 @@ class MultiHead_Module(nn.Module):
             self.body, head, _, _ = self._split_model_recursively_into_body_head(layer_id=0, model=model) # Start from root with full model
         else:   # Do not update the body, ie. only update the head
             _, head, _, _ = self._split_model_recursively_into_body_head(layer_id=0, model=model) # Start from root with full model
-
         self.heads[self.active_task] = head
         self.heads[self.active_task].load_state_dict(head.state_dict())
 
