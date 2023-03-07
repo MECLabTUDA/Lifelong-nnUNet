@@ -220,20 +220,6 @@ class nnUNetTrainerFrozenUNet(nnUNetTrainerMultiHead):
         # -- Put model into train mode -- #
         self.network.train()
         
-        for name, param in self.network.named_parameters():
-            print(name, param.requires_grad)
-
-        # # -- Freeze the body -- #
-        # if len(self.mh_network.heads) > 1:
-        #     body_parameters = [name for name, _ in self.mh_network.body.named_parameters()]
-        #     # -- Loop through the parameter names of the model -- #
-        #     for name, param in self.network.named_parameters():
-        #         # -- If the parameter name is in the list of the body_parameters, ie. param belongs to the body -- #
-        #         if name in body_parameters:
-        #             # -- Set requires_grad accordingly -- #
-        #             param.requires_grad = False
-        #     self.mh_network.update_after_iteration(update_body=True)
-        
         # -- Delete the trainer_model (used for restoring) -- #
         self.trainer_model = None
         
