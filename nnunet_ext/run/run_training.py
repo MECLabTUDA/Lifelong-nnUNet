@@ -535,7 +535,8 @@ def run_training(extension='multihead'):
               'nnUNetTrainerFrozenBody': basic_exts,
 
               'nnUNetTrainerVAE': basic_exts,
-              'nnUNetTrainerFeatureRehearsal': basic_exts}
+              'nnUNetTrainerFeatureRehearsal': basic_exts,
+              'nnUNetTrainerFeatureRehearsal2': basic_exts}
 
     
     # ---------------------------------------------
@@ -1015,3 +1016,6 @@ def main_vae():
 # -- Main function for setup execution of frozen body method -- #
 def main_feature_rehearsal():
     run_training(extension='feature_rehearsal')
+# -- Main function for setup execution of frozen body method -- #
+def main_feature_rehearsal2():
+    run_training(extension='feature_rehearsal2')
