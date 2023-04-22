@@ -14,6 +14,7 @@ from nnunet.utilities.task_name_id_conversion import convert_id_to_task_name
 from nnunet_ext.network_architecture.generic_ViT_UNet import Generic_ViT_UNet
 from nnunet_ext.paths import default_plans_identifier, network_training_output_dir
 from nnunet_ext.utilities.helpful_functions import delete_dir_con, join_texts_with_char, move_dir
+from nnunet_ext.training.FeatureRehearsalDataset import FeatureRehearsalTargetType
 
 TRAINER_MAP = dict()
 
@@ -230,6 +231,20 @@ def run_training(extension='multihead'):
         parser.add_argument('--adaptive', required=False, default=False, action="store_true",
                             help='Set this flag if the EWC loss should be changed during the frozen training process (ewc_lambda*e^{-1/3}). '
                                  ' Default: The EWC loss will not be altered.')
+
+    if extension in ['feature_rehearsal2']:
+        # target_type
+        parser.add_argument('-target_type', action='store', type=str, required=False, default="ground_truth",
+                            help='possible: ground_truth, distilled_output, distilled_deep_supervision. Default is ground_truth')
+        # num_rehearsal_samples_in_perc
+        parser.add_argument('-num_samples_in_perc', action='store', type=float, required=False, default=0.25,
+                            help='Specify how much of the previous tasks should be considered during training.'
+                                ' The number should be between 0 and 1 specifying the percentage that will be considered.'
+                                ' This percentage is used for each previous task individually.'
+                                ' Default: 0.25, ie. 25% of each previous task will be considered.')
+        # layer_name_for_feature_extraction
+        parser.add_argument('-layer_name', action='store', type=str, required=True, default="",
+                            help='e.g. conv_blocks_context.0 ')
 
     # -------------------------------
     # Extract arguments from parser
@@ -470,6 +485,11 @@ def run_training(extension='multihead'):
     if extension in ['froz_ewc']:
         assert use_vit, "The nnUNetTrainerFrozEWC can only be used with a ViT_U-Net.."
         adaptive = args.adaptive
+
+    if extension in ['feature_rehearsal2']:
+        feature_rehearsal_target_type = FeatureRehearsalTargetType[args.target_type.upper()]
+        num_rehearsal_samples_in_perc = args.num_samples_in_perc
+        layer_name_for_feature_extraction = args.layer_name
     
     # -------------------------------
     # Transform tasks to task names
@@ -521,6 +541,8 @@ def run_training(extension='multihead'):
     ownm3_args = {'do_LSA': do_LSA, 'do_SPT': do_SPT, **ownm1_args, **basic_exts}
     ownm4_args = {'ewc_lambda': ewc_lambda, 'pod_lambda': pod_lambda, 'pod_scales': pod_scales, 'do_pod': do_pod, 'pseudo_alpha': pseudo_alpha, **basic_exts}
     
+    rehearsal_args = {'target_type': feature_rehearsal_target_type, 'num_rehearsal_samples_in_perc': num_rehearsal_samples_in_perc, 'layer_name_for_feature_extraction': layer_name_for_feature_extraction, **basic_exts }
+
     # -- Join the dictionaries into a dictionary with the corresponding class name -- #
     args_f = {'nnUNetTrainerRW': rw_args, 'nnUNetTrainerMultiHead': basic_exts,
               'nnUNetTrainerFrozenViT': basic_exts, 'nnUNetTrainerEWCViT': ewc_args,
@@ -536,7 +558,7 @@ def run_training(extension='multihead'):
 
               'nnUNetTrainerVAE': basic_exts,
               'nnUNetTrainerFeatureRehearsal': basic_exts,
-              'nnUNetTrainerFeatureRehearsal2': basic_exts}
+              'nnUNetTrainerFeatureRehearsal2': rehearsal_args}
 
     
     # ---------------------------------------------

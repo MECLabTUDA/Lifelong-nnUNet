@@ -43,11 +43,14 @@ from nnunet_ext.inference import predict
 from nnunet.training.network_training.nnUNetTrainer import nnUNetTrainer
 import SimpleITK as sitk
 from batchgenerators.augmentations.utils import resize_segmentation
+from batchgenerators.augmentations.utils import pad_nd_image
+
+from nnunet_ext.training.FeatureRehearsalDataset import FeatureRehearsalDataset, FeatureRehearsalTargetType, FeatureRehearsalDataLoader
 
 # -- Define globally the Hyperparameters for this trainer along with their type -- #
 HYPERPARAMS = {}
 
-NUM_FEATURE_SAMPLES = 20
+
 FEATURE_PATH = "extracted_features"
 REHEARSAL_PROBABILITY = 30      # 30% training samples are rehearsed
 
@@ -56,7 +59,13 @@ class nnUNetTrainerFeatureRehearsal2(nnUNetTrainerMultiHead):
     # -- Trains n tasks sequentially using transfer learning -- #
     def __init__(self, split, task, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
-                 identifier=default_plans_identifier, extension='feature_rehearsal2', tasks_list_with_char=None, mixed_precision=True,
+                 identifier=default_plans_identifier, extension='feature_rehearsal2', tasks_list_with_char=None, 
+                 #custom args
+                 target_type: FeatureRehearsalTargetType = FeatureRehearsalTargetType.GROUND_TRUTH,
+                 num_rehearsal_samples_in_perc: float= 1.0,
+                 layer_name_for_feature_extraction: str="",
+
+                 mixed_precision=True,
                  save_csv=True, del_log=False, use_vit=False, vit_type='base', version=1, split_gpu=False, transfer_heads=True,
                  ViT_task_specific_ln=False, do_LSA=False, do_SPT=False, network=None, use_param_split=False):
         r"""Constructor of Sequential trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets. --> Note that the only
@@ -68,9 +77,23 @@ class nnUNetTrainerFeatureRehearsal2(nnUNetTrainerMultiHead):
                          save_csv, del_log, use_vit, vit_type, version, split_gpu, True, ViT_task_specific_ln, do_LSA, do_SPT,
                          network, use_param_split)
         
+        self.target_type = target_type
+        self.num_rehearsal_samples_in_perc = num_rehearsal_samples_in_perc
+        self.layer_name_for_feature_extraction = layer_name_for_feature_extraction
+        assert self.num_rehearsal_samples_in_perc > 0 and self.num_rehearsal_samples_in_perc <= 1, "samples_in_perc should be between 0 and 1: (0, 1]."
+        assert self.layer_name_for_feature_extraction.startswith(("conv_blocks_context","td", "tu", "conv_blocks_localization"))
+        assert self.layer_name_for_feature_extraction.count('.') == 1, "layer_name must have exactly 1 dot"
+        self.num_feature_rehearsal_cases = 0        # store amount of feature_rehearsal cases. init with 0
+
+
+        self.init_args = (split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
+                          deterministic, fp16, save_interval, self.already_trained_on, use_progress, identifier, extension,
+                          tasks_list_with_char, target_type, num_rehearsal_samples_in_perc, layer_name_for_feature_extraction, 
+                          mixed_precision, save_csv, del_log, use_vit, self.vit_type,
+                          version, split_gpu, transfer_heads, ViT_task_specific_ln, do_LSA, do_SPT)
 
     def run_training(self, task, output_folder, build_folder=True):
-
+        #self.num_batches_per_epoch = 5
         ## clear feature folder on first task!
         if self.tasks_list_with_char[0][0] == task:
             self.print_to_log_file("first task. deleting feature sets")
@@ -80,47 +103,73 @@ class nnUNetTrainerFeatureRehearsal2(nnUNetTrainerMultiHead):
             else:
                 for f in os.listdir(path):
                     os.remove(join(path,f))
+            assert len(os.listdir(join(self.trained_on_path, self.extension,  FEATURE_PATH))) == 0
         else:
             ## freeze encoder
-            self.freeze_encoder()
+            self.freeze_network()
 
 
-        #print("before training: ", self.network.conv_blocks_context[0].blocks[0].conv.weight)
-
+        #print("before training: ", task, self.network.conv_blocks_context[0].blocks[0].conv.weight)
         self.network.__class__ = Generic_UNet
-        #ret = super().run_training(task, output_folder, build_folder)
-        ret = None
+        ret = super().run_training(task, output_folder, build_folder)
+        #ret = None
         #print("after training: ", self.network.conv_blocks_context[0].blocks[0].conv.weight)
-        
+
+        #for d in range(len(self.network.conv_blocks_context) - 1):
+        #    print("conv_blocks_context" , d, self.network.conv_blocks_context[d].training)
+        #    if not self.network.convolutional_pooling:
+        #        print(self.network.td[d].training)
+        #print(self.network.conv_blocks_context[-1].training)
+        #for u in range(len(self.network.tu)):
+        #    print("tu" , u, self.network.tu[u].training)            
+        #    print("conv_blocks_localization", u, self.network.conv_blocks_localization[u].training)
+    
+
 
         ## freeze encoder
-        self.freeze_encoder()
+        self.freeze_network()
 
-        ## compute features and store them
+        ## compute features, store them and update feature_rehearsal_dataloader
         self.store_features(task)
-
         return ret
     
 
-    def freeze_encoder(self):
+    def freeze_network(self):
+        self.print_to_log_file("freeze network!")
         # TODO these layers might be influenced by weight decay and/or (nesterov) momentum
-        for name, param in self.network.named_parameters():
-            if 'conv_blocks_context' in name or 'td' in name:
-                param.requires_grad = False
+        # TODO how to deal with instance norms!
+        assert self.layer_name_for_feature_extraction.startswith(("conv_blocks_context", "td", "tu", "conv_blocks_localization"))
+        self.network.freeze_layers(self.layer_name_for_feature_extraction)
+
+
+        self.initialize_optimizer_and_scheduler()
 
     def store_features(self, task):
         self.print_to_log_file("extract features!")
 
-
-        # TODO make this in a normal way. This is kinda messed up 
         with torch.no_grad():
-            #print(self.dataset)
             # preprocess training cases and put them in a queue
 
             input_folder = os.path.join(os.environ['nnUNet_raw_data_base'], 'nnUNet_raw_data', task, 'imagesTr')
             
             expected_num_modalities = load_pickle(self.plans_file)['num_modalities'] # self.plans
             case_ids = predict.check_input_folder_and_return_caseIDs(input_folder, expected_num_modalities)
+
+
+            ## take train cases only
+
+            #print(case_ids)                 # <- all cases from this dataset
+            #print(self.dataset_tr.keys())   # <- all train cases from this dataset
+            assert set(self.dataset_tr.keys()).issubset(set(case_ids)), "idk what, but something is wrong " + str(self.dataset_tr.keys()) + " " + str(case_ids)
+            case_ids = list(self.dataset_tr.keys())
+
+            ## take train cases subset
+            case_ids = random.sample(case_ids, round(len(case_ids) * self.num_rehearsal_samples_in_perc))
+            self.num_feature_rehearsal_cases += len(case_ids)
+
+            self.print_to_log_file("the following cases will be used for feature rehearsal:" + str(case_ids))
+
+
 
             output_folder = join(self.trained_on_path, self.extension,  FEATURE_PATH)
             maybe_mkdir_p(output_folder)
@@ -175,67 +224,56 @@ class nnUNetTrainerFeatureRehearsal2(nnUNetTrainerMultiHead):
                     os.remove(gt_segmentation)
                     gt_segmentation = s
 
+
+
                 # turn off deep supervision ???
-                pad_kwargs = {'constant_values': 0}
-                mirror_axes = self.data_aug_params['mirror_axes']
+                #step_size = 0.5 # TODO verify!!!
+                #pad_border_mode = 'constant'
+                #pad_kwargs = {'constant_values': 0}
+                #mirror_axes = self.data_aug_params['mirror_axes']
                 current_mode = self.network.training
                 self.network.eval()
-                # for all patches in sliding window
-                    # store all features and skip connections and GT segmentation mask
 
+                ds = self.network.do_ds
+                
+                
+                self.network.do_ds = False                           #default: False    TODO
+                do_mirroring = False                                #default: True      only slight performance gain anyways
+                mirror_axes = self.data_aug_params['mirror_axes']   #hard coded
+                use_sliding_window = True                           #hard coded
+                step_size = 0.5                                     #default        (?)
+                use_gaussian = True                                 #hard coded
+                pad_border_mode = 'constant'                        #default        (unset)
+                pad_kwargs = None                                   #default        (unset)
+                all_in_gpu = False                                  #default        (?)
+                verbose = True                                      #default        (unset)
+                mixed_precision = True                              #default        (?)
+                
+
+                ret = self.network.predict_3D(d, do_mirroring=do_mirroring, mirror_axes=mirror_axes,
+                                      use_sliding_window=use_sliding_window, step_size=step_size,
+                                      patch_size=self.patch_size, regions_class_order=self.regions_class_order,
+                                      use_gaussian=use_gaussian, pad_border_mode=pad_border_mode,
+                                      pad_kwargs=pad_kwargs, all_in_gpu=all_in_gpu, verbose=verbose,
+                                      mixed_precision=mixed_precision, 
+                                      ground_truth_segmentation=gt_segmentation, feature_dir=output_filename[:-7],
+                                      layer_name_for_feature_extraction=self.layer_name_for_feature_extraction)
+
+                self.network.do_ds = ds
                 self.network.train(current_mode)
-            exit()
-
-
-            last_feature_set_keys = []
-            for i in range(NUM_FEATURE_SAMPLES):
-                for _ in range(100): # this way we have to test at most 100 * NUM_FEATURE_SAMPLES for a valid feature set
-                    data_dict = next(self.tr_gen)
-
-                    if np.any(last_feature_set_keys != data_dict['keys']):
-                        break
-                
-                data = data_dict['data']
-                target = data_dict['target']
-                last_feature_set_keys = data_dict['keys']
-                self.print_to_log_file(data_dict['keys'])
-
-                data = maybe_to_torch(data)
-                target = maybe_to_torch(target)
-
-                if torch.cuda.is_available():
-                    data = to_cuda(data)
-                    target = to_cuda(target)
-
-                output, features = self.network(data, return_features=True)
-
-
-                l = self.loss(output, target)
-                self.print_to_log_file("sanity check loss during feature extraction: "+ str(l.item()))
-
 
                 
-                ## store features and target
-                # target: List of torch.Tensor
-                # output: Tuple of torch.Tensor (?)
-                # output[0]: torch.Tensor (full resolution)
+                ## update dataloader
+                dataset = FeatureRehearsalDataset(output_folder, self.deep_supervision_scales, self.target_type)
+                dataloader = FeatureRehearsalDataLoader(dataset, batch_size=self.batch_size)
 
-                #print(output[0])
-                #print(target)
-                #print(len(output))
-                #print(len(target))
+                if hasattr(self, 'feature_rehearsal_dataloader'):
+                    del self.feature_rehearsal_dataloader
+                self.feature_rehearsal_dataloader = dataloader
 
-                pseudo_labels = []
-                for i in range(len(target)):
-                    pseudo_labels.append(torch.argmax(output[i],1, keepdim=True)) #perform inference
-
-                feature_train_pair = (features, pseudo_labels)
-                #feature_train_pair = (features, target)
-
-
-                #pickle.dump(feature_train_pair, FEATURE_PATH + str(i) + ".pkl")
-                #write_pickle(feature_train_pair, join(self.output_folder, FEATURE_PATH, task + str(i) + ".pkl"))
-                write_pickle(feature_train_pair, join(self.trained_on_path, self.extension,  FEATURE_PATH, task + str(i) + ".pkl"))
+                #self.tr_gen
+                # TODO self.oversample_foreground_percent
+                # https://stackoverflow.com/questions/67799246/weighted-random-sampler-oversample-or-undersample
 
     def _preprocess_multithreaded(self, list_of_lists, output_files, num_processes=2, segs_from_prev_stage=None):
         #mostly copied from inference/predict
@@ -346,17 +384,29 @@ class nnUNetTrainerFeatureRehearsal2(nnUNetTrainerMultiHead):
         # -- Run iteration as usual --> copied and modified from nnUNetTrainerV2 -- #
 
         rehearse = False
+        
         if do_backprop and len(self.mh_network.heads.keys()) > 1: # only enable the chance of rehearsal when training (not during evaluation) and when trainind not training the first task
-            rehearse = random.randint(0,99) < REHEARSAL_PROBABILITY
+            probability_for_rehearsal = self.num_feature_rehearsal_cases / (self.num_feature_rehearsal_cases + len(self.dataset_tr))
+            v = torch.bernoulli(torch.tensor([probability_for_rehearsal]))[0]# <- unpack value {0,1}
+            rehearse = (v == 1)
 
 
         if rehearse:
-            rehearsal_pair_file = random.choice(os.listdir(join(self.trained_on_path, self.extension,  FEATURE_PATH)))
-            data, target = load_pickle(join(self.trained_on_path, self.extension,  FEATURE_PATH, rehearsal_pair_file))
+            data_dict = next(iter(self.feature_rehearsal_dataloader))
         else:
             data_dict = next(data_generator)
-            data = data_dict['data']
-            target = data_dict['target']
+
+        data = data_dict['data']        # torch.Tensor (normal),    list[torch.Tensor] (rehearsal)
+        target = data_dict['target']    # list[torch.Tensor]
+        
+        #print(data_dict.keys())
+        #print(data_dict['keys'])
+        #print(data.shape)
+        #print(type(target))
+        #print(len(target))
+        #for t in target:
+        #    print(t.shape)
+        #exit()
 
         data = maybe_to_torch(data)
         target = maybe_to_torch(target)
