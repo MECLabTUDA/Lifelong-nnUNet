@@ -486,6 +486,9 @@ def run_training(extension='multihead'):
         assert use_vit, "The nnUNetTrainerFrozEWC can only be used with a ViT_U-Net.."
         adaptive = args.adaptive
 
+    feature_rehearsal_target_type = FeatureRehearsalTargetType.GROUND_TRUTH #set this in case we don't need it
+    num_rehearsal_samples_in_perc = 0
+    layer_name_for_feature_extraction = ""
     if extension in ['feature_rehearsal2']:
         feature_rehearsal_target_type = FeatureRehearsalTargetType[args.target_type.upper()]
         num_rehearsal_samples_in_perc = args.num_samples_in_perc

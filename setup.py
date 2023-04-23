@@ -55,7 +55,10 @@ setup(name='nnunet_ext',
 
               'nnUNet_train_vae = nnunet_ext.run.run_training:main_vae',      
               'nnUNet_train_feature_rehearsal = nnunet_ext.run.run_training:main_feature_rehearsal',   
-              'nnUNet_train_feature_rehearsal2 = nnunet_ext.run.run_training:main_feature_rehearsal2',      
+              'nnUNet_train_feature_rehearsal2 = nnunet_ext.run.run_training:main_feature_rehearsal2',    
+              
+              'nnUNet_inference = nnunet_ext.run.run_inference:main',    
+              'nnUNet_evaluate2 = nnunet_ext.run.run_evaluation:run_evaluation2',    
           ],
       },
       keywords=['deep learning', 'image segmentation', 'medical image analysis',
