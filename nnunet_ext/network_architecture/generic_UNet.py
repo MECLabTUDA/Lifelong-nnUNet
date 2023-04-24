@@ -86,7 +86,6 @@ class Generic_UNet(Generic_UNet_):
             if layer_name_for_feature_extraction == "td." + str(d):
                 features_and_skips = skips + [x]
 
-
         x = self.conv_blocks_context[-1](x)
         if layer_name_for_feature_extraction == "conv_blocks_context." + str(len(self.conv_blocks_context)-1):
             features_and_skips = skips + [x]
@@ -96,14 +95,12 @@ class Generic_UNet(Generic_UNet_):
             x = torch.cat((x, skips[-(u + 1)]), dim=1)
 
             if layer_name_for_feature_extraction == "tu." + str(u):
-                num_skips_to_store = len(skips) - u - 1
-                features_and_skips = skips[0:num_skips_to_store] + [x]
+                features_and_skips = skips+ [x]
 
             x = self.conv_blocks_localization[u](x)
 
             if layer_name_for_feature_extraction == "conv_blocks_localization." + str(u):
-                num_skips_to_store = len(skips) - u - 1
-                features_and_skips = skips[0:num_skips_to_store] + [x]
+                features_and_skips = skips+ [x]
 
             seg_outputs.append(self.final_nonlin(self.seg_outputs[u](x)))
 
@@ -188,68 +185,70 @@ class Generic_UNet(Generic_UNet_):
         
 
     def feature_forward(self, features_and_skips: list[torch.Tensor]):
-        #Attention: If deep supervision is activate, the output might contains Nones!!!
+        #Attention: If deep supervision is activate, the output might contains less entries than you would expect!!!
 
         assert hasattr(self, 'layer_name_for_feature_extraction')
-        
-        forward: bool = False   #turn this on when we pass the place of feature insertion
-        skips = []
+        layer, id = self.layer_name_for_feature_extraction.split('.')
+        id = int(id)
+
+        x = features_and_skips[-1]
+        skips = features_and_skips[:-1]
         seg_outputs = []
-        for d in range(len(self.conv_blocks_context) - 1):
-            
-            if forward:
+
+        if layer == "conv_blocks_context":
+            if id<len(self.conv_blocks_context)-1:
+                skips.append(x)
+                if not self.convolutional_pooling:
+                    x = self.td[id](x)
+            for d in range(id+1, len(self.conv_blocks_context) - 1):
                 x = self.conv_blocks_context[d](x)
-
-            if self.layer_name_for_feature_extraction == "conv_blocks_context." + str(d):
-                forward = True
-                #features_and_skips = skips + [x]
-                skips = features_and_skips[:-1]
-                x = features_and_skips[-1]
-
-            if forward:
+                skips.append(x)
+                if not self.convolutional_pooling:
+                    x = self.td[d](x)
+        elif layer == "td":
+            for d in range(id+1, len(self.conv_blocks_context) - 1):
+                x = self.conv_blocks_context[d](x)
                 skips.append(x)
                 if not self.convolutional_pooling:
                     x = self.td[d](x)
 
-            if self.layer_name_for_feature_extraction == "td." + str(d):
-                forward = True
-                #features_and_skips = skips + [x]
-                skips = features_and_skips[:-1]
-                x = features_and_skips[-1]
+        #for s in skips:
+        #    print(s.shape)
 
-        if forward:
+        if id < len(self.conv_blocks_context)-1 and layer in ["td", "conv_blocks_context"]:
             x = self.conv_blocks_context[-1](x)
         
-        if self.layer_name_for_feature_extraction == "conv_blocks_context." + str(len(self.conv_blocks_context)-1):
-            forward = True
-            #features_and_skips = skips + [x]
-            skips = features_and_skips[:-1]
-            x = features_and_skips[-1]
-        
-        for u in range(len(self.tu)):
-            if forward:
+        if layer in ["td", "conv_blocks_context"]:  #in this case there is nothing to be done
+            for u in range(len(self.tu)):
                 x = self.tu[u](x)
                 x = torch.cat((x, skips[-(u + 1)]), dim=1)
-
-            if self.layer_name_for_feature_extraction == "tu." + str(u):
-                forward = True
-                #features_and_skips = skips[0:num_skips_to_store] + [x]
-                skips = features_and_skips[:-1]
-                x = features_and_skips[-1]
-
-            if forward:
                 x = self.conv_blocks_localization[u](x)
 
-            if self.layer_name_for_feature_extraction == "conv_blocks_localization." + str(u):
-                forward = True
-                #features_and_skips = skips[0:num_skips_to_store] + [x]
-                skips = features_and_skips[:-1]
-                x = features_and_skips[-1]
-
-            if forward:
                 seg_outputs.append(self.final_nonlin(self.seg_outputs[u](x)))
-            else:
-                seg_outputs.append(None)
+
+        elif layer == "conv_blocks_localization":
+            for u in range(id+1, len(self.tu)):
+                x = self.tu[u](x)
+                x = torch.cat((x, skips[-(u + 1)]), dim=1)
+                x = self.conv_blocks_localization[u](x)
+                seg_outputs.append(self.final_nonlin(self.seg_outputs[u](x)))
+
+            if id == len(self.tu)-1:    # that means we only train the highest resolution segmentation head
+                seg_outputs.append(self.final_nonlin(self.seg_outputs[id](x)))
+
+        else:
+            assert layer == "tu"
+            if id < len(self.conv_blocks_localization):
+                x = self.conv_blocks_localization[id](x)
+            for u in range(id+1, len(self.tu)):
+                x = self.tu[u](x)
+                x = torch.cat((x, skips[-(u + 1)]), dim=1)
+                x = self.conv_blocks_localization[u](x)
+                seg_outputs.append(self.final_nonlin(self.seg_outputs[u](x)))
+
+            if id == len(self.tu)-1:    # that means we only train the highest resolution segmentation head and conv_blocks_localization[id] (see few lines prior)
+                seg_outputs.append(self.final_nonlin(self.seg_outputs[id](x)))
+
 
         if self._deep_supervision and self.do_ds:
             return tuple([seg_outputs[-1]] + [i(j) for i, j in

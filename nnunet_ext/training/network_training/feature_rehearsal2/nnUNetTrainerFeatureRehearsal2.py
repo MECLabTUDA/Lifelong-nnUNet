@@ -93,7 +93,7 @@ class nnUNetTrainerFeatureRehearsal2(nnUNetTrainerMultiHead):
                           version, split_gpu, transfer_heads, ViT_task_specific_ln, do_LSA, do_SPT)
 
     def run_training(self, task, output_folder, build_folder=True):
-        #self.num_batches_per_epoch = 5
+        self.num_batches_per_epoch = 5
         ## clear feature folder on first task!
         if self.tasks_list_with_char[0][0] == task:
             self.print_to_log_file("first task. deleting feature sets")
@@ -264,8 +264,9 @@ class nnUNetTrainerFeatureRehearsal2(nnUNetTrainerMultiHead):
 
                 
                 ## update dataloader
+                #torch.multiprocessing.set_start_method('spawn')# good solution !!!!
                 dataset = FeatureRehearsalDataset(output_folder, self.deep_supervision_scales, self.target_type)
-                dataloader = FeatureRehearsalDataLoader(dataset, batch_size=self.batch_size)
+                dataloader = FeatureRehearsalDataLoader(dataset, batch_size=self.batch_size, num_workers=0, pin_memory=True)
 
                 if hasattr(self, 'feature_rehearsal_dataloader'):
                     del self.feature_rehearsal_dataloader
@@ -389,6 +390,7 @@ class nnUNetTrainerFeatureRehearsal2(nnUNetTrainerMultiHead):
             probability_for_rehearsal = self.num_feature_rehearsal_cases / (self.num_feature_rehearsal_cases + len(self.dataset_tr))
             v = torch.bernoulli(torch.tensor([probability_for_rehearsal]))[0]# <- unpack value {0,1}
             rehearse = (v == 1)
+        rehearse = (len(self.mh_network.heads.keys()) > 1)
 
 
         if rehearse:

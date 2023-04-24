@@ -427,9 +427,9 @@ class SegmentationNetwork(NeuralNetwork):
 
                         storage = dict()
                         storage['layer_name_for_feature_extraction'] = layer_name_for_feature_extraction
-                        storage['predicted_segmentations'] = predicted_segmentations
-                        storage['features_and_skips'] = features_and_skips
-                        storage['ground_truth_patch'] = ground_truth_patch
+                        storage['predicted_segmentations'] = predicted_segmentations                        #[p.cpu() for p in predicted_segmentations]
+                        storage['features_and_skips'] = features_and_skips                                  #[f.cpu() for f in features_and_skips]
+                        storage['ground_truth_patch'] = ground_truth_patch                                  #as an np.ndarray this is already at the cpu
 
 
                         # store ground_truth_patch

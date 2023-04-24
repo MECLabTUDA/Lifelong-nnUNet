@@ -4,7 +4,7 @@
 #########################################################################################################
 
 import numpy as np
-import os, argparse, copy, warnings, nnunet_ext
+import os, argparse, copy, warnings, nnunet_ext, torch
 from nnunet.network_architecture.generic_UNet import Generic_UNet
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet.training.model_restore import recursive_find_python_class

@@ -36,6 +36,8 @@ class FeatureRehearsalDataset(Dataset):
 
         data_dict = dict()
         data_dict['features_and_skips'] = storage_dict['features_and_skips']
+        #print(data_dict['features_and_skips'][0].device)
+        #exit()
         
         if self.target_type == FeatureRehearsalTargetType.GROUND_TRUTH:
             gt_patch = storage_dict['ground_truth_patch']
