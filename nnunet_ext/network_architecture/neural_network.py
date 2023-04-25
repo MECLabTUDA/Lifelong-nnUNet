@@ -25,7 +25,7 @@ from scipy.ndimage.filters import gaussian_filter
 from typing import Union, Tuple, List
 
 from torch.cuda.amp import autocast
-from batchgenerators.utilities.file_and_folder_operations import write_pickle
+from batchgenerators.utilities.file_and_folder_operations import write_pickle, join
 
 class NeuralNetwork(nn.Module):
     def __init__(self):
@@ -425,18 +425,27 @@ class SegmentationNetwork(NeuralNetwork):
                     
                         predicted_segmentation = predicted_patch.argmax(0)
 
-                        storage = dict()
-                        storage['layer_name_for_feature_extraction'] = layer_name_for_feature_extraction
-                        storage['predicted_segmentations'] = predicted_segmentations                        #[p.cpu() for p in predicted_segmentations]
-                        storage['features_and_skips'] = features_and_skips                                  #[f.cpu() for f in features_and_skips]
-                        storage['ground_truth_patch'] = ground_truth_patch                                  #as an np.ndarray this is already at the cpu
+                        if False:
+                            storage = dict()
+                            storage['layer_name_for_feature_extraction'] = layer_name_for_feature_extraction
+                            storage['predicted_segmentations'] = predicted_segmentations                        #[p.cpu() for p in predicted_segmentations]
+                            storage['features_and_skips'] = features_and_skips                                  #[f.cpu() for f in features_and_skips]
+                            storage['ground_truth_patch'] = ground_truth_patch                                  #as an np.ndarray this is already at the cpu
+                            write_pickle(storage, feature_dir + "_" +  str(x) + "_" + str(y) + "_" + str(z) + ".pkl")
+                        else:
+                            arr = feature_dir.split('/')
+                            _feature_dir = join("/", *arr[:-1])
+                            file_name = arr[-1]  + "_" + str(x) + "_" + str(y) + "_" + str(z)
+                            np.save(join(_feature_dir, "gt", file_name + ".npy"), ground_truth_patch)
+                            for i, f in enumerate(features_and_skips):
+                                np.save(join(_feature_dir, "features", file_name + "_" + str(i) + ".npy"), f.cpu().numpy())
+                                
 
 
                         # store ground_truth_patch
                         # store all features and skip connections
                         # store predicted_patch (distilled knowledge)
 
-                        write_pickle(storage, feature_dir + "_" +  str(x) + "_" + str(y) + "_" + str(z) + ".pkl")
                         pass
                     else:
                         assert not self.do_ds

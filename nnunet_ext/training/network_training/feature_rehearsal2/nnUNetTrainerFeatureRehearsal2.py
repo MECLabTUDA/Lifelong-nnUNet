@@ -8,7 +8,7 @@ from nnunet_ext.training.network_training.multihead.nnUNetTrainerMultiHead impor
 
 from _warnings import warn
 from typing import Tuple
-
+import timeit
 import matplotlib
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet.network_architecture.neural_network import SegmentationNetwork
@@ -30,7 +30,7 @@ from abc import abstractmethod
 from datetime import datetime
 from tqdm import trange
 from nnunet.utilities.to_torch import maybe_to_torch, to_cuda
-
+from itertools import tee
 import pickle
 from nnunet_ext.network_architecture.generic_UNet import Generic_UNet
 import random
@@ -84,6 +84,7 @@ class nnUNetTrainerFeatureRehearsal2(nnUNetTrainerMultiHead):
         assert self.layer_name_for_feature_extraction.startswith(("conv_blocks_context","td", "tu", "conv_blocks_localization"))
         assert self.layer_name_for_feature_extraction.count('.') == 1, "layer_name must have exactly 1 dot"
         self.num_feature_rehearsal_cases = 0        # store amount of feature_rehearsal cases. init with 0
+        self.rehearse = False                       # variable for alternating schedule
 
 
         self.init_args = (split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
@@ -93,17 +94,21 @@ class nnUNetTrainerFeatureRehearsal2(nnUNetTrainerMultiHead):
                           version, split_gpu, transfer_heads, ViT_task_specific_ln, do_LSA, do_SPT)
 
     def run_training(self, task, output_folder, build_folder=True):
-        self.num_batches_per_epoch = 5
+        #self.num_batches_per_epoch = 5
+
+
+
         ## clear feature folder on first task!
         if self.tasks_list_with_char[0][0] == task:
             self.print_to_log_file("first task. deleting feature sets")
-            path = join(self.trained_on_path, self.extension,  FEATURE_PATH)
-            if not os.path.exists(path):
-                os.makedirs(path)
-            else:
-                for f in os.listdir(path):
-                    os.remove(join(path,f))
-            assert len(os.listdir(join(self.trained_on_path, self.extension,  FEATURE_PATH))) == 0
+            for folder in ["gt", "features"]:
+                path = join(self.trained_on_path, self.extension,  FEATURE_PATH, folder)
+                if not os.path.exists(path):
+                    os.makedirs(path)
+                else:
+                    for f in os.listdir(path):
+                        os.remove(join(path,f))
+                assert len(os.listdir(path)) == 0
         else:
             ## freeze encoder
             self.freeze_network()
@@ -264,13 +269,24 @@ class nnUNetTrainerFeatureRehearsal2(nnUNetTrainerMultiHead):
 
                 
                 ## update dataloader
-                #torch.multiprocessing.set_start_method('spawn')# good solution !!!!
-                dataset = FeatureRehearsalDataset(output_folder, self.deep_supervision_scales, self.target_type)
-                dataloader = FeatureRehearsalDataLoader(dataset, batch_size=self.batch_size, num_workers=0, pin_memory=True)
+                layer, id = self.layer_name_for_feature_extraction.split('.')
+                id = int(id)
+
+                if layer == "conv_blocks_context":
+                    num_features = id + 1
+                elif layer == "td":
+                    num_features = id + 2
+                else:
+                    num_features = len(self.network.conv_blocks_context)
+
+
+                dataset = FeatureRehearsalDataset(join(self.trained_on_path, self.extension,  FEATURE_PATH), self.deep_supervision_scales, self.target_type, num_features)
+                dataloader = FeatureRehearsalDataLoader(dataset, batch_size=self.batch_size, num_workers=8, pin_memory=True, deep_supervision_scales=self.deep_supervision_scales)
 
                 if hasattr(self, 'feature_rehearsal_dataloader'):
                     del self.feature_rehearsal_dataloader
                 self.feature_rehearsal_dataloader = dataloader
+                self.feature_rehearsal_dataiter = iter(dataloader)
 
                 #self.tr_gen
                 # TODO self.oversample_foreground_percent
@@ -387,14 +403,21 @@ class nnUNetTrainerFeatureRehearsal2(nnUNetTrainerMultiHead):
         rehearse = False
         
         if do_backprop and len(self.mh_network.heads.keys()) > 1: # only enable the chance of rehearsal when training (not during evaluation) and when trainind not training the first task
-            probability_for_rehearsal = self.num_feature_rehearsal_cases / (self.num_feature_rehearsal_cases + len(self.dataset_tr))
-            v = torch.bernoulli(torch.tensor([probability_for_rehearsal]))[0]# <- unpack value {0,1}
-            rehearse = (v == 1)
-        rehearse = (len(self.mh_network.heads.keys()) > 1)
+            #probability_for_rehearsal = self.num_feature_rehearsal_cases / (self.num_feature_rehearsal_cases + len(self.dataset_tr))
+            #v = torch.bernoulli(torch.tensor([probability_for_rehearsal]))[0]# <- unpack value {0,1}
+            #rehearse = (v == 1)
+            rehearse = self.rehearse
+            self.rehearse = not self.rehearse
+
+
 
 
         if rehearse:
-            data_dict = next(iter(self.feature_rehearsal_dataloader))
+            try:
+                data_dict = next(self.feature_rehearsal_dataiter)
+            except StopIteration:
+                self.feature_rehearsal_dataiter = iter(self.feature_rehearsal_dataloader)
+                data_dict = next(self.feature_rehearsal_dataiter)
         else:
             data_dict = next(data_generator)
 

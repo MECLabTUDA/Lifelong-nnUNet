@@ -1,6 +1,6 @@
 import torch, os
-from torch.utils.data import Dataset, DataLoader
-
+from torch.utils.data import Dataset, DataLoader, RandomSampler
+import numpy as np
 from nnunet.training.data_augmentation import downsampling
 from enum import Enum
 
@@ -12,40 +12,31 @@ class FeatureRehearsalTargetType(Enum):
     DISTILLED_DEEP_SUPERVISION = 3
 
 class FeatureRehearsalDataset(Dataset):
-    def __init__(self, data_path: str, deep_supervision_scales: list[list[float]], target_type: FeatureRehearsalTargetType) -> None:
+    def __init__(self, data_path: str, deep_supervision_scales: list[list[float]], target_type: FeatureRehearsalTargetType, num_features: int) -> None:
         super().__init__()
         self.data_path = data_path
-        self.data_patches = os.listdir(data_path)
+        self.data_patches = os.listdir(join(data_path, "gt"))
         self.deep_supervision_scales = deep_supervision_scales
         self.target_type = target_type
+        self.num_features = num_features
 
     def __len__(self):
         return len(self.data_patches)
     
     def __getitem__(self, index):
-        # return dict that contains 'data', 'keys' and 'target' where
-        # 'features_and_skips': list[torch.Tensor] (B,C,D,H,W)
-        # 'keys': list[str]
-        # 'target': tuple[torch.Tensor]
-        
-        storage_dict = load_pickle(join(self.data_path, self.data_patches[index]))
-        #'layer_name_for_feature_extraction'
-        #'predicted_segmentations'              list[torch.Tensor]
-        #'features_and_skips'                   list[torch.Tensor]
-        #'ground_truth_patch'                   torch.Tensor
 
         data_dict = dict()
-        data_dict['features_and_skips'] = storage_dict['features_and_skips']
-        #print(data_dict['features_and_skips'][0].device)
-        #exit()
+        data_dict['features_and_skips'] = []
+        for i in range(self.num_features):
+            data_dict['features_and_skips'].append(np.load(join(self.data_path, "features", self.data_patches[index][:-4] + "_" + str(i) +".npy")))
         
         if self.target_type == FeatureRehearsalTargetType.GROUND_TRUTH:
-            gt_patch = storage_dict['ground_truth_patch']
+            gt_patch = np.load(join(self.data_path, "gt",self.data_patches[index]))
             gt_patch = gt_patch[None, None]
             assert len(gt_patch.shape) == 5, "B,C,D,H,W " + str(gt_patch.shape)
-            data_dict['target'] = downsampling.downsample_seg_for_ds_transform2(gt_patch, self.deep_supervision_scales)
+            data_dict['target'] = gt_patch
         elif self.target_type == FeatureRehearsalTargetType.DISTILLED_OUTPUT:
-            pass
+            assert False, "not implemented yet"
         elif self.target_type == FeatureRehearsalTargetType.DISTILLED_DEEP_SUPERVISION:
             assert False, "not implemented yet"
         else:
@@ -57,8 +48,8 @@ class FeatureRehearsalDataset(Dataset):
     
 class FeatureRehearsalDataLoader(DataLoader):
 
-    def __init__(self, dataset: Dataset, batch_size = 1, shuffle = None, sampler= None, batch_sampler= None, num_workers: int = 0, pin_memory: bool = False, drop_last: bool = False, timeout: float = 0, worker_init_fn = None, multiprocessing_context=None, generator=None, *, prefetch_factor = None, persistent_workers: bool = False, pin_memory_device: str = ""):
-        
+    def __init__(self, dataset: Dataset, batch_size = 1, shuffle = None, sampler= None, batch_sampler= None, num_workers: int = 0, pin_memory: bool = False, drop_last: bool = False, timeout: float = 0, worker_init_fn = None, multiprocessing_context=None, generator=None, *, prefetch_factor = None, persistent_workers: bool = False, pin_memory_device: str = "", deep_supervision_scales=None):
+        self.deep_supervision_scales = deep_supervision_scales
         def my_collate_function(list_of_samples: list[dict]):
             #process the list_of_samples to create a batch and return it
             # each dict contains: 'features_and_skips', 'target'
@@ -66,20 +57,26 @@ class FeatureRehearsalDataLoader(DataLoader):
             output_batch = dict()
 
             #process targets
+            #targets = []
+            #for res in range(len(list_of_samples[0]['target'])):
+            #    l = []
+            #    for b in range(B):
+            #        l.append(torch.from_numpy(list_of_samples[b]['target'][res]))
+            #    targets.append(torch.vstack(l))
+            #output_batch['target'] = targets
             targets = []
-            for res in range(len(list_of_samples[0]['target'])):
-                l = []
-                for b in range(B):
-                    l.append(torch.from_numpy(list_of_samples[b]['target'][res]))
-                targets.append(torch.vstack(l))
-            output_batch['target'] = targets
+            for b in range(B):
+                targets.append(list_of_samples[b]['target'])
+            targets = np.vstack(targets)
+            assert len(targets.shape) == 5, "B,C,D,H,W " + str(targets.shape)
+            output_batch['target'] = downsampling.downsample_seg_for_ds_transform2(targets, self.deep_supervision_scales)
 
             #process features_and_skips
             features_and_skips = []
             for res in range(len(list_of_samples[0]['features_and_skips'])):
                 l = []
                 for b in range(B):
-                    l.append(list_of_samples[b]['features_and_skips'][res])
+                    l.append(torch.from_numpy(list_of_samples[b]['features_and_skips'][res]))
                 features_and_skips.append(torch.vstack(l))
             output_batch['data'] = features_and_skips
 
@@ -93,6 +90,8 @@ class FeatureRehearsalDataLoader(DataLoader):
             #    print(x.shape)
             return output_batch
         
-        super().__init__(dataset, batch_size, shuffle, sampler, batch_sampler, num_workers, my_collate_function, pin_memory, drop_last, timeout, worker_init_fn, multiprocessing_context, generator, prefetch_factor=prefetch_factor, persistent_workers=persistent_workers, pin_memory_device=pin_memory_device)
+        super().__init__(dataset, batch_size, shuffle, 
+                         RandomSampler(dataset, replacement=True, num_samples=5000), #<-- this is enough for 10 epochs but maybe this needs to be set higher (?) 
+                         batch_sampler, num_workers, my_collate_function, pin_memory, drop_last, timeout, worker_init_fn, multiprocessing_context, generator, prefetch_factor=prefetch_factor, persistent_workers=persistent_workers, pin_memory_device=pin_memory_device)
     # TODO handle batch size
     # TODO handle foreground oversampling
