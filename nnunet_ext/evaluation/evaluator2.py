@@ -97,13 +97,13 @@ def compute_scores_and_build_dict(evaluate_on: str, inference_folder:str, fold: 
             iou = tp / (tp + fp + fn)
             dice = 2 * tp / ( 2 * tp + fp + fn)
             score_dict = {"IoU": iou, "Dice": dice}
-            masks_dict['masks_'+str(c)] = score_dict
+            masks_dict['mask_'+str(c)] = score_dict
         cases_dict[case] = masks_dict
     return cases_dict
 
 def run_evaluation2(network, network_trainer, tasks_list_with_char: tuple[list[str], str], evaluate_on_tasks: str, model_name_joined:str, enable_tta: bool, mixed_precision: bool, chk: str,
                     fold: int, version, vit_type, plans_identifier,do_LSA, do_SPT, always_use_last_head, use_head, use_model, extension,
-                    transfer_heads, use_vit, ViT_task_specific_ln, do_pod, include_training_data):
+                    transfer_heads, use_vit, ViT_task_specific_ln, do_pod, include_training_data, evaluate_initialization: bool):
     #  run_inference
     ## fixed parameters from inference
     lowres_segmentations = None
@@ -128,6 +128,12 @@ def run_evaluation2(network, network_trainer, tasks_list_with_char: tuple[list[s
         'version': version
     }
 
+    if evaluate_initialization:
+        assert chk is None
+        chk = "before_training"
+    elif chk is None:
+        chk = "model_final_checkpoint"
+
     tasks_joined_name = join_texts_with_char(tasks_list_with_char[0], tasks_list_with_char[1])
     folder_n = get_ViT_LSA_SPT_folder_name(do_LSA, do_SPT)
 
@@ -136,6 +142,17 @@ def run_evaluation2(network, network_trainer, tasks_list_with_char: tuple[list[s
         trainer_path, output_folder = build_trainer_and_output_path(network, network_trainer, tasks_joined_name, model_name_joined, plans_identifier, transfer_heads,
                                                                     folder_n, use_vit, ViT_task_specific_ln, vit_type, version, do_pod, use_head, fold,
                                                                     evaluate_on)
+
+        if evaluate_initialization:
+            arr = output_folder.split("/")
+            print(output_folder)
+            print(arr)
+            assert arr[-4] == 'SEQ'
+            assert arr[-5] == Generic_UNet.__name__
+            assert arr[-6] == network_trainer+'__'+plans_identifier
+            assert arr[-7] == model_name_joined
+            arr[-7] = "initialization"
+            output_folder = join("/", *arr)
 
         input_folder = os.path.join(os.environ['nnUNet_raw_data_base'], 'nnUNet_raw_data', evaluate_on, 'imagesTr')
 

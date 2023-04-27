@@ -113,8 +113,9 @@ def run_evaluation(evaluator: str):
     parser.add_argument('-chk',
                         help='checkpoint name, model_final_checkpoint' or 'model_best',
                         required=False,
-                        default='model_final_checkpoint')
-
+                        default=None)
+    parser.add_argument('-evaluate_initialization', required=False, default=False, action="store_true",
+                        help="set this evaluate the random initialization")
 
     # -------------------------------
     # Extract arguments from parser
@@ -233,10 +234,14 @@ def run_evaluation(evaluator: str):
         evaluator.evaluate_on(fold, evaluate_on_tasks, use_head, always_use_last_head, do_pod=do_pod, adaptive=adaptive, use_all_data=use_all_data)
     else:
         model_name_joined = join_texts_with_char(use_model_w_tasks, char_to_join_tasks)
+
+        if args.evaluate_initialization:
+            assert len(use_model_w_tasks)==1, "need to speficy first task to do evaluate the random init"
+
         for f in fold:
             evaluator2.run_evaluation2(network, network_trainer, (tasks_for_folder, char_to_join_tasks), evaluate_on_tasks, model_name_joined, args.enable_tta, mixed_precision, args.chk, f,
                                     version, vit_type, plans_identifier, do_LSA, do_SPT, always_use_last_head, use_head, use_model, EXT_MAP[network_trainer], transfer_heads,
-                                    use_vit, ViT_task_specific_ln, do_pod, args.include_training_data)
+                                    use_vit, ViT_task_specific_ln, do_pod, args.include_training_data, args.evaluate_initialization)
 
 # -- Main function for setup execution -- #
 def main():

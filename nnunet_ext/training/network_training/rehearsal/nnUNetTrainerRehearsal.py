@@ -61,6 +61,12 @@ class nnUNetTrainerRehearsal(nnUNetTrainerMultiHead):
                           tasks_list_with_char, samples_in_perc, seed, mixed_precision, save_csv, del_log, use_vit, self.vit_type,
                           version, split_gpu, transfer_heads, ViT_task_specific_ln, do_LSA, do_SPT)
 
+    def run_training(self, task, output_folder, build_folder=True):
+        if self.tasks_list_with_char[0][0] == task:
+            assert self.was_initialized
+            self.save_checkpoint(join(self.output_folder, "before_training.model"), False)
+        return super().run_training(task, output_folder, build_folder)
+
     #------------------------------------------ Partially copied from original implementation ------------------------------------------#
     def get_basic_generators(self, use_all_data=False):
         r"""Calculate the joined dataset for the rehearsal training task.

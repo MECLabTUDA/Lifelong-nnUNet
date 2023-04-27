@@ -516,6 +516,12 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                   of the class only if transfer is false. If transfer is set to true, the last head will be used instead
                   of the one from the initialization. This new head is saved under task and will then be trained.
         """
+
+        if self.tasks_list_with_char[0][0] == task:
+            assert self.was_initialized
+            self.save_checkpoint(join(self.output_folder, "before_training.model"), False)
+
+
         # -- Update the self.output_folder, otherwise the data will always be in the same folder for every task -- #
         # -- and everything will be overwritten over and over again -- #
         # -- Do this after reinitialization since the function might change the path -- #

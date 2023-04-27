@@ -109,6 +109,9 @@ class nnUNetTrainerFeatureRehearsal2(nnUNetTrainerMultiHead):
                     for f in os.listdir(path):
                         os.remove(join(path,f))
                 assert len(os.listdir(path)) == 0
+
+            assert self.was_initialized
+            self.save_checkpoint(join(self.output_folder, "before_training.model"), False)
         else:
             ## freeze encoder
             self.freeze_network()
