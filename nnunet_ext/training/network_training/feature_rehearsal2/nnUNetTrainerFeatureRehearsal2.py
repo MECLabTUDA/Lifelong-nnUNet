@@ -52,7 +52,6 @@ HYPERPARAMS = {}
 
 
 FEATURE_PATH = "extracted_features"
-REHEARSAL_PROBABILITY = 30      # 30% training samples are rehearsed
 
 
 class nnUNetTrainerFeatureRehearsal2(nnUNetTrainerMultiHead):
@@ -101,7 +100,7 @@ class nnUNetTrainerFeatureRehearsal2(nnUNetTrainerMultiHead):
         ## clear feature folder on first task!
         if self.tasks_list_with_char[0][0] == task:
             self.print_to_log_file("first task. deleting feature sets")
-            for folder in ["gt", "features"]:
+            for folder in ["gt", "features", "predictions"]:
                 path = join(self.trained_on_path, self.extension,  FEATURE_PATH, folder)
                 if not os.path.exists(path):
                     os.makedirs(path)
@@ -232,7 +231,8 @@ class nnUNetTrainerFeatureRehearsal2(nnUNetTrainerMultiHead):
                     os.remove(gt_segmentation)
                     gt_segmentation = s
 
-
+                assert np.all(d.shape[1:] == gt_segmentation.shape), str(d.shape) + " " + str(gt_segmentation.shape)
+                #unpack channel dimension on data
 
                 # turn off deep supervision ???
                 #step_size = 0.5 # TODO verify!!!
@@ -269,27 +269,28 @@ class nnUNetTrainerFeatureRehearsal2(nnUNetTrainerMultiHead):
 
                 self.network.do_ds = ds
                 self.network.train(current_mode)
-
-                
-                ## update dataloader
-                layer, id = self.layer_name_for_feature_extraction.split('.')
-                id = int(id)
-
-                if layer == "conv_blocks_context":
-                    num_features = id + 1
-                elif layer == "td":
-                    num_features = id + 2
-                else:
-                    num_features = len(self.network.conv_blocks_context)
+            # END: for preprocessed
 
 
-                dataset = FeatureRehearsalDataset(join(self.trained_on_path, self.extension,  FEATURE_PATH), self.deep_supervision_scales, self.target_type, num_features)
-                dataloader = FeatureRehearsalDataLoader(dataset, batch_size=self.batch_size, num_workers=8, pin_memory=True, deep_supervision_scales=self.deep_supervision_scales)
+            ## update dataloader
+            layer, id = self.layer_name_for_feature_extraction.split('.')
+            id = int(id)
 
-                if hasattr(self, 'feature_rehearsal_dataloader'):
-                    del self.feature_rehearsal_dataloader
-                self.feature_rehearsal_dataloader = dataloader
-                self.feature_rehearsal_dataiter = iter(dataloader)
+            if layer == "conv_blocks_context":
+                num_features = id + 1
+            elif layer == "td":
+                num_features = id + 2
+            else:
+                num_features = len(self.network.conv_blocks_context)
+
+
+            dataset = FeatureRehearsalDataset(join(self.trained_on_path, self.extension,  FEATURE_PATH), self.deep_supervision_scales, self.target_type, num_features)
+            dataloader = FeatureRehearsalDataLoader(dataset, batch_size=int(self.batch_size), num_workers=8, pin_memory=True, deep_supervision_scales=self.deep_supervision_scales)
+
+            if hasattr(self, 'feature_rehearsal_dataloader'):
+                del self.feature_rehearsal_dataloader
+            self.feature_rehearsal_dataloader = dataloader
+            self.feature_rehearsal_dataiter = iter(dataloader)
 
                 #self.tr_gen
                 # TODO self.oversample_foreground_percent

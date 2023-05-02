@@ -36,7 +36,10 @@ class FeatureRehearsalDataset(Dataset):
             assert len(gt_patch.shape) == 5, "B,C,D,H,W " + str(gt_patch.shape)
             data_dict['target'] = gt_patch
         elif self.target_type == FeatureRehearsalTargetType.DISTILLED_OUTPUT:
-            assert False, "not implemented yet"
+            gt_patch = np.load(join(self.data_path, "predictions", self.data_patches[index][:-4] + "_" + str(0) +".npy"))
+            gt_patch = gt_patch[None, None]
+            assert len(gt_patch.shape) == 5, "B,C,D,H,W " + str(gt_patch.shape)
+            data_dict['target'] = gt_patch
         elif self.target_type == FeatureRehearsalTargetType.DISTILLED_DEEP_SUPERVISION:
             assert False, "not implemented yet"
         else:

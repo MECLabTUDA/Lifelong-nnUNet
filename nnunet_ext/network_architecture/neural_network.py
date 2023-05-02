@@ -317,6 +317,12 @@ class SegmentationNetwork(NeuralNetwork):
         data, slicer = pad_nd_image(x, patch_size, pad_border_mode, pad_kwargs, True, None)
         data_shape = data.shape  # still c, x, y, z
 
+        if ground_truth_segmentation is not None:
+            ground_truth_segmentation = pad_nd_image(ground_truth_segmentation, patch_size, pad_border_mode, pad_kwargs, False, None)
+            assert np.all(ground_truth_segmentation.shape == data.shape[1:]), str(ground_truth_segmentation.shape) + " " + str(data.shape) 
+            # unpack channel dimension
+                        
+
         # compute the steps for sliding window
         steps = self._compute_steps_for_sliding_window(patch_size, data_shape[1:], step_size)
         num_tiles = len(steps[0]) * len(steps[1]) * len(steps[2])
@@ -397,8 +403,15 @@ class SegmentationNetwork(NeuralNetwork):
                     ub_z = z + patch_size[2]
 
                     if feature_dir is not None:
+                        
                         # extract features
                         ground_truth_patch = ground_truth_segmentation[lb_x:ub_x, lb_y:ub_y, lb_z:ub_z]
+                        if not np.all(ground_truth_patch.shape == patch_size):
+                            print(data.shape)
+                            print(ground_truth_segmentation.shape)
+                            print(lb_x, ub_x, lb_y, ub_y, lb_z, ub_z)
+                            assert False
+                        assert np.all(ground_truth_patch.shape == patch_size), ground_truth_patch.shape
 
                         prediction, features_and_skips = self._internal_maybe_mirror_and_pred_3D(
                             data[None, :, lb_x:ub_x, lb_y:ub_y, lb_z:ub_z], mirror_axes, do_mirroring,
@@ -407,6 +420,7 @@ class SegmentationNetwork(NeuralNetwork):
                         predicted_segmentations = []
                         if isinstance(prediction, tuple): 
                             #deep supervision is turned on
+                            assert False, "not implemented yet"
                             assert self.do_ds
                             for p in prediction:
                                 predicted_segmentation = p[0]# <- unpack batch dimension (B,C,D,H,W) -> (C,D,H,W)
@@ -418,12 +432,14 @@ class SegmentationNetwork(NeuralNetwork):
                             #deep supervision is turned off
                             assert not self.do_ds
                             predicted_patch = prediction[0]# <- unpack batch dimension (B,C,D,H,W) -> (C,D,H,W)
-                            predicted_segmentations.append(predicted_patch.argmax(0))
+                            predicted_patch = predicted_patch.argmax(0)
+                            assert np.all(predicted_patch.shape == ground_truth_patch.shape)
+                            predicted_segmentations.append(predicted_patch)
 
 
-                        predicted_patch = predicted_patch[0]
+                        #predicted_patch = predicted_patch[0]
                     
-                        predicted_segmentation = predicted_patch.argmax(0)
+                        #predicted_segmentation = predicted_patch.argmax(0)
 
                         if False:
                             storage = dict()
@@ -437,8 +453,11 @@ class SegmentationNetwork(NeuralNetwork):
                             _feature_dir = join("/", *arr[:-1])
                             file_name = arr[-1]  + "_" + str(x) + "_" + str(y) + "_" + str(z)
                             np.save(join(_feature_dir, "gt", file_name + ".npy"), ground_truth_patch)
+                            #np.save(join(_feature_dir, "prediction", file_name + ".npy"), predicted_segmentation)
                             for i, f in enumerate(features_and_skips):
                                 np.save(join(_feature_dir, "features", file_name + "_" + str(i) + ".npy"), f.cpu().numpy())
+                            for i, s in enumerate(predicted_segmentations):
+                                np.save(join(_feature_dir, "predictions", file_name + "_" + str(i) + ".npy"), s.cpu().numpy())
                                 
 
 
