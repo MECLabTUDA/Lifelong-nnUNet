@@ -100,7 +100,7 @@ class nnUNetTrainerFeatureRehearsal2(nnUNetTrainerMultiHead):
         ## clear feature folder on first task!
         if self.tasks_list_with_char[0][0] == task:
             self.print_to_log_file("first task. deleting feature sets")
-            for folder in ["gt", "features", "predictions"]:
+            for folder in ["gt", "features", "predictions", "feature_pkl"]:
                 path = join(self.trained_on_path, self.extension,  FEATURE_PATH, folder)
                 if not os.path.exists(path):
                     os.makedirs(path)
@@ -398,6 +398,16 @@ class nnUNetTrainerFeatureRehearsal2(nnUNetTrainerMultiHead):
 
             q.close()
 
+
+    def clean_up(self):
+        for folder in ["gt", "features", "predictions", "feature_pkl"]:
+            path = join(self.trained_on_path, self.extension,  FEATURE_PATH, folder)
+            if not os.path.exists(path):
+                os.makedirs(path)
+            else:
+                for f in os.listdir(path):
+                    os.remove(join(path,f))
+            assert len(os.listdir(path)) == 0
 
 
 

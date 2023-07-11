@@ -20,7 +20,7 @@ from batchgenerators.augmentations.utils import pad_nd_image
 from nnunet.utilities.random_stuff import no_op
 from nnunet.utilities.to_torch import to_cuda, maybe_to_torch
 from torch import nn
-import torch
+import torch, pickle
 from scipy.ndimage.filters import gaussian_filter
 from typing import Union, Tuple, List
 
@@ -458,6 +458,13 @@ class SegmentationNetwork(NeuralNetwork):
                                 np.save(join(_feature_dir, "features", file_name + "_" + str(i) + ".npy"), f.cpu().numpy())
                             for i, s in enumerate(predicted_segmentations):
                                 np.save(join(_feature_dir, "predictions", file_name + "_" + str(i) + ".npy"), s.cpu().numpy())
+
+                            
+                            with open(join(_feature_dir, "feature_pkl", file_name + ".pkl"), mode="wb") as outfile:
+                                _features_and_skips = [f.cpu().numpy() for f in features_and_skips]
+                                pickle.dump(_features_and_skips, outfile, pickle.HIGHEST_PROTOCOL)
+
+                            
                                 
 
 

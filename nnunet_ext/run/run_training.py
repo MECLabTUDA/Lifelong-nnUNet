@@ -926,6 +926,11 @@ def run_training(extension='multihead'):
         init_seq = args.init_seq
         prev_trainer = args.initialize_with_network_trainer
 
+    # END: for each task
+    if extension == 'feature_rehearsal2':
+        #delete features
+        trainer.clean_up()
+
 #------------------------------------------- Inspired by original implementation -------------------------------------------#
 
 # -- Add the main function calls for the setup file -- #

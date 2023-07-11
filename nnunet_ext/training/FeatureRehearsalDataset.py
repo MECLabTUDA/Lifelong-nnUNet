@@ -26,9 +26,9 @@ class FeatureRehearsalDataset(Dataset):
     def __getitem__(self, index):
 
         data_dict = dict()
-        data_dict['features_and_skips'] = []
-        for i in range(self.num_features):
-            data_dict['features_and_skips'].append(np.load(join(self.data_path, "features", self.data_patches[index][:-4] + "_" + str(i) +".npy")))
+        data_dict['features_and_skips'] = load_pickle(join(self.data_path, "feature_pkl", self.data_patches[index][:-4] + ".pkl"))
+        #for i in range(self.num_features):
+        #    data_dict['features_and_skips'].append(np.load(join(self.data_path, "features", self.data_patches[index][:-4] + "_" + str(i) +".npy")))
         
         if self.target_type == FeatureRehearsalTargetType.GROUND_TRUTH:
             gt_patch = np.load(join(self.data_path, "gt",self.data_patches[index]))

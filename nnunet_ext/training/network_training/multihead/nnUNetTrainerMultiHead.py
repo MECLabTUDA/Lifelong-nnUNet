@@ -665,6 +665,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # -- If the current epoch can be divided without a rest by self.save_every than its time for a validation -- #
         if self.epoch % self.save_every == self.save_every - 1:   # Same as checkpoint saving from nnU-Net (NOTE: this is because its 0 based)
             self._perform_validation()
+            self.save_checkpoint(join(self.output_folder, "training_" + str(self.epoch) +".model"), False)
 
         # -- Return the result from the parent class -- #
         return res
