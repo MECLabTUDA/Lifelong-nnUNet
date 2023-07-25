@@ -80,6 +80,20 @@ In certain cases you may wish to change the meaning of certain labels or merge d
 
 <img src="https://user-images.githubusercontent.com/34241665/167389637-09eeb24d-7a34-43cf-8dc1-baf76b8dd17d.png" width="400" />
 
+## Citations
+If you are using Lifelong-nnUNet for your article, please cite the following paper:
+```
+@article{gonzalez2023lifelong,
+  title={Lifelong nnU-Net: a framework for standardized medical continual learning},
+  author={Gonz{\'a}lez, Camila and Ranem, Amin and Pinto dos Santos, Daniel and Othman, Ahmed and Mukhopadhyay, Anirban},
+  journal={Scientific Reports},
+  volume={13},
+  number={1},
+  pages={9381},
+  year={2023},
+  publisher={Nature Publishing Group UK London}
+}
+```
 
 ## License
 
