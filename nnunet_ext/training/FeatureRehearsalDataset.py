@@ -13,13 +13,31 @@ class FeatureRehearsalTargetType(Enum):
     NONE = 4
 
 class FeatureRehearsalDataset(Dataset):
-    def __init__(self, data_path: str, deep_supervision_scales: list[list[float]], target_type: FeatureRehearsalTargetType, num_features: int) -> None:
+    def __init__(self, data_path: str, deep_supervision_scales: list[list[float]], target_type: FeatureRehearsalTargetType, num_features: int,
+                 new_task_idx:int = None, old_dict_from_file_name_to_task_idx: dict = None) -> None:
         super().__init__()
         self.data_path = data_path
         self.data_patches = os.listdir(join(data_path, "gt"))
         self.deep_supervision_scales = deep_supervision_scales
         self.target_type = target_type
         self.num_features = num_features
+
+        self.store_task_idx = new_task_idx is not None
+        if self.store_task_idx:
+            assert old_dict_from_file_name_to_task_idx is not None
+            self.task_idx_array = []
+            for file in self.data_patches:
+                if file in old_dict_from_file_name_to_task_idx.keys():
+                    self.task_idx_array.append(old_dict_from_file_name_to_task_idx[file])
+                else:
+                    self.task_idx_array.append(new_task_idx)
+
+    def get_dict_from_file_name_to_task_idx(self):
+        assert self.store_task_idx
+        d ={}
+        for i, file in enumerate(self.data_patches):
+            d[file] = self.task_idx_array[i]
+        return d
 
     def __len__(self):
         return len(self.data_patches)
@@ -34,12 +52,10 @@ class FeatureRehearsalDataset(Dataset):
         if self.target_type == FeatureRehearsalTargetType.GROUND_TRUTH:
             gt_patch = np.load(join(self.data_path, "gt",self.data_patches[index]))
             gt_patch = gt_patch[None, None]
-            assert len(gt_patch.shape) == 5, "B,C,D,H,W " + str(gt_patch.shape)
             data_dict['target'] = gt_patch
         elif self.target_type == FeatureRehearsalTargetType.DISTILLED_OUTPUT:
             gt_patch = np.load(join(self.data_path, "predictions", self.data_patches[index][:-4] + "_" + str(0) +".npy"))
             gt_patch = gt_patch[None, None]
-            assert len(gt_patch.shape) == 5, "B,C,D,H,W " + str(gt_patch.shape)
             data_dict['target'] = gt_patch
         elif self.target_type == FeatureRehearsalTargetType.DISTILLED_DEEP_SUPERVISION:
             assert False, "not implemented yet"
@@ -48,8 +64,9 @@ class FeatureRehearsalDataset(Dataset):
         else:
             assert False
 
+        if self.store_task_idx:
+            data_dict['task_idx'] = self.task_idx_array[index]
 
-        #downsampling.
         return data_dict
     
 class FeatureRehearsalDataLoader(DataLoader):
@@ -76,7 +93,6 @@ class FeatureRehearsalDataLoader(DataLoader):
                 for b in range(B):
                     targets.append(list_of_samples[b]['target'])
                 targets = np.vstack(targets)
-                assert len(targets.shape) == 5, "B,C,D,H,W " + str(targets.shape)
                 output_batch['target'] = downsampling.downsample_seg_for_ds_transform2(targets, self.deep_supervision_scales)
             elif dataset.target_type in [FeatureRehearsalTargetType.DISTILLED_DEEP_SUPERVISION]:
                 assert False, "not implemented"
@@ -94,14 +110,10 @@ class FeatureRehearsalDataLoader(DataLoader):
                 features_and_skips.append(torch.vstack(l))
             output_batch['data'] = features_and_skips
 
+            if dataset.store_task_idx:
+                output_batch['task_idx'] = torch.IntTensor([sample['task_idx'] for sample in list_of_samples])
 
-            #print(len(list_of_samples))
-            #print(type(list_of_samples[0]))
-            #for x in targets:
-            #    print(x.shape)
-            #print("--")
-            #for x in features_and_skips:
-            #    print(x.shape)
+
             return output_batch
         
         super().__init__(dataset, batch_size, shuffle, 

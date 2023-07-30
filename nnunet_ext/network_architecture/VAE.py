@@ -2,6 +2,9 @@ import torch
 import torch.nn as nn
 import numpy as np
 
+# inspired by https://github.com/chendaichao/VAE-pytorch
+
+
 class Unflatten(nn.Module):
     def forward(self, x):
         assert len(x.shape)==2  #x: (B, C)
@@ -89,9 +92,83 @@ class VAE(nn.Module):
         x = self.encoder(x)
         return self.compute_mean(x), self.compute_log_var(x)
 
+    def decode(self, z):
+        return self.decoder(z)
+
     def forward(self, x):
         mean, log_var =self.encode(x)
 
         z = self.sample_from(mean, log_var)
-        x_hat = self.decoder(z)
+        x_hat = self.decode(z)
         return x_hat, mean, log_var
+    
+
+class SecondStageVAE(nn.Module):
+    def __init__(self, input_dim: int, dim_of_conditional: int, num_tasks:int) -> None:
+        super().__init__()
+
+        self.task_embedding = nn.Embedding(num_tasks, dim_of_conditional)
+
+        self.latent_dim = input_dim
+
+        self.encoder = nn.Sequential(
+            nn.Linear(input_dim + dim_of_conditional, 2* input_dim),
+            nn.BatchNorm1d(2* input_dim),
+            nn.LeakyReLU(inplace=True),
+            nn.Linear(2* input_dim, input_dim),
+            nn.BatchNorm1d(input_dim),
+            nn.LeakyReLU(inplace=True)
+        )
+        self.compute_mean = nn.Linear(input_dim, input_dim)
+        self.compute_log_var = nn.Linear(input_dim, input_dim)
+
+        self.decoder = nn.Sequential(
+            nn.Linear(input_dim + dim_of_conditional, 2* input_dim),
+            nn.BatchNorm1d(2* input_dim),
+            nn.LeakyReLU(inplace=True),
+            nn.Linear(2* input_dim, input_dim)
+        )
+
+    def sample_from(self, mean, log_var):
+        eps = torch.randn(mean.shape, device=mean.device)
+        var = 0.5 * torch.exp(log_var)
+        return mean + eps * var
+
+    def encode(self, x, task_idx: int):
+        y = self.task_embedding(task_idx)
+        x = torch.cat((x,y), dim=1)
+        x = self.encoder(x)
+        return self.compute_mean(x), self.compute_log_var(x)
+    
+    def decode(self, z, task_idx):
+        y = self.task_embedding(task_idx)
+        z = torch.cat((z,y), dim=1)
+        return self.decoder(z)
+
+
+    def forward(self, x, task_idx: int):
+        mean, log_var = self.encode(x, task_idx)
+
+        z = self.sample_from(mean, log_var)
+        x_hat = self.decode(z, task_idx)
+        return x_hat, mean, log_var
+    
+    def generate(self, task_idx: int or torch.Tensor):
+        if (type(task_idx) is int):
+            task_idx = torch.tensor(task_idx)
+        task_idx = task_idx.cuda()
+        if (len(task_idx.shape) == 0):
+            batch_size = None
+            class_idx = class_idx.unsqueeze(0)
+            z = torch.randn((1, self.latent_dim)).cuda()
+        else:
+            batch_size = class_idx.shape[0]
+            z = torch.randn((batch_size, self.latent_dim)).cuda()
+
+        
+        y = self.task_embedding(task_idx)
+        res = self.decode(z, y)
+        if not batch_size:
+            res = res.squeeze(0)
+        return res
+    

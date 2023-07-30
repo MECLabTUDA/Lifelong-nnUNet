@@ -45,11 +45,11 @@ import SimpleITK as sitk
 from batchgenerators.augmentations.utils import resize_segmentation
 from batchgenerators.augmentations.utils import pad_nd_image
 
-from nnunet_ext.network_architecture.VAE import VAE
+from nnunet_ext.network_architecture.VAE import VAE, SecondStageVAE
 from nnunet_ext.network_architecture.generic_UNet_no_skips import Generic_UNet_no_skips
 from nnunet_ext.training.FeatureRehearsalDataset import FeatureRehearsalDataset, FeatureRehearsalTargetType, FeatureRehearsalDataLoader, InfiniteIterator
 
-from nnunet_ext.training.investigate_vae import visualize_latent_space
+from nnunet_ext.training.investigate_vae import visualize_latent_space, visualize_second_stage_latent_space
 
 # -- Define globally the Hyperparameters for this trainer along with their type -- #
 HYPERPARAMS = {}
@@ -89,6 +89,9 @@ class nnUNetTrainerVAERehearsalNoSkips(nnUNetTrainerMultiHead):
         self.rehearse = False                       # variable for alternating schedule
 
 
+        self.dict_from_file_name_to_task_idx = {}
+        self.task_label_to_task_idx = []
+
         self.init_args = (split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
                           deterministic, fp16, save_interval, self.already_trained_on, use_progress, identifier, extension,
                           tasks_list_with_char, num_rehearsal_samples_in_perc, layer_name_for_feature_extraction, 
@@ -96,7 +99,7 @@ class nnUNetTrainerVAERehearsalNoSkips(nnUNetTrainerMultiHead):
                           version, split_gpu, transfer_heads, ViT_task_specific_ln, do_LSA, do_SPT)
 
     def run_training(self, task, output_folder, build_folder=True):
-        self.num_batches_per_epoch = 5
+        #self.num_batches_per_epoch = 5
 
         ## clear feature folder on first task!
         if self.tasks_list_with_char[0][0] == task:
@@ -118,8 +121,8 @@ class nnUNetTrainerVAERehearsalNoSkips(nnUNetTrainerMultiHead):
 
 
         self.network.__class__ = Generic_UNet_no_skips
-        #ret = super().run_training(task, output_folder, build_folder)
-        ret = None
+        ret = super().run_training(task, output_folder, build_folder)
+        #ret = None
 
         ## freeze encoder
         self.freeze_network()
@@ -274,13 +277,20 @@ class nnUNetTrainerVAERehearsalNoSkips(nnUNetTrainerMultiHead):
                 num_features = len(self.network.conv_blocks_context)
 
 
-            dataset = FeatureRehearsalDataset(join(self.trained_on_path, self.extension,  FEATURE_PATH), self.deep_supervision_scales, FeatureRehearsalTargetType.NONE, num_features)
+            
+            self.task_label_to_task_idx.append(task)
+            new_task_idx: int = self.task_label_to_task_idx.index(task)
+
+
+            dataset = FeatureRehearsalDataset(join(self.trained_on_path, self.extension,  FEATURE_PATH), self.deep_supervision_scales, FeatureRehearsalTargetType.GROUND_TRUTH, 
+                                              num_features, new_task_idx=new_task_idx, old_dict_from_file_name_to_task_idx=self.dict_from_file_name_to_task_idx)
             dataloader = FeatureRehearsalDataLoader(dataset, batch_size=int(self.batch_size), num_workers=8, pin_memory=True, deep_supervision_scales=self.deep_supervision_scales)
 
             if hasattr(self, 'feature_rehearsal_dataloader'):
                 del self.feature_rehearsal_dataloader
             self.feature_rehearsal_dataloader = dataloader
             self.feature_rehearsal_dataiter = InfiniteIterator(dataloader)
+            self.dict_from_file_name_to_task_idx = dataset.get_dict_from_file_name_to_task_idx()
 
                 #self.tr_gen
                 # TODO self.oversample_foreground_percent
@@ -390,7 +400,6 @@ class nnUNetTrainerVAERehearsalNoSkips(nnUNetTrainerMultiHead):
 
 
     def clean_up(self):
-        return
         for folder in ["gt", "features", "predictions", "feature_pkl"]:
             path = join(self.trained_on_path, self.extension,  FEATURE_PATH, folder)
             if not os.path.exists(path):
@@ -503,17 +512,70 @@ class nnUNetTrainerVAERehearsalNoSkips(nnUNetTrainerMultiHead):
 
 
     def train_both_vaes(self):
-        pass
-
-
-    def train_vae(self):
-        data_dict = next(self.feature_rehearsal_dataiter)
-
-        
-        shape = data_dict['data'][-1].shape[1:] #<- remove batch dim from shape
+        dim_of_conditional = 16
         hidden_dim = 512
-        vae = VAE(shape, hidden_dim).cuda()
-        self.print_to_log_file(vae)
+        num_tasks = len(self.task_label_to_task_idx)
+
+        ################# first stage
+        data_dict = next(self.feature_rehearsal_dataiter)
+        shape = data_dict['data'][-1].shape[1:] #<- remove batch dim from shape
+        first_vae = VAE(shape, hidden_dim)
+        self.print_to_log_file("Start training of the first stage VAE")
+        self.print_to_log_file(first_vae)
+        self.train_vae(first_vae, False)
+
+        first_stage_state_dict = first_vae.state_dict()
+        for key in first_stage_state_dict.keys():
+            first_stage_state_dict[key] = first_stage_state_dict[key].cpu()
+
+        first_save_this = {
+            'shape': shape,
+            'hidden_dim': hidden_dim,
+            'state_dict': first_stage_state_dict
+        }
+        torch.save(first_save_this, join(self.output_folder, "first_vae.model"))
+        self.print_to_log_file("done saving the first stage VAE model.")
+        if self.fp16:
+            with autocast():
+                visualize_latent_space(first_vae, self.feature_rehearsal_dataloader, join(self.output_folder, "first_vae_visualization.png"))
+        else:
+            visualize_latent_space(first_vae, self.feature_rehearsal_dataloader, join(self.output_folder, "first_vae_visualization.png"))
+        self.print_to_log_file("done creating first stage VAE latent space visualization.")
+
+
+
+        ################# second stage
+        second_vae = SecondStageVAE(hidden_dim, dim_of_conditional, num_tasks)
+        self.print_to_log_file("Start training of the second stage VAE")
+        self.print_to_log_file(second_vae)
+        self.train_vae(second_vae, True, first_vae)
+
+        second_stage_state_dict = second_vae.state_dict()
+        for key in second_stage_state_dict.keys():
+            second_stage_state_dict[key] = second_stage_state_dict[key].cpu()
+
+        second_save_this = {
+            'input_dim': hidden_dim,
+            'dim_of_conditional': dim_of_conditional,
+            'num_tasks': num_tasks,
+            'state_dict': second_stage_state_dict
+        }
+        torch.save(second_save_this, join(self.output_folder, "first_vae.model"))
+        self.print_to_log_file("done saving the first stage VAE model.")
+
+
+        if self.fp16:
+            with autocast():
+                visualize_second_stage_latent_space(first_vae, second_vae, self.feature_rehearsal_dataloader, join(self.output_folder, "second_vae_visualization.png"))
+        else:
+            visualize_second_stage_latent_space(first_vae, second_vae, self.feature_rehearsal_dataloader, join(self.output_folder, "second_vae_visualization.png"))
+        self.print_to_log_file("done creating second stage VAE latent space visualization.")
+
+
+    def train_vae(self, vae, is_second_stage: bool, first_stage_vae: VAE=None):
+        vae = vae.cuda().train()
+        if first_stage_vae is not None:
+            first_stage_vae = first_stage_vae.cuda().eval()
 
         lr = 0.0001
         optimizer = torch.optim.Adam(vae.parameters(), lr=lr, weight_decay = 0.0001)
@@ -526,11 +588,13 @@ class nnUNetTrainerVAERehearsalNoSkips(nnUNetTrainerMultiHead):
         def loss(x, x_hat, mean, log_var):
             reconstruction_loss = torch.mean(torch.sum((x_hat - x)**2,dim=1))
             kl_divergence = torch.mean(0.5 * torch.sum(-1 - log_var + torch.exp(log_var) + mean**2, dim=1))
-            return (reconstruction_loss + kl_divergence)
+            return reconstruction_loss, kl_divergence
 
 
         for epoch in range(self.max_num_epochs):
             train_losses = []
+            reconstruction_losses = []
+            kl_divergences = []
             with trange(self.num_batches_per_epoch) as tbar:
                 for b in tbar:
                     tbar.set_description("Epoch {}/{}".format(epoch+1, self.max_num_epochs))
@@ -542,20 +606,39 @@ class nnUNetTrainerVAERehearsalNoSkips(nnUNetTrainerMultiHead):
                     if torch.cuda.is_available():
                         data = to_cuda(data)
 
+                    if is_second_stage:
+                        task_idx = to_cuda(data_dict['task_idx'])
+                        with torch.no_grad():
+                            if self.fp16:
+                                with autocast():
+                                    mean, log_var =  first_stage_vae.encode(data)
+                                    data = first_stage_vae.sample_from(mean, log_var)
+                            else:
+                                mean, log_var =  first_stage_vae.encode(data)
+                                data = first_stage_vae.sample_from(mean, log_var)
+
 
                     optimizer.zero_grad()
                     if self.fp16:
                         with autocast():
-                            x_hat, mean, log_var = vae(data)
-                            l = loss(data, x_hat, mean, log_var)
+                            if is_second_stage:
+                                x_hat, mean, log_var = vae(data, task_idx)
+                            else:
+                                x_hat, mean, log_var = vae(data)
+                            reconstruction_loss, kl_div = loss(data, x_hat, mean, log_var)
+                            l = reconstruction_loss + kl_div
                             amp_grad_scaler.scale(l).backward()
                             amp_grad_scaler.unscale_(optimizer)
                             torch.nn.utils.clip_grad_norm_(vae.parameters(), 12)
                             amp_grad_scaler.step(optimizer)
                             amp_grad_scaler.update()
                     else:
-                        x_hat, mean, log_var = vae(data)
-                        l = loss(data, x_hat, mean, log_var)
+                        if is_second_stage:
+                            x_hat, mean, log_var = vae(data, task_idx)
+                        else:
+                            x_hat, mean, log_var = vae(data)
+                        reconstruction_loss, kl_div = loss(data, x_hat, mean, log_var)
+                        l = reconstruction_loss + kl_div
                         l.backward()
                         torch.nn.utils.clip_grad_norm_(vae.parameters(), 12)
                         optimizer.step()
@@ -564,29 +647,13 @@ class nnUNetTrainerVAERehearsalNoSkips(nnUNetTrainerMultiHead):
 
                     tbar.set_postfix(loss=l)
                     train_losses.append(l)
+                    reconstruction_losses.append(reconstruction_loss.cpu().item())
+                    kl_divergences.append(kl_div.cpu().item())
             adjust_lr(optimizer)
             self.print_to_log_file(f"finish epoch {epoch+1} with average loss: {np.mean(train_losses)}")
+            self.print_to_log_file(f"where {np.mean(reconstruction_losses)} was the reconstruction loss and {np.mean(kl_divergences)} was the KL divergence")
         #END of training
-    
-        vae_output_path = join(self.output_folder, "vae.model")
-        state_dict = vae.state_dict()
-        for key in state_dict.keys():
-            state_dict[key] = state_dict[key].cpu()
-
-        save_this = {
-            'shape': shape,
-            'hidden_dim': hidden_dim,
-            'state_dict': state_dict
-        }
-        torch.save(save_this, vae_output_path)
-        self.print_to_log_file("done saving the VAE model.")
-        if self.fp16:
-            with autocast():
-                visualize_latent_space(vae, self.feature_rehearsal_dataloader, join(self.output_folder, "vae_visualiation.png"))
-            self.print_to_log_file("done creating VAE latent space visualization.")
-        else:
-            visualize_latent_space(vae, self.feature_rehearsal_dataloader, join(self.output_folder, "vae_visualiation.png"))
-            self.print_to_log_file("done creating VAE latent space visualization.")
+        return vae
         
 
 
