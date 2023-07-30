@@ -10,6 +10,7 @@ class FeatureRehearsalTargetType(Enum):
     GROUND_TRUTH = 1
     DISTILLED_OUTPUT = 2
     DISTILLED_DEEP_SUPERVISION = 3
+    NONE = 4
 
 class FeatureRehearsalDataset(Dataset):
     def __init__(self, data_path: str, deep_supervision_scales: list[list[float]], target_type: FeatureRehearsalTargetType, num_features: int) -> None:
@@ -42,6 +43,8 @@ class FeatureRehearsalDataset(Dataset):
             data_dict['target'] = gt_patch
         elif self.target_type == FeatureRehearsalTargetType.DISTILLED_DEEP_SUPERVISION:
             assert False, "not implemented yet"
+        elif self.target_type == FeatureRehearsalTargetType.NONE:
+            pass
         else:
             assert False
 
@@ -67,12 +70,20 @@ class FeatureRehearsalDataLoader(DataLoader):
             #        l.append(torch.from_numpy(list_of_samples[b]['target'][res]))
             #    targets.append(torch.vstack(l))
             #output_batch['target'] = targets
-            targets = []
-            for b in range(B):
-                targets.append(list_of_samples[b]['target'])
-            targets = np.vstack(targets)
-            assert len(targets.shape) == 5, "B,C,D,H,W " + str(targets.shape)
-            output_batch['target'] = downsampling.downsample_seg_for_ds_transform2(targets, self.deep_supervision_scales)
+
+            if dataset.target_type in [FeatureRehearsalTargetType.GROUND_TRUTH, FeatureRehearsalTargetType.DISTILLED_OUTPUT]:
+                targets = []
+                for b in range(B):
+                    targets.append(list_of_samples[b]['target'])
+                targets = np.vstack(targets)
+                assert len(targets.shape) == 5, "B,C,D,H,W " + str(targets.shape)
+                output_batch['target'] = downsampling.downsample_seg_for_ds_transform2(targets, self.deep_supervision_scales)
+            elif dataset.target_type in [FeatureRehearsalTargetType.DISTILLED_DEEP_SUPERVISION]:
+                assert False, "not implemented"
+            elif dataset.target_type in [FeatureRehearsalTargetType.NONE]:
+                pass
+            else:
+                assert False
 
             #process features_and_skips
             features_and_skips = []
@@ -98,3 +109,15 @@ class FeatureRehearsalDataLoader(DataLoader):
                          batch_sampler, num_workers, my_collate_function, pin_memory, drop_last, timeout, worker_init_fn, multiprocessing_context, generator, prefetch_factor=prefetch_factor, persistent_workers=persistent_workers, pin_memory_device=pin_memory_device)
     # TODO handle batch size
     # TODO handle foreground oversampling
+
+class InfiniteIterator():
+    def __init__(self, dataloader) -> None:
+        self.dataloader = dataloader
+        self.dataiter = iter(self.dataloader)
+
+    def __next__(self):
+        try:
+            return next(self.dataiter)
+        except StopIteration:
+            self.dataiter = iter(self.dataloader)
+            return next(self.dataiter)

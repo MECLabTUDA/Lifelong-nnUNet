@@ -232,10 +232,12 @@ def run_training(extension='multihead'):
                             help='Set this flag if the EWC loss should be changed during the frozen training process (ewc_lambda*e^{-1/3}). '
                                  ' Default: The EWC loss will not be altered.')
 
-    if extension in ['feature_rehearsal2']:
+    if extension in ['feature_rehearsal2', 'feature_rehearsal_no_freeze', 'feature_rehearsal_no_replay']:
         # target_type
         parser.add_argument('-target_type', action='store', type=str, required=False, default="ground_truth",
                             help='possible: ground_truth, distilled_output, distilled_deep_supervision. Default is ground_truth')
+        
+    if extension in ['feature_rehearsal2', 'feature_rehearsal_no_freeze', 'feature_rehearsal_no_replay', 'vae_rehearsal_no_skips']:
         # num_rehearsal_samples_in_perc
         parser.add_argument('-num_samples_in_perc', action='store', type=float, required=False, default=0.25,
                             help='Specify how much of the previous tasks should be considered during training.'
@@ -347,7 +349,7 @@ def run_training(extension='multihead'):
     os.environ["CUDA_VISIBLE_DEVICES"] = cuda
 
     # -- Reset transfer heads if the Trainer is of sequential type -- #
-    if extension in ['sequential', 'plop', 'frozen_nonln', 'frozen_unet', 'frozen_vit']:
+    if extension in ['sequential', 'plop', 'frozen_nonln', 'frozen_unet', 'frozen_vit', 'sequential_no_skips']:
         # -- Transfer heads is always True here even if the user did not set it -- #
         transfer_heads = True
 
@@ -489,8 +491,10 @@ def run_training(extension='multihead'):
     feature_rehearsal_target_type = FeatureRehearsalTargetType.GROUND_TRUTH #set this in case we don't need it
     num_rehearsal_samples_in_perc = 0
     layer_name_for_feature_extraction = ""
-    if extension in ['feature_rehearsal2']:
+    if extension in ['feature_rehearsal2', 'feature_rehearsal_no_freeze', 'feature_rehearsal_no_replay']:
         feature_rehearsal_target_type = FeatureRehearsalTargetType[args.target_type.upper()]
+
+    if extension in ['feature_rehearsal2', 'feature_rehearsal_no_freeze', 'feature_rehearsal_no_replay', 'vae_rehearsal_no_skips']:
         num_rehearsal_samples_in_perc = args.num_samples_in_perc
         layer_name_for_feature_extraction = args.layer_name
     
@@ -545,6 +549,7 @@ def run_training(extension='multihead'):
     ownm4_args = {'ewc_lambda': ewc_lambda, 'pod_lambda': pod_lambda, 'pod_scales': pod_scales, 'do_pod': do_pod, 'pseudo_alpha': pseudo_alpha, **basic_exts}
     
     rehearsal_args = {'target_type': feature_rehearsal_target_type, 'num_rehearsal_samples_in_perc': num_rehearsal_samples_in_perc, 'layer_name_for_feature_extraction': layer_name_for_feature_extraction, **basic_exts }
+    vae_rehearsal_args = {'num_rehearsal_samples_in_perc': num_rehearsal_samples_in_perc, 'layer_name_for_feature_extraction': layer_name_for_feature_extraction, **basic_exts }
 
     # -- Join the dictionaries into a dictionary with the corresponding class name -- #
     args_f = {'nnUNetTrainerRW': rw_args, 'nnUNetTrainerMultiHead': basic_exts,
@@ -561,7 +566,11 @@ def run_training(extension='multihead'):
 
               'nnUNetTrainerVAE': basic_exts,
               'nnUNetTrainerFeatureRehearsal': basic_exts,
-              'nnUNetTrainerFeatureRehearsal2': rehearsal_args}
+              'nnUNetTrainerFeatureRehearsal2': rehearsal_args,
+              'nnUNetTrainerFeatureRehearsalNoReplay': rehearsal_args,
+              'nnUNetTrainerFeatureRehearsalNoFreeze': rehearsal_args,
+              'nnUNetTrainerSequentialNoSkips': basic_exts,
+              'nnUNetTrainerVAERehearsalNoSkips': vae_rehearsal_args}
 
     
     # ---------------------------------------------
@@ -927,7 +936,7 @@ def run_training(extension='multihead'):
         prev_trainer = args.initialize_with_network_trainer
 
     # END: for each task
-    if extension == 'feature_rehearsal2':
+    if hasattr(trainer, 'clean_up'):
         #delete features
         trainer.clean_up()
 
@@ -1049,3 +1058,13 @@ def main_feature_rehearsal():
 # -- Main function for setup execution of frozen body method -- #
 def main_feature_rehearsal2():
     run_training(extension='feature_rehearsal2')
+def main_feature_rehearsal_no_freeze():
+    run_training(extension='feature_rehearsal_no_freeze')
+def main_feature_rehearsal_no_replay():
+    run_training(extension='feature_rehearsal_no_replay')
+
+def main_sequential_no_skips():
+    run_training(extension='sequential_no_skips')
+
+def main_vae_rehearsal_no_skips():
+    run_training(extension='vae_rehearsal_no_skips')

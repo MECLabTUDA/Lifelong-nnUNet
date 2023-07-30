@@ -834,6 +834,40 @@ def prostate_middle_encoder_025():
 
 
 
+def hippocampus_sanity_checks():
+    combinations = ["Task097_DecathHip",
+                    "Task097_DecathHip_Task098_Dryad",
+                    "Task097_DecathHip_Task098_Dryad_Task099_HarP"]
+    rehearsal = {'eval_path_base': "/local/scratch/clmn1/master_thesis/evaluation_folder/baselines_retrained",
+                  'eval_path_middle': "nnUNet_ext/3d_fullres/Task097_DecathHip_Task098_Dryad_Task099_HarP",
+                  'trainer': "nnUNetTrainerRehearsal",
+                  'name': "Rehearsal"
+    }
+    no_freeze = {'eval_path_base': "/local/scratch/clmn1/master_thesis/sanity_checks/evaluation/no_freeze",
+                  'eval_path_middle': "nnUNet_ext/3d_fullres/Task097_DecathHip_Task098_Dryad_Task099_HarP",
+                  'trainer': "nnUNetTrainerFeatureRehearsalNoFreeze",
+                  'name': "feature replay but no freezing"
+    }
+    no_replay = {'eval_path_base': "/local/scratch/clmn1/master_thesis/sanity_checks/evaluation/no_replay",
+                  'eval_path_middle': "nnUNet_ext/3d_fullres/Task097_DecathHip_Task098_Dryad_Task099_HarP",
+                  'trainer': "nnUNetTrainerFeatureRehearsalNoReplay",
+                  'name': "freeze but no replay"
+    }
+
+    feature_rehearsal2 = {'eval_path_base': "/local/scratch/clmn1/master_thesis/evaluation_folder/retrained/ground_truth/1.0/between_encoder_decoder",
+                  'eval_path_middle': "nnUNet_ext/3d_fullres/Task097_DecathHip_Task098_Dryad_Task099_HarP",
+                  'trainer': "nnUNetTrainerFeatureRehearsal2",
+                  'name': "between encoder and decoder, 1.0, ground truth"
+    }
+
+    sequential = {'eval_path_base': "/local/scratch/clmn1/master_thesis/evaluation_folder/baselines_retrained",
+                  'eval_path_middle': "nnUNet_ext/3d_fullres/Task097_DecathHip_Task098_Dryad_Task099_HarP",
+                  'trainer': "nnUNetTrainerSequential",
+                  'name': "Sequential"
+    }
+
+    trainers = [rehearsal, no_freeze, no_replay, feature_rehearsal2, sequential]
+    return trainers, combinations, None, HIPPOCAMPUS_Y_RANGE, "Hippocampus, sanity checks, between encoder, decoder, 1.0, ground truth"
 
 
 
@@ -856,8 +890,7 @@ def prostate_middle_encoder_025():
 
 
 
-
-trainers, combinations, palette, y_range, title = hippocampus_gt_encoder_decoder()
+trainers, combinations, palette, y_range, title = hippocampus_sanity_checks()
 data = []
 mask = "mask_1"
 ## data needs to have ["case_name", "last task trained", "task the case belongs to", "value"]

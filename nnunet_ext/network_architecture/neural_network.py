@@ -153,14 +153,18 @@ class SegmentationNetwork(NeuralNetwork):
                                                                      ground_truth_segmentation=ground_truth_segmentation, feature_dir=feature_dir,
                                                                      layer_name_for_feature_extraction=layer_name_for_feature_extraction)
                     else:
+                        assert feature_dir is None
                         res = self._internal_predict_3D_3Dconv(x, patch_size, do_mirroring, mirror_axes, regions_class_order,
                                                                pad_border_mode, pad_kwargs=pad_kwargs, verbose=verbose)
                 elif self.conv_op == nn.Conv2d:
                     if use_sliding_window:
                         res = self._internal_predict_3D_2Dconv_tiled(x, patch_size, do_mirroring, mirror_axes, step_size,
                                                                      regions_class_order, use_gaussian, pad_border_mode,
-                                                                     pad_kwargs, all_in_gpu, False)
+                                                                     pad_kwargs, all_in_gpu, False,
+                                                                     ground_truth_segmentation=ground_truth_segmentation, feature_dir=feature_dir,
+                                                                     layer_name_for_feature_extraction=layer_name_for_feature_extraction)
                     else:
+                        assert feature_dir is None
                         res = self._internal_predict_3D_2Dconv(x, patch_size, do_mirroring, mirror_axes, regions_class_order,
                                                                pad_border_mode, pad_kwargs, all_in_gpu, False)
                 else:
@@ -668,7 +672,8 @@ class SegmentationNetwork(NeuralNetwork):
 
     def _internal_maybe_mirror_and_pred_2D(self, x: Union[np.ndarray, torch.tensor], mirror_axes: tuple,
                                            do_mirroring: bool = True,
-                                           mult: np.ndarray or torch.tensor = None) -> torch.tensor:
+                                           mult: np.ndarray or torch.tensor = None,
+                                           layer_name_for_feature_extraction=None) -> torch.tensor:
         # if cuda available:
         #   everything in here takes place on the GPU. If x and mult are not yet on GPU this will be taken care of here
         #   we now return a cuda tensor! Not numpy array!
@@ -696,7 +701,11 @@ class SegmentationNetwork(NeuralNetwork):
 
         for m in range(mirror_idx):
             if m == 0:
-                pred = self.inference_apply_nonlin(self(x))
+                if layer_name_for_feature_extraction is not None:
+                    logits, features_and_skips = self(x, layer_name_for_feature_extraction=layer_name_for_feature_extraction)
+                else:
+                    logits = self(x)
+                pred = self.inference_apply_nonlin(logits)
                 result_torch += 1 / num_results * pred
 
             if m == 1 and (1 in mirror_axes):
@@ -714,14 +723,26 @@ class SegmentationNetwork(NeuralNetwork):
         if mult is not None:
             result_torch[:, :] *= mult
 
-        return result_torch
+        if layer_name_for_feature_extraction != None:
+            return result_torch, features_and_skips
+        else:
+            return result_torch
 
     def _internal_predict_2D_2Dconv_tiled(self, x: np.ndarray, step_size: float, do_mirroring: bool, mirror_axes: tuple,
                                           patch_size: tuple, regions_class_order: tuple, use_gaussian: bool,
                                           pad_border_mode: str, pad_kwargs: dict, all_in_gpu: bool,
-                                          verbose: bool) -> Tuple[np.ndarray, np.ndarray]:
+                                          verbose: bool,
+                                          ground_truth_segmentation: np.ndarray, feature_dir:str,
+                                          layer_name_for_feature_extraction: str, z: int=None) -> Tuple[np.ndarray, np.ndarray]:
         # better safe than sorry
         assert len(x.shape) == 3, "x must be (c, x, y)"
+
+        # feature_dir <=> layer_name_for_feature_extraction
+        # ground_truth_segmentation => feature_dir
+        assert (feature_dir is not None) == (layer_name_for_feature_extraction is not None)
+        assert (feature_dir is not None) == (ground_truth_segmentation is not None)     #for now. maybe change this later?
+        #if ground_truth_segmentation != None:
+        #    assert feature_dir != None
 
         if verbose: print("step_size:", step_size)
         if verbose: print("do mirror:", do_mirroring)
@@ -732,6 +753,12 @@ class SegmentationNetwork(NeuralNetwork):
         # whether the shape is divisible by 2**num_pool as long as the patch size is
         data, slicer = pad_nd_image(x, patch_size, pad_border_mode, pad_kwargs, True, None)
         data_shape = data.shape  # still c, x, y
+
+        if ground_truth_segmentation is not None:
+            ground_truth_segmentation = pad_nd_image(ground_truth_segmentation, patch_size, pad_border_mode, pad_kwargs, False, None)
+            assert np.all(ground_truth_segmentation.shape == data.shape[1:]), str(ground_truth_segmentation.shape) + " " + str(data.shape) 
+            # unpack channel dimension
+
 
         # compute the steps for sliding window
         steps = self._compute_steps_for_sliding_window(patch_size, data_shape[1:], step_size)
@@ -806,9 +833,54 @@ class SegmentationNetwork(NeuralNetwork):
                 lb_y = y
                 ub_y = y + patch_size[1]
 
-                predicted_patch = self._internal_maybe_mirror_and_pred_2D(
-                    data[None, :, lb_x:ub_x, lb_y:ub_y], mirror_axes, do_mirroring,
-                    gaussian_importance_map)[0]
+                if feature_dir is not None:
+                    ground_truth_patch = ground_truth_segmentation[lb_x:ub_x, lb_y:ub_y]
+                    if not np.all(ground_truth_patch.shape == patch_size):
+                        print(data.shape)
+                        print(ground_truth_segmentation.shape)
+                        print(lb_x, ub_x, lb_y, ub_y)
+                        assert False
+                    assert np.all(ground_truth_patch.shape == patch_size), ground_truth_patch.shape
+                    prediction, features_and_skips = self._internal_maybe_mirror_and_pred_2D(
+                        data[None, :, lb_x:ub_x, lb_y:ub_y], mirror_axes, do_mirroring,
+                        gaussian_importance_map, layer_name_for_feature_extraction=layer_name_for_feature_extraction)
+                    
+                    predicted_segmentations = []
+                    if isinstance(prediction, tuple): 
+                        #deep supervision is turned on
+                        assert False, "not implemented yet"
+                    else:
+                        #deep supervision is turned off
+                        assert not self.do_ds
+                        predicted_patch = prediction[0]# <- unpack batch dimension (B,C,D,H,W) -> (C,D,H,W)
+                        predicted_patch = predicted_patch.argmax(0)
+                        assert np.all(predicted_patch.shape == ground_truth_patch.shape)
+                        predicted_segmentations.append(predicted_patch)
+
+
+
+                    arr = feature_dir.split('/')
+                    _feature_dir = join("/", *arr[:-1])
+                    file_name = arr[-1]  + "_" + str(x) + "_" + str(y) + "_" + str(z)
+                    np.save(join(_feature_dir, "gt", file_name + ".npy"), ground_truth_patch)
+                    #np.save(join(_feature_dir, "prediction", file_name + ".npy"), predicted_segmentation)
+                    for i, f in enumerate(features_and_skips):
+                        np.save(join(_feature_dir, "features", file_name + "_" + str(i) + ".npy"), f.cpu().numpy())
+                    for i, s in enumerate(predicted_segmentations):
+                        np.save(join(_feature_dir, "predictions", file_name + "_" + str(i) + ".npy"), s.cpu().numpy())
+
+                    
+                    with open(join(_feature_dir, "feature_pkl", file_name + ".pkl"), mode="wb") as outfile:
+                        _features_and_skips = [f.cpu().numpy() for f in features_and_skips]
+                        pickle.dump(_features_and_skips, outfile, pickle.HIGHEST_PROTOCOL)
+
+
+
+                else:
+                    assert not self.do_ds
+                    predicted_patch = self._internal_maybe_mirror_and_pred_2D(
+                        data[None, :, lb_x:ub_x, lb_y:ub_y], mirror_axes, do_mirroring,
+                        gaussian_importance_map)[0]
 
                 if all_in_gpu:
                     predicted_patch = predicted_patch.half()
@@ -905,7 +977,9 @@ class SegmentationNetwork(NeuralNetwork):
                                           regions_class_order: tuple = None, use_gaussian: bool = False,
                                           pad_border_mode: str = "edge", pad_kwargs: dict =None,
                                           all_in_gpu: bool = False,
-                                          verbose: bool = True) -> Tuple[np.ndarray, np.ndarray]:
+                                          verbose: bool = True,
+                                          ground_truth_segmentation: np.ndarray=None, feature_dir:str=None,
+                                          layer_name_for_feature_extraction: str=None) -> Tuple[np.ndarray, np.ndarray]:
         if all_in_gpu:
             raise NotImplementedError
 
@@ -914,10 +988,12 @@ class SegmentationNetwork(NeuralNetwork):
         predicted_segmentation = []
         softmax_pred = []
 
+        assert np.all(x.shape[1:] == ground_truth_segmentation.shape)
+
         for s in range(x.shape[1]):
             pred_seg, softmax_pres = self._internal_predict_2D_2Dconv_tiled(
                 x[:, s], step_size, do_mirroring, mirror_axes, patch_size, regions_class_order, use_gaussian,
-                pad_border_mode, pad_kwargs, all_in_gpu, verbose)
+                pad_border_mode, pad_kwargs, all_in_gpu, verbose, ground_truth_segmentation[s], feature_dir, layer_name_for_feature_extraction, z=s)
 
             predicted_segmentation.append(pred_seg[None])
             softmax_pred.append(softmax_pres[None])
