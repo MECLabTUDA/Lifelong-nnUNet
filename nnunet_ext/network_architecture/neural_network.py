@@ -113,7 +113,6 @@ class SegmentationNetwork(NeuralNetwork):
         :return:
         """
         torch.cuda.empty_cache()
-
         assert step_size <= 1, 'step_size must be smaller than 1. Otherwise there will be a gap between consecutive ' \
                                'predictions'
 
@@ -852,7 +851,7 @@ class SegmentationNetwork(NeuralNetwork):
                     else:
                         #deep supervision is turned off
                         assert not self.do_ds
-                        predicted_patch = prediction[0]# <- unpack batch dimension (B,C,D,H,W) -> (C,D,H,W)
+                        predicted_patch = prediction[0]# <- unpack batch dimension (B,C,H,W) -> (C,H,W)
                         predicted_patch = predicted_patch.argmax(0)
                         assert np.all(predicted_patch.shape == ground_truth_patch.shape)
                         predicted_segmentations.append(predicted_patch)
@@ -988,12 +987,17 @@ class SegmentationNetwork(NeuralNetwork):
         predicted_segmentation = []
         softmax_pred = []
 
-        assert np.all(x.shape[1:] == ground_truth_segmentation.shape)
+        if ground_truth_segmentation is not None:
+            assert np.all(x.shape[1:] == ground_truth_segmentation.shape)
 
         for s in range(x.shape[1]):
+            if ground_truth_segmentation is not None:
+                ground_truth_patch = ground_truth_segmentation[s]
+            else:
+                ground_truth_patch = None
             pred_seg, softmax_pres = self._internal_predict_2D_2Dconv_tiled(
                 x[:, s], step_size, do_mirroring, mirror_axes, patch_size, regions_class_order, use_gaussian,
-                pad_border_mode, pad_kwargs, all_in_gpu, verbose, ground_truth_segmentation[s], feature_dir, layer_name_for_feature_extraction, z=s)
+                pad_border_mode, pad_kwargs, all_in_gpu, verbose, ground_truth_patch, feature_dir, layer_name_for_feature_extraction, z=s)
 
             predicted_segmentation.append(pred_seg[None])
             softmax_pred.append(softmax_pres[None])

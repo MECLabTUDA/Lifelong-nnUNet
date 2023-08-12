@@ -50,6 +50,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             All vit related arguments like vit_type, version and split_gpu are only used if use_vit is True, in such a case,
             the Generic_ViT_UNet is used instead of the Generic_UNet.
         """
+        
         # -- Create a backup of the original output folder that is provided -- #
         self.output_folder_orig = output_folder
 

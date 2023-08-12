@@ -1,4 +1,4 @@
-from nnunet_ext.network_architecture.VAE import VAE, SecondStageVAE
+from nnunet_ext.network_architecture.VAE import ConvolutionalVAE, SecondStageVAE
 from matplotlib import pyplot as plt
 import torch
 from nnunet.utilities.to_torch import maybe_to_torch, to_cuda
@@ -6,14 +6,14 @@ from nnunet.utilities.to_torch import maybe_to_torch, to_cuda
 from nnunet_ext.training.FeatureRehearsalDataset import InfiniteIterator
 
 @torch.no_grad()
-def visualize_latent_space(vae: VAE, dataloader, out_path: str, num_batches: int=10):
+def visualize_latent_space(vae: ConvolutionalVAE, dataloader, out_path: str, num_batches: int=10):
     vae = vae.cuda().eval()
     plt.clf()
     data_iter = InfiniteIterator(dataloader)
     for _ in range(num_batches):
         data_dict = next(data_iter)
 
-        x = data_dict['data'][-1]
+        x = data_dict['data'][-1].float()
         x = maybe_to_torch(x)
         if torch.cuda.is_available():
             x = to_cuda(x)
@@ -25,7 +25,7 @@ def visualize_latent_space(vae: VAE, dataloader, out_path: str, num_batches: int
         plt.savefig(out_path)
 
 @torch.no_grad()
-def visualize_second_stage_latent_space(first_stage_vae: VAE, second_stage_vae: SecondStageVAE, dataloader, out_path: str, num_batches: int=10):
+def visualize_second_stage_latent_space(first_stage_vae: ConvolutionalVAE, second_stage_vae: SecondStageVAE, dataloader, out_path: str, num_batches: int=10):
     colorMap = ["red","green","blue","yellow","pink","magenta","orange","purple","beige","brown","gray","cyan","black"]
     plt.clf()
     data_iter = InfiniteIterator(dataloader)

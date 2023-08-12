@@ -1,3 +1,5 @@
+from collections import OrderedDict
+from typing import Any
 import torch
 import torch.nn as nn
 import numpy as np
@@ -28,13 +30,330 @@ class Resize(nn.Module):
         return x[:, :, left_x:right_x, left_y:right_y]
 
 
-class VAE(nn.Module):
+class InitWeightsVAE():
+    def __init__(self, method: str):
+        assert method in ["none", "log", "sqrt"]
+        if method == "none":
+            self.method = lambda x : x 
+        elif method == "log":
+            self. method = lambda x : torch.log(x)
+        elif method == "sqrt":
+            self.method = lambda x : torch.sqrt(x)
+
+    def __call__(self, module):
+        if isinstance(module, nn.Linear):
+            stdv = 1. / self.method(module.weight.size(1))
+            module.weight = nn.init._no_grad_uniform_(-stdv, stdv)
+            if module.bias is not None:
+                module.bias = nn.init._no_grad_uniform_(-stdv, stdv)
+
+
+class Flatten(nn.Module):
+    def __init__(self):
+        super(Flatten, self).__init__()
+    def forward(self, x):
+        batch_size = x.shape[0]
+        return x.view(batch_size, -1)
+class Encoder(nn.Module):
+    def __init__(self, shape, nhid = 16, ncond = 0):
+        super(Encoder, self).__init__()
+        c, h, w = shape
+        ww = ((w-8)//2 - 4)//2
+        hh = ((h-8)//2 - 4)//2
+        self.encode = nn.Sequential(nn.Conv2d(c, 16, 5, padding = 0), nn.BatchNorm2d(16), nn.ReLU(inplace = True), 
+                                    nn.Conv2d(16, 32, 5, padding = 0), nn.BatchNorm2d(32), nn.ReLU(inplace = True), 
+                                    nn.MaxPool2d(2, 2),
+                                    nn.Conv2d(32, 64, 3, padding = 0), nn.BatchNorm2d(64), nn.ReLU(inplace = True), 
+                                    nn.Conv2d(64, 64, 3, padding = 0), nn.BatchNorm2d(64), nn.ReLU(inplace = True), 
+                                    nn.MaxPool2d(2, 2),
+                                    Flatten(), MLP([ww*hh*64, 256, 128])
+                                   )
+        self.calc_mean = MLP([128+ncond, 64, nhid], last_activation = False)
+        self.calc_logvar = MLP([128+ncond, 64, nhid], last_activation = False)
+    def forward(self, x, y = None):
+        x = self.encode(x)
+        if (y is None):
+            return self.calc_mean(x), self.calc_logvar(x)
+        else:
+            return self.calc_mean(torch.cat((x, y), dim=1)), self.calc_logvar(torch.cat((x, y), dim=1))
+class Decoder(nn.Module):
+    def __init__(self, shape, nhid = 16, ncond = 0):
+        super(Decoder, self).__init__()
+        c, w, h = shape
+        self.shape = shape
+        self.decode = nn.Sequential(MLP([nhid+ncond, 64, 128, 256, c*w*h], last_activation = False), nn.Sigmoid())
+    def forward(self, z, y = None):
+        c, w, h = self.shape
+        if (y is None):
+            return self.decode(z).view(-1, c, w, h)
+        else:
+            return self.decode(torch.cat((z, y), dim=1)).view(-1, c, w, h)
+class MLP(nn.Module):
+    def __init__(self, hidden_size, last_activation = True):
+        super(MLP, self).__init__()
+        q = []
+        for i in range(len(hidden_size)-1):
+            in_dim = hidden_size[i]
+            out_dim = hidden_size[i+1]
+            q.append(("Linear_%d" % i, nn.Linear(in_dim, out_dim)))
+            if (i < len(hidden_size)-2) or ((i == len(hidden_size) - 2) and (last_activation)):
+                q.append(("BatchNorm_%d" % i, nn.BatchNorm1d(out_dim)))
+                q.append(("ReLU_%d" % i, nn.ReLU(inplace=True)))
+        self.mlp = nn.Sequential(OrderedDict(q))
+    def forward(self, x):
+        return self.mlp(x)
+class VAEFromTutorial(nn.Module):
+    def __init__(self, shape, nhid = 16):
+        super().__init__()
+        self.dim = nhid
+        self.encoder = Encoder(shape, nhid)
+        self.decoder = Decoder(shape, nhid)
+        
+    def sampling(self, mean, logvar):
+        eps = torch.randn(mean.shape, device=mean.device)
+        sigma = torch.exp(0.5 * logvar)
+        return mean + eps * sigma
+    
+    def forward(self, x):
+        mean, logvar = self.encoder(x)
+        z = self.sampling(mean, logvar)
+        return self.decoder(z), mean, logvar
+    
+    def decode(self, z, batch_size = None):
+        res = self.decoder(z)
+        if not batch_size:
+            res = res.squeeze(0)
+        return res
+
+    def generate(self, batch_size = None):
+        z = torch.randn((batch_size, self.dim)) if batch_size else torch.randn((1, self.dim))
+        res = self.decoder(z)
+        if not batch_size:
+            res = res.squeeze(0)
+        return res
+    
+    def to_gpus(self):
+        self.cuda()
+
+class FullyConnectedVAE2(nn.Module):
+    def __init__(self, shape) -> None:
+        super().__init__()
+        #for now:
+        assert len(shape) == 3  
+        # shape: (C, H, W)
+    
+        num_dimensions = np.prod(shape)
+        self.num_dimensions=num_dimensions
+        self.encoder = nn.Sequential(nn.Flatten(),
+                                nn.Linear(num_dimensions,num_dimensions),
+                                nn.BatchNorm1d(num_dimensions),
+                                nn.LeakyReLU(),
+                                nn.Linear(num_dimensions,num_dimensions),
+                                nn.BatchNorm1d(num_dimensions),
+                                nn.LeakyReLU())
+        
+        self.compute_mean = nn.Linear(num_dimensions, num_dimensions)
+        self.compute_log_var = nn.Linear(num_dimensions, num_dimensions)
+        
+        self.decoder = nn.Sequential(nn.Linear(num_dimensions,num_dimensions),
+                                nn.BatchNorm1d(num_dimensions),
+                                nn.LeakyReLU(),
+                                     nn.Linear(num_dimensions,num_dimensions),
+                                     nn.Unflatten(1, shape),
+                                     #nn.Sigmoid()
+                                )
+    
+    def sample_from(self, mean, log_var):
+        eps = torch.randn(mean.shape, device=mean.device)
+        var =  torch.exp(0.5 *log_var)
+        return mean + eps * var
+
+    def encode(self, x):
+        x = self.encoder(x)
+        return self.compute_mean(x), self.compute_log_var(x)
+
+    def decode(self, z):
+        return self.decoder(z)
+
+    def forward(self, x):
+        mean, log_var = self.encode(x)
+
+        z = self.sample_from(mean, log_var)
+        x_hat = self.decode(z)
+        return x_hat, mean, log_var
+
+    def generate(self, batch_size: int):
+        z = torch.randn((batch_size, self.num_dimensions)).cuda()
+        return self.decode(z)
+    
+    def to_gpus(self):
+        self.cuda(0)
+        
+
+
+
+class FullyConnectedVAE(nn.Module):
+    def __init__(self, shape) -> None:
+        super().__init__()
+        #for now:
+        assert len(shape) == 3  
+        # shape: (C, H, W)
+    
+        num_dimensions = np.prod(shape)
+        self.num_dimensions=num_dimensions
+
+        """
+        self.encoder = nn.Sequential(nn.Flatten(),
+                                nn.Linear(num_dimensions,10000),
+                                nn.BatchNorm1d(10000),
+                                nn.LeakyReLU())
+        
+        self.compute_mean = nn.Linear(10000, num_dimensions)
+        self.compute_log_var = nn.Linear(10000, num_dimensions)
+        self.decoder = nn.Sequential(nn.Linear(num_dimensions,10000),
+                                nn.BatchNorm1d(10000),
+                                nn.LeakyReLU(),
+                                     nn.Linear(10000,num_dimensions),
+                                     nn.Unflatten(1, shape))
+        """
+        
+        self.encoder = nn.Sequential(nn.Flatten(),
+                                nn.Linear(num_dimensions,10000),
+                                nn.ReLU(),
+                                nn.Linear(10000,5000),
+                                nn.ReLU())
+        
+        self.compute_mean = nn.Linear(5000 + num_dimensions, num_dimensions)
+        self.compute_log_var = nn.Linear(5000 + num_dimensions, num_dimensions)
+        
+        self.decoder = nn.Sequential(nn.Linear(num_dimensions,10000),
+                                nn.ReLU(),
+                                nn.Linear(10000,5000),
+                                nn.ReLU())
+        
+        self.final_layers = nn.Sequential(
+                                     nn.Linear(5000 + num_dimensions, num_dimensions),
+                                     nn.Unflatten(1, shape))
+    
+        """
+        self.encoder = nn.Sequential(nn.Flatten(),
+                                nn.Linear(num_dimensions,10000),
+                                nn.BatchNorm1d(10000),
+                                nn.LeakyReLU(),
+                                nn.Linear(10000,10000),
+                                nn.BatchNorm1d(10000),
+                                nn.LeakyReLU())
+        
+        self.compute_mean = nn.Linear(10000, num_dimensions-1000)
+        self.compute_log_var = nn.Linear(10000, num_dimensions-1000)
+        
+        self.decoder = nn.Sequential(nn.Linear(num_dimensions-1000,15000),
+                                nn.BatchNorm1d(15000),
+                                nn.LeakyReLU(),
+                                     nn.Linear(15000,num_dimensions),
+                                     nn.Unflatten(1, shape))
+        """
+        """
+        self.encoder = nn.Sequential(nn.Flatten(),
+                                nn.Linear(num_dimensions,10000),
+                                nn.BatchNorm1d(10000),
+                                nn.LeakyReLU(),
+                                nn.Linear(10000,15000),
+                                nn.BatchNorm1d(15000),
+                                nn.LeakyReLU())
+        
+        self.compute_mean = nn.Linear(15000, num_dimensions)
+        self.compute_log_var = nn.Linear(15000, num_dimensions)
+        self.decoder = nn.Sequential(nn.Linear(num_dimensions,10000),
+                                nn.BatchNorm1d(10000),
+                                nn.LeakyReLU(),
+                                nn.Linear(10000,10000),
+                                nn.BatchNorm1d(10000),
+                                nn.LeakyReLU(),
+                                nn.Linear(10000,10000),
+                                nn.BatchNorm1d(10000),
+                                nn.LeakyReLU(),
+                                nn.Linear(10000,num_dimensions),
+                                nn.Unflatten(1, shape))
+        """
+        """
+        self.encoder = nn.Sequential(
+                                # 256, 7, 5 = 8,960
+                                nn.Conv2d(256,512,3,1,1),
+                                # 512, 7, 5 = 17,920
+                                nn.BatchNorm2d(512),
+                                nn.LeakyReLU(),
+                                nn.Conv2d(512,1024,3,1,1),
+                                # 1024, 7, 5 = 35,840
+                                nn.BatchNorm2d(1024),
+                                nn.LeakyReLU(),
+                                nn.Conv2d(1024,2048,3,2,1),
+                                # 2048, 4, 3 = 24,576
+                                nn.BatchNorm2d(2048),
+                                nn.LeakyReLU(),
+                                nn.Conv2d(2048,2048,3,1,1),
+                                # 2048, 4, 3 = 24,576
+                                nn.BatchNorm2d(2048),
+                                nn.LeakyReLU(),
+                                nn.Conv2d(2048,2500,3,2,1),
+                                # 2500, 2, 2 = 10,000
+                                nn.BatchNorm2d(2500),
+                                nn.LeakyReLU(),
+                                nn.Flatten()
+                                )
+        
+        self.compute_mean = nn.Linear(10000, 8960)
+        self.compute_log_var = nn.Linear(10000, 8960)
+
+        self.decoder = nn.Sequential(
+                        nn.Linear(8960,10000),
+                        # 10,000
+                        nn.BatchNorm1d(10000),
+                        nn.LeakyReLU(),
+                                nn.Linear(num_dimensions,num_dimensions),
+                                nn.Unflatten(1, shape))
+        """
+    def sample_from(self, mean, log_var):
+        eps = torch.randn(mean.shape, device=mean.device)
+        var =  torch.exp(0.5 *log_var)
+        return mean + eps * var
+
+    def encode(self, x):
+        y = self.encoder(x)
+        x = torch.flatten(x, 1, -1)
+        x = torch.cat([x,y], dim=-1)
+        return self.compute_mean(x), self.compute_log_var(x)
+
+    def decode(self, z):
+        z = z.cuda(1)
+        y = self.decoder(z)
+        return self.final_layers(torch.cat([z,y], dim=-1)).cuda(0)
+
+    def forward(self, x):
+        mean, log_var = self.encode(x)
+
+        z = self.sample_from(mean, log_var)
+        x_hat = self.decode(z)
+        return x_hat, mean, log_var
+
+    def generate(self, batch_size: int):
+        z = torch.randn((batch_size, self.num_dimensions))
+        return self.decode(z)
+    
+    def to_gpus(self):
+        self.cuda(0)
+        self.decoder.cuda(1)
+        self.final_layers.cuda(1)
+
+class ConvolutionalVAE(nn.Module):
     def __init__(self, shape, hidden_dim) -> None:
         super().__init__()
 
         #for now:
         assert len(shape) == 3  
         # shape: (C, H, W)
+
+        self.latent_dim = hidden_dim
 
         num_channels =  shape[0]
         assert hidden_dim >= shape[0]
@@ -85,7 +404,7 @@ class VAE(nn.Module):
 
     def sample_from(self, mean, log_var):
         eps = torch.randn(mean.shape, device=mean.device)
-        var = 0.5 * torch.exp(log_var)
+        var = torch.exp(0.5 * log_var)
         return mean + eps * var
 
     def encode(self, x):
@@ -101,7 +420,10 @@ class VAE(nn.Module):
         z = self.sample_from(mean, log_var)
         x_hat = self.decode(z)
         return x_hat, mean, log_var
-    
+
+    def generate(self, batch_size: int):
+        z = torch.randn((batch_size, self.latent_dim)).cuda()
+        return self.decode(z)
 
 class SecondStageVAE(nn.Module):
     def __init__(self, input_dim: int, dim_of_conditional: int, num_tasks:int) -> None:
@@ -131,7 +453,7 @@ class SecondStageVAE(nn.Module):
 
     def sample_from(self, mean, log_var):
         eps = torch.randn(mean.shape, device=mean.device)
-        var = 0.5 * torch.exp(log_var)
+        var = torch.exp(0.5 * log_var)
         return mean + eps * var
 
     def encode(self, x, task_idx: int):

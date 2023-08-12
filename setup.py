@@ -54,7 +54,6 @@ setup(name='nnunet_ext',
               'nnUNet_train_frozen_vit = nnunet_ext.run.run_training:main_frozen_vit',         # Use for freezing all ViT layers
 
               'nnUNet_train_vae = nnunet_ext.run.run_training:main_vae',      
-              'nnUNet_train_feature_rehearsal = nnunet_ext.run.run_training:main_feature_rehearsal',   
               'nnUNet_train_feature_rehearsal2 = nnunet_ext.run.run_training:main_feature_rehearsal2',   
               'nnUNet_train_feature_rehearsal_no_freeze = nnunet_ext.run.run_training:main_feature_rehearsal_no_freeze',  
               'nnUNet_train_feature_rehearsal_no_replay = nnunet_ext.run.run_training:main_feature_rehearsal_no_replay',  

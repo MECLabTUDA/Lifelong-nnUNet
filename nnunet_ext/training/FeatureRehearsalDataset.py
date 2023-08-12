@@ -14,13 +14,20 @@ class FeatureRehearsalTargetType(Enum):
 
 class FeatureRehearsalDataset(Dataset):
     def __init__(self, data_path: str, deep_supervision_scales: list[list[float]], target_type: FeatureRehearsalTargetType, num_features: int,
-                 new_task_idx:int = None, old_dict_from_file_name_to_task_idx: dict = None) -> None:
+                 new_task_idx:int = None, old_dict_from_file_name_to_task_idx: dict = None, load_skips: bool = True, constant_skips: np.ndarray=None) -> None:
         super().__init__()
         self.data_path = data_path
         self.data_patches = os.listdir(join(data_path, "gt"))
         self.deep_supervision_scales = deep_supervision_scales
         self.target_type = target_type
         self.num_features = num_features
+        self.load_skips = load_skips
+
+        if not self.load_skips:
+            if constant_skips is None:
+                self.constant_skips = [np.zeros_like(f) for f in load_pickle(join(self.data_path, "feature_pkl", self.data_patches[0][:-4] + ".pkl"))[:-1] ]
+            else:
+                self.constant_skips = constant_skips
 
         self.store_task_idx = new_task_idx is not None
         if self.store_task_idx:
@@ -31,6 +38,12 @@ class FeatureRehearsalDataset(Dataset):
                     self.task_idx_array.append(old_dict_from_file_name_to_task_idx[file])
                 else:
                     self.task_idx_array.append(new_task_idx)
+
+    def features_to_features_and_skips(self, features):
+        assert not self.load_skips
+        if not isinstance(features, list):
+            features = [features]
+        return self.constant_skips + features
 
     def get_dict_from_file_name_to_task_idx(self):
         assert self.store_task_idx
@@ -45,7 +58,10 @@ class FeatureRehearsalDataset(Dataset):
     def __getitem__(self, index):
 
         data_dict = dict()
-        data_dict['features_and_skips'] = load_pickle(join(self.data_path, "feature_pkl", self.data_patches[index][:-4] + ".pkl"))
+        if self.load_skips:
+            data_dict['features_and_skips'] = load_pickle(join(self.data_path, "feature_pkl", self.data_patches[index][:-4] + ".pkl"))
+        else:
+            data_dict['features_and_skips'] = self.constant_skips + [np.load(join(self.data_path, "features", self.data_patches[index][:-4] + "_" + str(self.num_features-1) +".npy"))]
         #for i in range(self.num_features):
         #    data_dict['features_and_skips'].append(np.load(join(self.data_path, "features", self.data_patches[index][:-4] + "_" + str(i) +".npy")))
         
@@ -116,8 +132,9 @@ class FeatureRehearsalDataLoader(DataLoader):
 
             return output_batch
         
+        #sampler = RandomSampler(dataset, replacement=True, num_samples=5000), #<-- this is enough for 10 epochs but maybe this needs to be set higher (?) 
         super().__init__(dataset, batch_size, shuffle, 
-                         RandomSampler(dataset, replacement=True, num_samples=5000), #<-- this is enough for 10 epochs but maybe this needs to be set higher (?) 
+                         sampler,
                          batch_sampler, num_workers, my_collate_function, pin_memory, drop_last, timeout, worker_init_fn, multiprocessing_context, generator, prefetch_factor=prefetch_factor, persistent_workers=persistent_workers, pin_memory_device=pin_memory_device)
     # TODO handle batch size
     # TODO handle foreground oversampling

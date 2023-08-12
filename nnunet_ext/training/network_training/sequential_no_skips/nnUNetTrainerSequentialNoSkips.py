@@ -1402,6 +1402,7 @@ class nnUNetTrainerSequentialNoSkips(nnUNetTrainerV2): # Inherit default trainer
         if not isinstance(self.network, Generic_UNet_no_skips):
             self.network.__class__ = Generic_UNet_no_skips
         
+
         #print(type(self.network))
         #print(hasattr(self.network, 'predict_3D'))
         #print(isinstance(self.network, SegmentationNetwork))
