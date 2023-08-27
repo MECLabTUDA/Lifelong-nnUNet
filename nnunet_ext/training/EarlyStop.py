@@ -3,7 +3,8 @@ import numpy as np
 class EarlyStop:
     """Used to early stop the training if validation loss doesn't improve after a given patience."""
     def __init__(self, patience=20, verbose=False, delta=0, 
-                 save_name="checkpoint.pt", save_callback=None):
+                 save_name="checkpoint.pt", save_callback=None,
+                 trainer=None):
         """
         Args:
             patience (int): How long to wait after last time validation loss improved.
@@ -19,38 +20,38 @@ class EarlyStop:
         self.verbose = verbose
         self.save_name = save_name
         self.counter = 0
-        self.best_score = None
+        self.best_loss = None
         self.early_stop = False
         self.val_loss_min = np.Inf
         self.delta = delta
         self.save_callback = save_callback
+        self.trainer = trainer
+        assert(self.delta == 0)
 
-    def __call__(self, val_loss, model, optimizer):
-
-        score = -val_loss
-
-        if self.best_score is None:
-            self.best_score = score
-            self.save_checkpoint(val_loss, model, optimizer)
-        elif score < self.best_score - self.delta:
+    def __call__(self, val_loss):
+        print(self.best_loss)
+        print(val_loss)
+        if self.best_loss is None:
+            self.best_loss = val_loss
+            self.save_checkpoint(val_loss)
+        elif val_loss > self.best_loss:
+            self.trainer.print_to_log_file(f"EarlyStopping: {val_loss} > {self.best_loss}")
             self.counter += 1
-            print(f'EarlyStopping counter: {self.counter} out of {self.patience}')
+            self.trainer.print_to_log_file(f'EarlyStopping counter: {self.counter} out of {self.patience}')
             if self.counter >= self.patience:
                 self.early_stop = True
         else:
-            self.best_score = score
-            self.save_checkpoint(val_loss, model, optimizer)
+            self.trainer.print_to_log_file(f"EarlyStopping: {val_loss} <= {self.best_loss}")
+            self.best_loss = val_loss
+            self.save_checkpoint(val_loss)
             self.counter = 0
             
         return self.early_stop
 
-    def save_checkpoint(self, val_loss, model, optimizer):
+    def save_checkpoint(self, val_loss):
         '''Saves model when validation loss decrease.'''
         if self.verbose:
-            print(f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving model ...')
+            self.trainer.print_to_log_file(f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving model ...')
+        self.val_loss_min = val_loss
         if self.save_callback is not None:
             self.save_callback()
-            return
-        state = {"net":model.state_dict(), "optimizer":optimizer.state_dict()}
-        torch.save(state, self.save_name)
-        self.val_loss_min = val_loss

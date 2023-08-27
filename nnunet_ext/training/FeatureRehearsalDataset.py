@@ -25,11 +25,12 @@ class FeatureRehearsalDataset(Dataset):
 
         if not self.load_skips:
             if constant_skips is None:
+                assert len(self.data_patches) > 0
                 self.constant_skips = [np.zeros_like(f) for f in load_pickle(join(self.data_path, "feature_pkl", self.data_patches[0][:-4] + ".pkl"))[:-1] ]
             else:
                 self.constant_skips = constant_skips
 
-        self.store_task_idx = new_task_idx is not None
+        self.store_task_idx = new_task_idx is not None or old_dict_from_file_name_to_task_idx is not None
         if self.store_task_idx:
             assert old_dict_from_file_name_to_task_idx is not None
             self.task_idx_array = []
@@ -37,6 +38,7 @@ class FeatureRehearsalDataset(Dataset):
                 if file in old_dict_from_file_name_to_task_idx.keys():
                     self.task_idx_array.append(old_dict_from_file_name_to_task_idx[file])
                 else:
+                    assert new_task_idx is not None, file
                     self.task_idx_array.append(new_task_idx)
 
     def features_to_features_and_skips(self, features):
@@ -89,6 +91,9 @@ class FeatureRehearsalDataLoader(DataLoader):
 
     def __init__(self, dataset: Dataset, batch_size = 1, shuffle = None, sampler= None, batch_sampler= None, num_workers: int = 0, pin_memory: bool = False, drop_last: bool = False, timeout: float = 0, worker_init_fn = None, multiprocessing_context=None, generator=None, *, prefetch_factor = None, persistent_workers: bool = False, pin_memory_device: str = "", deep_supervision_scales=None):
         self.deep_supervision_scales = deep_supervision_scales
+
+        assert len(dataset) >= batch_size
+
         def my_collate_function(list_of_samples: list[dict]):
             #process the list_of_samples to create a batch and return it
             # each dict contains: 'features_and_skips', 'target'
@@ -132,7 +137,9 @@ class FeatureRehearsalDataLoader(DataLoader):
 
             return output_batch
         
-        #sampler = RandomSampler(dataset, replacement=True, num_samples=5000), #<-- this is enough for 10 epochs but maybe this needs to be set higher (?) 
+        #if sampler is None and shuffle is None or shuffle is True:
+        #    sampler = RandomSampler(dataset, replacement=True, num_samples=5000), #<-- this is enough for 10 epochs but maybe this needs to be set higher (?)
+        #    shuffle = None #<- sampler and shuffle are mutually exclusive. The random sampler already samples shuffled data, so this is fine.
         super().__init__(dataset, batch_size, shuffle, 
                          sampler,
                          batch_sampler, num_workers, my_collate_function, pin_memory, drop_last, timeout, worker_init_fn, multiprocessing_context, generator, prefetch_factor=prefetch_factor, persistent_workers=persistent_workers, pin_memory_device=pin_memory_device)

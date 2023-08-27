@@ -4,6 +4,8 @@ import torch
 import torch.nn as nn
 import numpy as np
 
+#import torch.distributed.fsdp as fsdp
+
 # inspired by https://github.com/chendaichao/VAE-pytorch
 
 
@@ -190,6 +192,203 @@ class FullyConnectedVAE2(nn.Module):
         self.cuda(0)
         
 
+class CFullyConnectedVAE(nn.Module):
+    def __init__(self, shape, num_classes:int, conditional_dim:int) -> None:
+        super().__init__()
+        #for now:
+        assert len(shape) == 3  
+        # shape: (C, H, W)
+        self.label_embedding = nn.Embedding(num_classes, conditional_dim)
+    
+        num_dimensions = np.prod(shape)
+        self.num_dimensions=num_dimensions
+        self.encoder = nn.Sequential(
+                                nn.Linear(num_dimensions + conditional_dim, num_dimensions),
+                                nn.BatchNorm1d(num_dimensions),
+                                nn.LeakyReLU(),
+                                nn.Linear(num_dimensions,num_dimensions),
+                                nn.BatchNorm1d(num_dimensions),
+                                nn.LeakyReLU())
+        
+        self.compute_mean = nn.Linear(num_dimensions, num_dimensions)
+        self.compute_log_var = nn.Linear(num_dimensions, num_dimensions)
+        
+        self.decoder = nn.Sequential(nn.Linear(num_dimensions + conditional_dim, num_dimensions),
+                                nn.BatchNorm1d(num_dimensions),
+                                nn.LeakyReLU(),
+                                     nn.Linear(num_dimensions,num_dimensions),
+                                     nn.Unflatten(1, shape),
+                                     #nn.Sigmoid()
+                                )
+    
+    def sample_from(self, mean, log_var):
+        eps = torch.randn(mean.shape, device=mean.device)
+        var =  torch.exp(0.5 *log_var)
+        return mean + eps * var
+
+    def encode(self, x, y):
+        x = torch.flatten(x, start_dim=1)
+        x = torch.cat((x,y), dim=1)
+        x = self.encoder(x)
+        return self.compute_mean(x), self.compute_log_var(x)
+
+    def decode(self, z, y):
+        z = torch.cat((z,y), dim=1)
+        return self.decoder(z)
+
+    def forward(self, x, y):
+        y = self.label_embedding(y)
+        mean, log_var = self.encode(x , y)
+
+        z = self.sample_from(mean, log_var)
+        x_hat = self.decode(z, y)
+        return x_hat, mean, log_var
+
+    def generate(self, y, batch_size: int):
+        y = self.label_embedding(y)
+        z = torch.randn((batch_size, self.num_dimensions)).cuda()
+        return self.decode(z, y)
+    
+    def to_gpus(self):
+        self.cuda(0)
+
+class CFullyConnectedVAE2(nn.Module):
+    def __init__(self, shape, num_classes:int, conditional_dim:int) -> None:
+        super().__init__()
+        #for now:
+        assert len(shape) == 3  
+        # shape: (C, H, W)
+        self.label_embedding = nn.Embedding(num_classes, conditional_dim)
+    
+        num_dimensions = np.prod(shape)
+        self.num_dimensions=num_dimensions
+        self.encoder = nn.Sequential(
+                                nn.Linear(num_dimensions + conditional_dim, num_dimensions),
+                                nn.BatchNorm1d(num_dimensions),
+                                nn.LeakyReLU(),
+                                nn.Linear(num_dimensions,num_dimensions),
+                                nn.BatchNorm1d(num_dimensions),
+                                nn.LeakyReLU())
+        
+        self.compute_mean = nn.Linear(num_dimensions, num_dimensions)
+        self.compute_log_var = nn.Linear(num_dimensions, num_dimensions)
+        
+        self.decoder = nn.Sequential(nn.Linear(num_dimensions + conditional_dim, num_dimensions),
+                                nn.BatchNorm1d(num_dimensions),
+                                nn.LeakyReLU(),
+                                nn.Linear(num_dimensions, num_dimensions),
+                                nn.BatchNorm1d(num_dimensions),
+                                nn.LeakyReLU(),
+                                     nn.Linear(num_dimensions,num_dimensions),
+                                     nn.Unflatten(1, shape),
+                                     #nn.Sigmoid()
+                                )
+    
+    def sample_from(self, mean, log_var):
+        eps = torch.randn(mean.shape, device=mean.device)
+        var =  torch.exp(0.5 *log_var)
+        return mean + eps * var
+
+    def encode(self, x, y):
+        x = torch.flatten(x, start_dim=1)
+        x = torch.cat((x,y), dim=1)
+        x = self.encoder(x)
+        return self.compute_mean(x), self.compute_log_var(x)
+
+    def decode(self, z, y):
+        z = torch.cat((z,y), dim=1)
+        return self.decoder(z)
+
+    def forward(self, x, y):
+        y = self.label_embedding(y)
+        mean, log_var = self.encode(x , y)
+
+        z = self.sample_from(mean, log_var)
+        x_hat = self.decode(z, y)
+        return x_hat, mean, log_var
+
+    def generate(self, y, batch_size: int):
+        y = self.label_embedding(y)
+        z = torch.randn((batch_size, self.num_dimensions)).cuda()
+        return self.decode(z, y)
+    
+    def to_gpus(self):
+        self.cuda(0)
+
+class CFullyConnectedVAE3(nn.Module):
+    def __init__(self, shape, num_classes:int, conditional_dim:int) -> None:
+        super().__init__()
+        #for now:
+        assert len(shape) == 3  
+        # shape: (C, H, W)
+        self.label_embedding = nn.Embedding(num_classes, conditional_dim)
+    
+        num_dimensions = np.prod(shape)
+        self.num_dimensions=num_dimensions
+        self.encoder = nn.Sequential(
+                                nn.Linear(num_dimensions + conditional_dim, num_dimensions),
+                                nn.BatchNorm1d(num_dimensions),
+                                nn.LeakyReLU(),
+                                nn.Linear(num_dimensions,num_dimensions),
+                                nn.BatchNorm1d(num_dimensions),
+                                nn.LeakyReLU(),
+                                nn.Linear(num_dimensions,num_dimensions),
+                                nn.BatchNorm1d(num_dimensions),
+                                nn.LeakyReLU())
+        
+        self.compute_mean = nn.Linear(num_dimensions, num_dimensions)
+        self.compute_log_var = nn.Linear(num_dimensions, num_dimensions)
+        
+        self.decoder = nn.Sequential(nn.Linear(num_dimensions + conditional_dim, num_dimensions),
+                                nn.BatchNorm1d(num_dimensions),
+                                nn.LeakyReLU(),
+                                nn.Linear(num_dimensions, num_dimensions),
+                                nn.BatchNorm1d(num_dimensions),
+                                nn.LeakyReLU(),
+                                nn.Linear(num_dimensions, num_dimensions),
+                                nn.BatchNorm1d(num_dimensions),
+                                nn.LeakyReLU(),
+                                     nn.Linear(num_dimensions,num_dimensions),
+                                     nn.Unflatten(1, shape),
+                                     #nn.Sigmoid()
+                                )
+    
+    def sample_from(self, mean, log_var):
+        eps = torch.randn(mean.shape, device=mean.device)
+        var =  torch.exp(0.5 *log_var)
+        return mean + eps * var
+
+    def encode(self, x, y):
+        x = torch.flatten(x, start_dim=1)
+        x = torch.cat((x,y), dim=1)
+        x = self.encoder(x)
+        return self.compute_mean(x), self.compute_log_var(x.cuda(1))
+
+    def decode(self, z, y):
+        z = torch.cat((z.cuda(1), y.cuda(1)), dim=1)
+        return self.decoder(z)
+
+    def forward(self, x, y):
+        y = self.label_embedding(y)
+        mean, log_var = self.encode(x , y)
+
+        mean_1 = mean.cuda(1)
+        z = self.sample_from(mean_1, log_var)
+        x_hat = self.decode(z, y)
+        return x_hat.cuda(0), mean, log_var.cuda(0)
+
+    def generate(self, y, batch_size: int):
+        y = y.cuda(0)
+        y = self.label_embedding(y).cuda(1)
+        z = torch.randn((batch_size, self.num_dimensions)).cuda(1)
+        return self.decode(z, y)
+    
+    def to_gpus(self):
+        self.label_embedding.cuda(0)
+        self.encoder.cuda(0)
+        self.compute_mean.cuda(0)
+        self.compute_log_var.cuda(1)
+        self.decoder.cuda(1)
 
 
 class FullyConnectedVAE(nn.Module):

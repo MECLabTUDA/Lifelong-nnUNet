@@ -14,11 +14,13 @@ def visualize_latent_space(vae: ConvolutionalVAE, dataloader, out_path: str, num
         data_dict = next(data_iter)
 
         x = data_dict['data'][-1].float()
+        y = data_dict['task_idx']
         x = maybe_to_torch(x)
         if torch.cuda.is_available():
             x = to_cuda(x)
+            y = to_cuda(y)
 
-        mean, log_var = vae.encode(x)
+        mean, log_var = vae.encode(x, vae.label_embedding(y))
         z = vae.sample_from(mean, log_var).detach().cpu().numpy()
 
         plt.scatter(z[:,0],z[:,1], color="red")

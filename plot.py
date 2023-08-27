@@ -872,6 +872,23 @@ def hippocampus_sanity_checks():
 
 
 
+def hippocampus_different_order():
+    combinations = ["Task098_Dryad",
+                    "Task098_Dryad_Task097_DecathHip",
+                    "Task098_Dryad_Task097_DecathHip_Task099_HarP"]
+    #rehearsal = {'eval_path_base': "/local/scratch/clmn1/master_thesis/evaluation_folder/baselines_retrained",
+    #              'eval_path_middle': "nnUNet_ext/3d_fullres/Task097_DecathHip_Task098_Dryad_Task099_HarP",
+    #              'trainer': "nnUNetTrainerRehearsal",
+    #              'name': "Rehearsal"
+    #}
+    vae_rehearsal = {'eval_path_base': "/local/scratch/clmn1/master_thesis/tests/no_skips/evaluation",
+                  'eval_path_middle': "nnUNet_ext/2d/Task098_Dryad_Task097_DecathHip_Task099_HarP",
+                  'trainer': "nnUNetTrainerVAERehearsalNoSkips",
+                  'name': "vae rehearsal, no skips"
+    }
+
+    trainers = [vae_rehearsal]
+    return trainers, combinations, None, HIPPOCAMPUS_Y_RANGE, "Hippocampus, different order"
 
 
 
@@ -890,7 +907,8 @@ def hippocampus_sanity_checks():
 
 
 
-trainers, combinations, palette, y_range, title = hippocampus_sanity_checks()
+
+trainers, combinations, palette, y_range, title = hippocampus_different_order()
 data = []
 mask = "mask_1"
 ## data needs to have ["case_name", "last task trained", "task the case belongs to", "value"]
