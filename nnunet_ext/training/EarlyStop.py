@@ -29,8 +29,6 @@ class EarlyStop:
         assert(self.delta == 0)
 
     def __call__(self, val_loss):
-        print(self.best_loss)
-        print(val_loss)
         if self.best_loss is None:
             self.best_loss = val_loss
             self.save_checkpoint(val_loss)

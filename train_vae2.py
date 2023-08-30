@@ -15,6 +15,7 @@ trainer: nnUNetTrainerVAERehearsalNoSkips = restore_model(pkl_file, checkpoint, 
 
 assert trainer.was_initialized
 trainer.network.__class__ = Generic_UNet_no_skips
+trainer.num_rehearsal_samples_in_perc = 0.1
 
 trainer.clean_up()
 trainer.load_dataset()

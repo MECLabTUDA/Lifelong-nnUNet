@@ -1,10 +1,12 @@
+from typing import Iterable
 import torch, os
-from torch.utils.data import Dataset, DataLoader, RandomSampler
+from torch.utils.data import Dataset, DataLoader, RandomSampler, ConcatDataset
 import numpy as np
 from nnunet.training.data_augmentation import downsampling
 from enum import Enum
 
 from batchgenerators.utilities.file_and_folder_operations import load_pickle, join
+from torch.utils.data.dataset import Dataset
 
 class FeatureRehearsalTargetType(Enum):
     GROUND_TRUTH = 1
@@ -157,3 +159,10 @@ class InfiniteIterator():
         except StopIteration:
             self.dataiter = iter(self.dataloader)
             return next(self.dataiter)
+        
+class FeatureRehearsalConcatDataset(ConcatDataset):
+    def __init__(self, main_dataset, datasets: Iterable[Dataset]) -> None:
+        super().__init__(datasets)
+        self.dataset = main_dataset
+        self.store_task_idx = main_dataset.store_task_idx
+        self.target_type = main_dataset.target_type

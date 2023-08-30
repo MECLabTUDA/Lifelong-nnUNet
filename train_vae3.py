@@ -6,7 +6,7 @@ import numpy as np
 from nnunet_ext.training.network_training.vae_rehearsal_no_skips.nnUNetTrainerVAERehearsalNoSkips import nnUNetTrainerVAERehearsalNoSkips
 from nnunet.utilities.to_torch import maybe_to_torch, to_cuda
 #torch.autograd.set_detect_anomaly(True)
-os.environ["CUDA_VISIBLE_DEVICES"] = "5, 3"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 trainer_path = "/local/scratch/clmn1/master_thesis/tests/no_skips/results/nnUNet_ext/2d/Task098_Dryad_Task097_DecathHip_Task099_HarP/Task098_Dryad_Task097_DecathHip_Task099_HarP/nnUNetTrainerVAERehearsalNoSkips__nnUNetPlansv2.1/Generic_UNet/SEQ/fold_0"
 checkpoint = os.path.join(trainer_path, "model_final_checkpoint.model")
 pkl_file = checkpoint + ".pkl"
@@ -16,6 +16,7 @@ trainer: nnUNetTrainerVAERehearsalNoSkips = restore_model(pkl_file, checkpoint, 
 
 assert trainer.was_initialized
 trainer.network.__class__ = Generic_UNet_no_skips
+#trainer.num_rehearsal_samples_in_perc = 0.1
 
 trainer.clean_up()
 trainer.load_dataset()
@@ -32,12 +33,12 @@ trainer.update_dataloader("Task097_DecathHip")
 #assert trainer.task_label_to_task_idx == ["Task097_DecathHip", "Task098_Dryad"]
 
 trainer.output_folder = "/local/scratch/clmn1/master_thesis/tests/no_skips/results/nnUNet_ext/2d/Task098_Dryad_Task097_DecathHip_Task099_HarP/Task098_Dryad_Task097_DecathHip/nnUNetTrainerVAERehearsalNoSkips__nnUNetPlansv2.1/Generic_UNet/SEQ/fold_0"
-#trainer.clean_up(["generated_features_tr"])
+trainer.clean_up(["generated_features_tr"])
 #trainer.max_num_epochs = 5000
-#trainer.train_both_vaes()
-#trainer.freeze_network()
+trainer.train_both_vaes()
+trainer.freeze_network()
 #trainer.generate_features()
-#exit()
+exit()
 
 
 vae_dict = torch.load("/local/scratch/clmn1/master_thesis/tests/no_skips/results/nnUNet_ext/2d/Task098_Dryad_Task097_DecathHip_Task099_HarP/Task098_Dryad_Task097_DecathHip/nnUNetTrainerVAERehearsalNoSkips__nnUNetPlansv2.1/Generic_UNet/SEQ/fold_0/vae.model")

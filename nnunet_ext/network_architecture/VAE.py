@@ -3,11 +3,17 @@ from typing import Any
 import torch
 import torch.nn as nn
 import numpy as np
+import torch.nn.functional as F
 
 #import torch.distributed.fsdp as fsdp
 
 # inspired by https://github.com/chendaichao/VAE-pytorch
 
+def lossMSE(X, X_hat, mean, logvar):
+    reconstruction_loss = torch.sum(F.mse_loss(X_hat, X, reduction="none"), dim=tuple(range(1,len(X_hat.shape))))
+    KL_divergence = torch.sum(0.5 * (-1 - logvar + torch.exp(logvar) + mean**2), dim=tuple(range(1, len(mean.shape))))
+    
+    return reconstruction_loss, KL_divergence
 
 class Unflatten(nn.Module):
     def forward(self, x):
@@ -279,9 +285,9 @@ class CFullyConnectedVAE2(nn.Module):
                                 nn.Linear(num_dimensions, num_dimensions),
                                 nn.BatchNorm1d(num_dimensions),
                                 nn.LeakyReLU(),
-                                     nn.Linear(num_dimensions,num_dimensions),
-                                     nn.Unflatten(1, shape),
-                                     #nn.Sigmoid()
+                                nn.Linear(num_dimensions,num_dimensions),
+                                nn.Unflatten(1, shape),
+                                nn.LeakyReLU()
                                 )
     
     def sample_from(self, mean, log_var):
@@ -348,9 +354,9 @@ class CFullyConnectedVAE3(nn.Module):
                                 nn.Linear(num_dimensions, num_dimensions),
                                 nn.BatchNorm1d(num_dimensions),
                                 nn.LeakyReLU(),
-                                     nn.Linear(num_dimensions,num_dimensions),
-                                     nn.Unflatten(1, shape),
-                                     #nn.Sigmoid()
+                                nn.Linear(num_dimensions,num_dimensions),
+                                nn.Unflatten(1, shape),
+                                nn.LeakyReLU()
                                 )
     
     def sample_from(self, mean, log_var):

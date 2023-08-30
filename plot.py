@@ -894,6 +894,33 @@ def hippocampus_different_order():
 
 
 
+def hippocampus_vae_rehearsal_2d_no_skips():
+    combinations = ["Task097_DecathHip",
+                    "Task097_DecathHip_Task098_Dryad",
+                    "Task097_DecathHip_Task098_Dryad_Task099_HarP"]
+    rehearsal = {'eval_path_base': "/local/scratch/clmn1/master_thesis/evaluation_folder/baselines_retrained",
+                  'eval_path_middle': "nnUNet_ext/3d_fullres/Task097_DecathHip_Task098_Dryad_Task099_HarP",
+                  'trainer': "nnUNetTrainerRehearsal",
+                  'name': "Rehearsal, 3D, w/ skips, w/o freezing"
+    }
+    feature_rehearsal2 = {'eval_path_base': "/local/scratch/clmn1/master_thesis/evaluation_folder/retrained/distilled_output/0.25/middle_encoder",
+                  'eval_path_middle': "nnUNet_ext/3d_fullres/Task097_DecathHip_Task098_Dryad_Task099_HarP",
+                  'trainer': "nnUNetTrainerFeatureRehearsal2",
+                  'name': "Feature rehearsal, distilled output, 3D, w/ skips, w/ freezing"
+    }
+    vae_rehearsal = {'eval_path_base': "/local/scratch/clmn1/master_thesis/tests/no_skips/evaluation",
+                  'eval_path_middle': "nnUNet_ext/2d/Task097_DecathHip_Task098_Dryad_Task099_HarP",
+                  'trainer': "nnUNetTrainerVAERehearsalNoSkips",
+                  'name': "VAE rehearsal, 2D, w/o skips, w/ freezing"
+    }
+    sequential = {'eval_path_base': "/local/scratch/clmn1/master_thesis/evaluation_folder/baselines_retrained",
+                  'eval_path_middle': "nnUNet_ext/3d_fullres/Task097_DecathHip_Task098_Dryad_Task099_HarP",
+                  'trainer': "nnUNetTrainerSequential",
+                  'name': "Sequential, 3D, w/ skips, w/o freezing"
+    }
+
+    trainers = [rehearsal, feature_rehearsal2, vae_rehearsal, sequential]
+    return trainers, combinations, None, HIPPOCAMPUS_Y_RANGE, "Hippocampus"
 
 
 
@@ -903,12 +930,7 @@ def hippocampus_different_order():
 
 
 
-
-
-
-
-
-trainers, combinations, palette, y_range, title = hippocampus_different_order()
+trainers, combinations, palette, y_range, title = hippocampus_vae_rehearsal_2d_no_skips()
 data = []
 mask = "mask_1"
 ## data needs to have ["case_name", "last task trained", "task the case belongs to", "value"]

@@ -7,7 +7,10 @@ from nnunet_ext.paths import default_plans_identifier
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet_ext.training.EarlyStop import EarlyStop
 from nnunet_ext.training.network_training.multihead.nnUNetTrainerMultiHead import nnUNetTrainerMultiHead
-
+import calendar
+import time
+import socket
+from datetime import datetime
 from _warnings import warn
 from typing import Tuple
 import timeit
@@ -47,11 +50,12 @@ import SimpleITK as sitk
 from batchgenerators.augmentations.utils import resize_segmentation
 from batchgenerators.augmentations.utils import pad_nd_image
 import torchvision
-from nnunet_ext.network_architecture.VAE import CFullyConnectedVAE, CFullyConnectedVAE2, CFullyConnectedVAE3, ConvolutionalVAE, FullyConnectedVAE, FullyConnectedVAE2, SecondStageVAE, InitWeightsVAE, VAEFromTutorial
+from nnunet_ext.network_architecture.VAE import *
 from nnunet_ext.network_architecture.generic_UNet_no_skips import Generic_UNet_no_skips
-from nnunet_ext.training.FeatureRehearsalDataset import FeatureRehearsalDataset, FeatureRehearsalTargetType, FeatureRehearsalDataLoader, InfiniteIterator
+from nnunet_ext.training.FeatureRehearsalDataset import FeatureRehearsalConcatDataset, FeatureRehearsalDataset, FeatureRehearsalTargetType, FeatureRehearsalDataLoader, InfiniteIterator
 import torch.utils.data, torch.utils.data.sampler
 from nnunet_ext.training.investigate_vae import visualize_latent_space, visualize_second_stage_latent_space
+from nnunet_ext.training.IncrementalSummaryWriter import IncrementalSummaryWriter
 
 # -- Define globally the Hyperparameters for this trainer along with their type -- #
 HYPERPARAMS = {}
@@ -560,6 +564,7 @@ class nnUNetTrainerVAERehearsalNoSkips(nnUNetTrainerMultiHead):
             self.print_to_log_file("initialize new VAE model")
             #self.vae = FullyConnectedVAE2(shape)
             self.vae = CFullyConnectedVAE2(shape, num_tasks, conditional_dim=conditional_dim)
+            #self.vae = torch.nn.DataParallel(CFullyConnectedVAE3(shape, num_tasks, conditional_dim=conditional_dim), device_ids = [0, 1]).cuda()
             #vae = VAEFromTutorial((1, 28, 28), nhid = 28*28)
 
         self.print_to_log_file("num parameters vae:", sum(p.numel() for p in self.vae.parameters() if p.requires_grad))
@@ -592,11 +597,9 @@ class nnUNetTrainerVAERehearsalNoSkips(nnUNetTrainerMultiHead):
 
     def train_vae(self, save_callback, max_num_epochs: int):
         self.vae.train()
-        #vae.decoder = vae.decoder.cuda(1)
-        self.vae.to_gpus()
-        #vae.apply(InitWeightsVAE("none"))
-        
-        #vae.apply(InitWeights_He(1e-2))
+
+        if hasattr(self.vae, 'to_gpus'):
+            self.vae.to_gpus()
 
         self.print_to_log_file(f"start training vae with fp16 being {self.fp16}")
         #lr = 0.001
@@ -626,9 +629,21 @@ class nnUNetTrainerVAERehearsalNoSkips(nnUNetTrainerMultiHead):
         early_stop = EarlyStop(patience=200, save_callback=save_callback, trainer=self, verbose=True)
         self.print_to_log_file("train using early stopping with patience=200")
 
-        train_using_rehearsal = hasattr(self, 'generated_feature_rehearsal_dataiter')
+        train_using_rehearsal = hasattr(self, 'generated_feature_rehearsal_dataset')
         self.print_to_log_file(f"train using rehearsal: {train_using_rehearsal}")
-        iteration_mult = 2 if train_using_rehearsal else 1
+        if train_using_rehearsal:
+            self.print_to_log_file("extracted dataset:", self.extracted_features_dataset_tr.get_dict_from_file_name_to_task_idx())
+            self.print_to_log_file("generated dataset:", self.generated_feature_rehearsal_dataset.get_dict_from_file_name_to_task_idx())
+            dataset = FeatureRehearsalConcatDataset(self.extracted_features_dataset_tr, [self.extracted_features_dataset_tr, self.generated_feature_rehearsal_dataset])
+            dataloader = FeatureRehearsalDataLoader(dataset, batch_size=min(len(self.extracted_features_dataset_tr), 512), 
+                                                    num_workers=8, pin_memory=True, 
+                                                    deep_supervision_scales=self.deep_supervision_scales, persistent_workers=False,
+                                                    shuffle=True)
+            self.print_to_log_file(f"reinitialize dataloader with batch size {min(len(self.extracted_features_dataset_tr), 512)}")
+        else:
+            self.print_to_log_file("extracted dataset:", self.extracted_features_dataset_tr.get_dict_from_file_name_to_task_idx())
+            dataloader = self.feature_rehearsal_dataloader_tr
+
 
         all_losses_tr = []
         all_reconstruction_losses_tr = []
@@ -645,25 +660,17 @@ class nnUNetTrainerVAERehearsalNoSkips(nnUNetTrainerMultiHead):
             reconstruction_losses_val = []
             kl_divergences_val = []
 
-            data_iter_tr = iter(self.feature_rehearsal_dataloader_tr)
+            data_iter_tr = iter(dataloader)
             data_iter_test = iter(self.feature_rehearsal_dataloader_test)
 
             self.vae.train()
             #with trange(self.num_batches_per_epoch) as tbar:
             #with trange(len(self.feature_rehearsal_dataloader_tr.dataset) // self.feature_rehearsal_dataloader_tr.batch_size) as tbar:
-            with trange(iteration_mult * len(self.feature_rehearsal_dataloader_tr)) as tbar:
+            with trange(len(dataloader)) as tbar:
                 for b in tbar:
                     tbar.set_description("Epoch {}/{}".format(epoch+1, max_num_epochs))
-                    
-                    rehearse = False
-                    if train_using_rehearsal:
-                        rehearse = self.rehearse
-                        self.rehearse = not self.rehearse
 
-                    if rehearse:
-                        l, reconstruction_loss, kl_div = self.vae_run_iteration(self.generated_feature_rehearsal_dataiter)
-                    else:
-                        l, reconstruction_loss, kl_div = self.vae_run_iteration(data_iter_tr)
+                    l, reconstruction_loss, kl_div = self.vae_run_iteration(data_iter_tr, epoch=epoch+1)
 
                     loss_sum += l
                     n += 1
@@ -674,7 +681,8 @@ class nnUNetTrainerVAERehearsalNoSkips(nnUNetTrainerMultiHead):
                     kl_divergences_tr.append(kl_div)
             self.vae.eval()
             for _ in range(len(self.feature_rehearsal_dataloader_test)):
-                l, reconstruction_loss, kl_div = self.vae_run_iteration(data_iter_test, do_backprop=False)
+                with torch.no_grad():
+                    l, reconstruction_loss, kl_div = self.vae_run_iteration(data_iter_test, do_backprop=False, epoch=epoch+1)
                 losses_val.append(l)
                 reconstruction_losses_val.append(reconstruction_loss)
                 kl_divergences_val.append(kl_div)
@@ -695,13 +703,15 @@ class nnUNetTrainerVAERehearsalNoSkips(nnUNetTrainerMultiHead):
 
             self.plot_vae_progress(epoch, all_losses_tr, all_reconstruction_losses_tr, all_kl_div_losses_tr, 
                                    all_losses_val, all_reconstruction_losses_val, all_kl_div_losses_val)
-            if epoch > max_num_epochs // 2:
+            if epoch > 1000:
                 if (early_stop(np.mean(losses_tr))):
                     break
         #END of training
+        if hasattr(self, 'summary_writer'):
+            del self.summary_writer
         
 
-    def vae_run_iteration(self, data_generator, do_backprop=True):
+    def vae_run_iteration(self, data_generator, do_backprop=True, epoch:int = None):
         data, task_idx = self.get_next_for_vae(data_generator)
         data = maybe_to_torch(data)
         if torch.cuda.is_available():
@@ -714,6 +724,11 @@ class nnUNetTrainerVAERehearsalNoSkips(nnUNetTrainerMultiHead):
             with autocast():
                 x_hat, mean, log_var = self.vae(data, task_idx)
                 reconstruction_loss, kl_div, r_mse = self.vae_loss(data, x_hat, mean, log_var)
+                reconstruction_loss_b, kl_div_b = lossMSE(data, x_hat, mean, log_var)
+                #reconstruction_loss, kl_div = torch.mean(reconstruction_loss_b) / x_hat.shape[0], torch.mean(kl_div_b) / x_hat.shape[0]
+                assert torch.isclose(torch.mean(reconstruction_loss_b), reconstruction_loss), f"{reconstruction_loss}, {torch.mean(reconstruction_loss_b)}, {reconstruction_loss_b}"
+                assert torch.isclose(torch.mean(kl_div_b), kl_div), f"{kl_div}, {torch.mean(kl_div_b)}, {kl_div_b}"
+
                 l = reconstruction_loss + kl_div
 
             if do_backprop:
@@ -725,11 +740,23 @@ class nnUNetTrainerVAERehearsalNoSkips(nnUNetTrainerMultiHead):
         else:
             x_hat, mean, log_var = self.vae(data, task_idx)
             reconstruction_loss, kl_div, r_mse = self.vae_loss(data, x_hat, mean, log_var)
+            reconstruction_loss_b, kl_div_b = lossMSE(data, x_hat, mean, log_var)
+            assert torch.isclose(torch.mean(reconstruction_loss_b), reconstruction_loss), f"{reconstruction_loss}, {torch.mean(reconstruction_loss_b)}, {reconstruction_loss_b}"
+            assert torch.isclose(torch.mean(kl_div_b), kl_div), f"{kl_div}, {torch.mean(kl_div_b)}, {kl_div_b}"
+            #reconstruction_loss, kl_div = , torch.mean(kl_div_b) / x_hat.shape[0]
+
+
             l = reconstruction_loss + kl_div
             if do_backprop:
                 l.backward()
                 torch.nn.utils.clip_grad_norm_(self.vae.parameters(), 2)#12
                 self.vae_optimizer.step()
+
+        if do_backprop:
+            reconstruction_loss_b = reconstruction_loss_b.detach()
+            kl_div_b = kl_div_b.detach()
+            self.plot_vae_progress2(epoch, reconstruction_loss_b, kl_div_b, task_idx, data[0].detach(), x_hat[0].detach())
+
         return l.detach().cpu().item(), reconstruction_loss.cpu().item(), kl_div.cpu().item()
 
 
@@ -745,7 +772,7 @@ class nnUNetTrainerVAERehearsalNoSkips(nnUNetTrainerMultiHead):
         else:
             num_features = len(self.network.conv_blocks_context)
         
-        vae: CFullyConnectedVAE = self.vae.eval()
+        vae = self.vae.eval()
         vae.to_gpus()
         output_folder = join(self.trained_on_path, self.extension,  GENERATED_FEATURE_PATH_TR)
         maybe_mkdir_p(output_folder)
@@ -785,7 +812,9 @@ class nnUNetTrainerVAERehearsalNoSkips(nnUNetTrainerMultiHead):
         dataset = FeatureRehearsalDataset(join(self.trained_on_path, self.extension,  GENERATED_FEATURE_PATH_TR), self.deep_supervision_scales, FeatureRehearsalTargetType.DISTILLED_OUTPUT, 
                                             num_features, new_task_idx=None, old_dict_from_file_name_to_task_idx=dict_from_file_name_to_task_idx, load_skips=False,
                                             constant_skips = self.extracted_features_dataset_val.constant_skips)
-        dataloader = FeatureRehearsalDataLoader(dataset, batch_size=self.feature_rehearsal_dataloader_tr.batch_size, num_workers=8, pin_memory=True, deep_supervision_scales=self.deep_supervision_scales, persistent_workers=True)
+        self.generated_feature_rehearsal_dataset = dataset
+        
+        dataloader = FeatureRehearsalDataLoader(dataset, batch_size=int(self.batch_size), num_workers=8, pin_memory=True, deep_supervision_scales=self.deep_supervision_scales, persistent_workers=True)
         self.generated_feature_rehearsal_dataiter = InfiniteIterator(dataloader)
 
 
@@ -845,3 +874,32 @@ class nnUNetTrainerVAERehearsalNoSkips(nnUNetTrainerMultiHead):
         except IOError:
             self.print_to_log_file("failed to plot: ", sys.exc_info())
 
+    @torch.no_grad()
+    def plot_vae_progress2(self, epoch: int, reconstruction_loss_b, kl_div_b, task_idx, sample, reconstruction):
+        if not hasattr(self, 'summary_writer'):
+            current_time = datetime.now().strftime("%b%d_%H-%M-%S")
+            log_dir = os.path.join(self.output_folder, "runs", current_time + "_" + socket.gethostname())
+            self.summary_writer = IncrementalSummaryWriter(log_dir)
+            #self.summary_writer.add_graph(self.vae, (sample[None], task_idx[0:1]))
+    
+        for y, task in enumerate(self.mh_network.heads.keys()):
+            self.summary_writer.add_batch(f"Reconstruction_loss_{task}", reconstruction_loss_b[task_idx == y], epoch)
+            self.summary_writer.add_batch(f"kl_div_{task}", kl_div_b[task_idx == y], epoch)
+        
+        if not self.summary_writer.epoch_has_figure():
+            
+            fig = plt.figure()
+            plt.imshow(sample[0].cpu().numpy())
+            plt.colorbar()
+            self.summary_writer.add_one_figure_per_epoch("true sample", fig, epoch)
+
+            fig = plt.figure()
+            plt.imshow(reconstruction[0].cpu().numpy())
+            plt.colorbar()
+            self.summary_writer.add_one_figure_per_epoch("reconstruction", fig, epoch)
+
+            self.summary_writer.add_text("true sample task idx", str(task_idx[0].item()), epoch)
+            self.summary_writer.add_scalar("true sample task idx", task_idx[0].item(), epoch)
+
+
+        self.summary_writer.flush_if_needed()
