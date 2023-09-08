@@ -46,6 +46,7 @@ import SimpleITK as sitk
 from batchgenerators.augmentations.utils import resize_segmentation
 from batchgenerators.augmentations.utils import pad_nd_image
 
+from nnunet_ext.network_architecture.generic_UNet_no_skips import Generic_UNet_no_skips
 from nnunet_ext.training.FeatureRehearsalDataset import FeatureRehearsalDataset, FeatureRehearsalTargetType, FeatureRehearsalDataLoader, FeatureRehearsalMultiDataset
 
 # -- Define globally the Hyperparameters for this trainer along with their type -- #
@@ -55,11 +56,11 @@ HYPERPARAMS = {}
 FEATURE_PATH = "extracted_features"
 
 
-class nnUNetTrainerFeatureRehearsal2(nnUNetTrainerMultiHead):
+class nnUNetTrainerFeatureRehearsalNoSkips(nnUNetTrainerMultiHead):
     # -- Trains n tasks sequentially using transfer learning -- #
     def __init__(self, split, task, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
-                 identifier=default_plans_identifier, extension='feature_rehearsal2', tasks_list_with_char=None, 
+                 identifier=default_plans_identifier, extension='feature_rehearsal_no_skips', tasks_list_with_char=None, 
                  #custom args
                  target_type: FeatureRehearsalTargetType = FeatureRehearsalTargetType.GROUND_TRUTH,
                  num_rehearsal_samples_in_perc: float= 1.0,
@@ -113,12 +114,13 @@ class nnUNetTrainerFeatureRehearsal2(nnUNetTrainerMultiHead):
             assert self.was_initialized
             self.save_checkpoint(join(self.output_folder, "before_training.model"), False)
         else:
+            self.network.__class__ = Generic_UNet_no_skips
             ## freeze encoder
             self.freeze_network()
 
 
         #print("before training: ", task, self.network.conv_blocks_context[0].blocks[0].conv.weight)
-        self.network.__class__ = Generic_UNet
+        self.network.__class__ = Generic_UNet_no_skips
         ret = super().run_training(task, output_folder, build_folder)
         #ret = None
         #print("after training: ", self.network.conv_blocks_context[0].blocks[0].conv.weight)
@@ -415,6 +417,8 @@ class nnUNetTrainerFeatureRehearsal2(nnUNetTrainerMultiHead):
 
     def run_iteration(self, data_generator, do_backprop=True, run_online_evaluation=False, detach=True, no_loss=False):
         # -- Run iteration as usual --> copied and modified from nnUNetTrainerV2 -- #
+        if not isinstance(self.network, Generic_UNet_no_skips):
+            self.network.__class__ = Generic_UNet_no_skips
 
         rehearse = False
         
@@ -502,3 +506,16 @@ class nnUNetTrainerFeatureRehearsal2(nnUNetTrainerMultiHead):
             if detach:
                 l = l.detach().cpu().numpy()
             return l
+
+    def predict_preprocessed_data_return_seg_and_softmax(self, data: np.ndarray, do_mirroring: bool = True, 
+                                                         mirror_axes: Tuple[int] = None, 
+                                                         use_sliding_window: bool = True, step_size: float = 0.5, 
+                                                         use_gaussian: bool = True, pad_border_mode: str = 'constant', 
+                                                         pad_kwargs: dict = None, all_in_gpu: bool = False, 
+                                                         verbose: bool = True, mixed_precision=True) -> Tuple[np.ndarray, np.ndarray]:
+        
+        if not isinstance(self.network, Generic_UNet_no_skips):
+            self.network.__class__ = Generic_UNet_no_skips
+
+        return super().predict_preprocessed_data_return_seg_and_softmax(data, do_mirroring, mirror_axes, use_sliding_window, step_size, use_gaussian, pad_border_mode, pad_kwargs, all_in_gpu, verbose, mixed_precision)
+    

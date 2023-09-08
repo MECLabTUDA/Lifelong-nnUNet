@@ -65,11 +65,11 @@ GENERATED_FEATURE_PATH_TR = "generated_features_tr"
 EXTRACTED_FEATURE_PATH_TR = "extracted_features_tr"
 EXTRACTED_FEATURE_PATH_VAL = "extracted_features_val"
 
-class nnUNetTrainerVAERehearsalNoSkips(nnUNetTrainerMultiHead):
+class nnUNetTrainerVAERehearsalBase(nnUNetTrainerMultiHead):
     # -- Trains n tasks sequentially using transfer learning -- #
     def __init__(self, split, task, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
-                 identifier=default_plans_identifier, extension='vae_rehearsal_no_skips', tasks_list_with_char=None, 
+                 identifier=default_plans_identifier, extension='vae_rehearsal_base', tasks_list_with_char=None, 
                  #custom args
                  #target_type: FeatureRehearsalTargetType = FeatureRehearsalTargetType.GROUND_TRUTH,
                  num_rehearsal_samples_in_perc: float= 1.0,
@@ -103,6 +103,9 @@ class nnUNetTrainerVAERehearsalNoSkips(nnUNetTrainerMultiHead):
                           tasks_list_with_char, num_rehearsal_samples_in_perc, layer_name_for_feature_extraction, 
                           mixed_precision, save_csv, del_log, use_vit, self.vit_type,
                           version, split_gpu, transfer_heads, ViT_task_specific_ln, do_LSA, do_SPT)
+        
+        self.VAE_CLASSES = [CFullyConnectedVAE2, CFullyConnectedVAE2Distributed]
+        self.UNET_CLASS = Generic_UNet
 
     def run_training(self, task, output_folder, build_folder=True):
         #self.num_batches_per_epoch = 5
@@ -116,11 +119,11 @@ class nnUNetTrainerVAERehearsalNoSkips(nnUNetTrainerMultiHead):
             self.save_checkpoint(join(self.output_folder, "before_training.model"), False)
         else:
             ## freeze encoder
-            self.network.__class__ = Generic_UNet_no_skips
+            self.network.__class__ = self.UNET_CLASS
             self.freeze_network()
 
 
-        self.network.__class__ = Generic_UNet_no_skips
+        self.network.__class__ = self.UNET_CLASS
         ret = super().run_training(task, output_folder, build_folder)
         #ret = None
 
@@ -438,8 +441,8 @@ class nnUNetTrainerVAERehearsalNoSkips(nnUNetTrainerMultiHead):
 
     def run_iteration(self, data_generator, do_backprop=True, run_online_evaluation=False, detach=True, no_loss=False):
         # -- Run iteration as usual --> copied and modified from nnUNetTrainerV2 -- #
-        if not isinstance(self.network, Generic_UNet_no_skips):
-            self.network.__class__ = Generic_UNet_no_skips
+        if not isinstance(self.network, self.UNET_CLASS):
+            self.network.__class__ = self.UNET_CLASS
         
         rehearse = False
         
@@ -516,8 +519,8 @@ class nnUNetTrainerVAERehearsalNoSkips(nnUNetTrainerMultiHead):
                                                          pad_kwargs: dict = None, all_in_gpu: bool = False, 
                                                          verbose: bool = True, mixed_precision=True) -> Tuple[np.ndarray, np.ndarray]:
         
-        if not isinstance(self.network, Generic_UNet_no_skips):
-            self.network.__class__ = Generic_UNet_no_skips
+        if not isinstance(self.network, self.UNET_CLASS):
+            self.network.__class__ = self.UNET_CLASS
 
         return super().predict_preprocessed_data_return_seg_and_softmax(data, do_mirroring, mirror_axes, use_sliding_window, step_size, use_gaussian, pad_border_mode, pad_kwargs, all_in_gpu, verbose, mixed_precision)
     
@@ -574,9 +577,9 @@ class nnUNetTrainerVAERehearsalNoSkips(nnUNetTrainerMultiHead):
             #self.vae = FullyConnectedVAE2(shape)
             if prostate:
                 assert torch.cuda.device_count() >= 2
-                self.vae = CFullyConnectedVAE2Distributed(shape, num_tasks, conditional_dim=conditional_dim)
+                self.vae = self.VAE_CLASSES[1](shape, num_tasks, conditional_dim=conditional_dim)
             else:
-                self.vae = CFullyConnectedVAE2(shape, num_tasks, conditional_dim=conditional_dim)
+                self.vae = self.VAE_CLASSES[0](shape, num_tasks, conditional_dim=conditional_dim)
             #self.vae = torch.nn.DataParallel(CFullyConnectedVAE3(shape, num_tasks, conditional_dim=conditional_dim), device_ids = [0, 1]).cuda()
             #vae = VAEFromTutorial((1, 28, 28), nhid = 28*28)
 
@@ -598,7 +601,7 @@ class nnUNetTrainerVAERehearsalNoSkips(nnUNetTrainerMultiHead):
             torch.save(vae_save_this, join(self.output_folder, "vae.model"))
             self.print_to_log_file("done saving the VAE model.")
 
-        self.train_vae(save_callback, 5000, prostate)
+        self.train_vae(save_callback, 5000, prostate) #5000
         if self.fp16:
             with autocast():
                 visualize_latent_space(self.vae, self.feature_rehearsal_dataloader_tr, join(self.output_folder, "vae_visualization.png"))

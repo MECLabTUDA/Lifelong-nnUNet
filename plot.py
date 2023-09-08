@@ -908,10 +908,25 @@ def hippocampus_vae_rehearsal_2d_no_skips():
                   'trainer': "nnUNetTrainerFeatureRehearsal2",
                   'name': "Feature rehearsal, distilled output, 3D, w/ skips, w/ freezing"
     }
+    feature_rehearsal_2d = {'eval_path_base': "/local/scratch/clmn1/master_thesis/tests/no_skips/evaluation",
+                  'eval_path_middle': "nnUNet_ext/2d/Task097_DecathHip_Task098_Dryad_Task099_HarP",
+                  'trainer': "nnUNetTrainerFeatureRehearsal2",
+                  'name': "Feature rehearsal, distilled output, 2D, w/ skips, w/ freezing"
+    }
+    feature_rehearsal_2d_no_skips = {'eval_path_base': "/local/scratch/clmn1/master_thesis/tests/no_skips/evaluation",
+                  'eval_path_middle': "nnUNet_ext/2d/Task097_DecathHip_Task098_Dryad_Task099_HarP",
+                  'trainer': "nnUNetTrainerFeatureRehearsalNoSkips",
+                  'name': "Feature rehearsal, distilled output, 2D, w/o skips, w/ freezing"
+    }
     vae_rehearsal = {'eval_path_base': "/local/scratch/clmn1/master_thesis/tests/no_skips/evaluation",
                   'eval_path_middle': "nnUNet_ext/2d/Task097_DecathHip_Task098_Dryad_Task099_HarP",
                   'trainer': "nnUNetTrainerVAERehearsalNoSkips",
                   'name': "VAE rehearsal, 2D, w/o skips, w/ freezing"
+    }
+    vae_rehearsal_no_conditioning = {'eval_path_base': "/local/scratch/clmn1/master_thesis/tests/no_conditional/evaluation",
+                  'eval_path_middle': "nnUNet_ext/2d/Task097_DecathHip_Task098_Dryad_Task099_HarP",
+                  'trainer': "nnUNetTrainerVAERehearsalNoSkips",
+                  'name': "VAE rehearsal, 2D, w/o skips, w/ freezing, w/o conditioning"
     }
     sequential = {'eval_path_base': "/local/scratch/clmn1/master_thesis/evaluation_folder/baselines_retrained",
                   'eval_path_middle': "nnUNet_ext/3d_fullres/Task097_DecathHip_Task098_Dryad_Task099_HarP",
@@ -919,7 +934,7 @@ def hippocampus_vae_rehearsal_2d_no_skips():
                   'name': "Sequential, 3D, w/ skips, w/o freezing"
     }
 
-    trainers = [rehearsal, feature_rehearsal2, vae_rehearsal, sequential]
+    trainers = [rehearsal, feature_rehearsal_2d_no_skips, vae_rehearsal, vae_rehearsal_no_conditioning, sequential]
     return trainers, combinations, None, HIPPOCAMPUS_Y_RANGE, "Hippocampus"
 
 

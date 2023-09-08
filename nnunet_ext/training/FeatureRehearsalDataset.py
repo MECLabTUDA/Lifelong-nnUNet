@@ -166,3 +166,17 @@ class FeatureRehearsalConcatDataset(ConcatDataset):
         self.dataset = main_dataset
         self.store_task_idx = main_dataset.store_task_idx
         self.target_type = main_dataset.target_type
+
+class FeatureRehearsalMultiDataset(Dataset):
+    #emulates multiple copies of the given dataset
+    def __init__(self, dataset: FeatureRehearsalDataset, num_copies: int=2) -> None:
+        self.dataset = dataset
+        self.store_task_idx = dataset.store_task_idx
+        self.target_type = dataset.target_type
+        self.num_copies = num_copies
+
+    def __len__(self):
+        return len(self.dataset) * self.num_copies
+    
+    def __getitem__(self, index):
+        return self.dataset[index % len(self.dataset)]

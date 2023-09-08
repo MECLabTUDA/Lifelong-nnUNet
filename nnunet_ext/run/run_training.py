@@ -232,12 +232,12 @@ def run_training(extension='multihead'):
                             help='Set this flag if the EWC loss should be changed during the frozen training process (ewc_lambda*e^{-1/3}). '
                                  ' Default: The EWC loss will not be altered.')
 
-    if extension in ['feature_rehearsal2', 'feature_rehearsal_no_freeze', 'feature_rehearsal_no_replay']:
+    if extension in ['feature_rehearsal2', 'feature_rehearsal_no_freeze', 'feature_rehearsal_no_replay', 'feature_rehearsal_no_skips']:
         # target_type
         parser.add_argument('-target_type', action='store', type=str, required=False, default="ground_truth",
                             help='possible: ground_truth, distilled_output, distilled_deep_supervision. Default is ground_truth')
         
-    if extension in ['feature_rehearsal2', 'feature_rehearsal_no_freeze', 'feature_rehearsal_no_replay', 'vae_rehearsal_no_skips']:
+    if extension in ['feature_rehearsal2', 'feature_rehearsal_no_freeze', 'feature_rehearsal_no_replay', 'vae_rehearsal_no_skips', 'feature_rehearsal_no_skips', 'vae_rehearsal_no_skips_no_conditioning']:
         # num_rehearsal_samples_in_perc
         parser.add_argument('-num_samples_in_perc', action='store', type=float, required=False, default=0.25,
                             help='Specify how much of the previous tasks should be considered during training.'
@@ -491,10 +491,10 @@ def run_training(extension='multihead'):
     feature_rehearsal_target_type = FeatureRehearsalTargetType.GROUND_TRUTH #set this in case we don't need it
     num_rehearsal_samples_in_perc = 0
     layer_name_for_feature_extraction = ""
-    if extension in ['feature_rehearsal2', 'feature_rehearsal_no_freeze', 'feature_rehearsal_no_replay']:
+    if extension in ['feature_rehearsal2', 'feature_rehearsal_no_freeze', 'feature_rehearsal_no_replay', 'feature_rehearsal_no_skips']:
         feature_rehearsal_target_type = FeatureRehearsalTargetType[args.target_type.upper()]
 
-    if extension in ['feature_rehearsal2', 'feature_rehearsal_no_freeze', 'feature_rehearsal_no_replay', 'vae_rehearsal_no_skips']:
+    if extension in ['feature_rehearsal2', 'feature_rehearsal_no_freeze', 'feature_rehearsal_no_replay', 'vae_rehearsal_no_skips', 'feature_rehearsal_no_skips', 'vae_rehearsal_no_skips_no_conditioning']:
         num_rehearsal_samples_in_perc = args.num_samples_in_perc
         layer_name_for_feature_extraction = args.layer_name
     
@@ -570,7 +570,9 @@ def run_training(extension='multihead'):
               'nnUNetTrainerFeatureRehearsalNoReplay': rehearsal_args,
               'nnUNetTrainerFeatureRehearsalNoFreeze': rehearsal_args,
               'nnUNetTrainerSequentialNoSkips': basic_exts,
-              'nnUNetTrainerVAERehearsalNoSkips': vae_rehearsal_args}
+              'nnUNetTrainerVAERehearsalNoSkips': vae_rehearsal_args,
+              'nnUNetTrainerVAERehearsalNoSkipsNoConditioning': vae_rehearsal_args,
+              'nnUNetTrainerFeatureRehearsalNoSkips': rehearsal_args}
 
     
     # ---------------------------------------------
@@ -1068,3 +1070,9 @@ def main_sequential_no_skips():
 
 def main_vae_rehearsal_no_skips():
     run_training(extension='vae_rehearsal_no_skips')
+
+def main_feature_rehearsal_no_skips():
+    run_training(extension="feature_rehearsal_no_skips")
+
+def main_vae_rehearsal_no_skips_no_conditioning():
+    run_training(extension="vae_rehearsal_no_skips_no_conditioning")

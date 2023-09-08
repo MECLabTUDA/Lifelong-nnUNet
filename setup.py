@@ -59,6 +59,8 @@ setup(name='nnunet_ext',
               'nnUNet_train_feature_rehearsal_no_replay = nnunet_ext.run.run_training:main_feature_rehearsal_no_replay',  
               'nnUNet_train_sequential_no_skips = nnunet_ext.run.run_training:main_sequential_no_skips',    
               'nnUNet_train_vae_rehearsal_no_skips = nnunet_ext.run.run_training:main_vae_rehearsal_no_skips',    
+              'nnUNet_train_feature_rehearsal_no_skips = nnunet_ext.run.run_training:main_feature_rehearsal_no_skips', 
+              'nnUNet_train_vae_rehearsal_no_skips_no_conditioning = nnunet_ext.run.run_training:main_vae_rehearsal_no_skips_no_conditioning', 
               
               'nnUNet_inference = nnunet_ext.run.run_inference:main',    
               'nnUNet_evaluate2 = nnunet_ext.run.run_evaluation:run_evaluation2',    
