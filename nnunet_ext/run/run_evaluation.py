@@ -13,6 +13,7 @@ from nnunet.utilities.task_name_id_conversion import convert_id_to_task_name
 EXT_MAP = dict()
 # -- Extract all extensional trainers in a more generic way -- #
 extension_keys = [x for x in os.listdir(os.path.join(nnunet_ext.__path__[0], "training", "network_training")) if 'py' not in x]
+
 for ext in extension_keys:
     trainer_name = [x[:-3] for x in os.listdir(os.path.join(nnunet_ext.__path__[0], "training", "network_training", ext)) if '.py' in x][0]
     # trainer_keys.extend(trainer_name)
@@ -97,12 +98,11 @@ def run_evaluation():
                         help='Set this flag if Locality Self-Attention should be used for the ViT.')
     parser.add_argument('--do_SPT', action='store_true', default=False,
                         help='Set this flag if Shifted Patch Tokenization should be used for the ViT.')
-    parser.add_argument('--adaptive', required=False, default=False, action="store_true",
+    parser.add_argument('--enhanced', required=False, default=False, action="store_true",
                         help='Set this flag if the EWC loss has been changed during the frozen training process (ewc_lambda*e^{-1/3}). '
                              ' Default: The EWC loss will not be altered. --> Makes only sense with our nnUNetTrainerFrozEWC trainer.')
     parser.add_argument('--include_training_data', action='store_true', default=False,
                         help='Set this flag if the evaluation should also be done on the training data.')
-
 
     # -------------------------------
     # Extract arguments from parser
@@ -129,7 +129,7 @@ def run_evaluation():
     mixed_precision = not args.fp32_used
     transfer_heads = not args.no_transfer_heads
     do_pod = not args.no_pod
-    adaptive = args.adaptive
+    enhanced = args.enhanced
 
     # -- Extract ViT specific flags to as well -- #
     use_vit = args.use_vit
@@ -167,6 +167,8 @@ def run_evaluation():
     version = args.version
     if isinstance(version, list):    # When the version gets returned as a list, extract the number to avoid later appearing errors
         version = version[0]
+    # assert version in range(1, 5), 'We only provide three versions, namely 1, 2, 3 or 4, but not {}..'.format(version)
+    
     
     # -------------------------------
     # Transform tasks to task names
@@ -217,7 +219,7 @@ def run_evaluation():
     evaluator = Evaluator(network, network_trainer, (tasks_for_folder, char_to_join_tasks), (use_model_w_tasks, char_to_join_tasks), 
                           version, vit_type, plans_identifier, mixed_precision, EXT_MAP[network_trainer], save_csv, transfer_heads,
                           use_vit, False, ViT_task_specific_ln, do_LSA, do_SPT)
-    evaluator.evaluate_on(fold, evaluate_on_tasks, use_head, always_use_last_head, do_pod=do_pod, adaptive=adaptive, use_all_data=use_all_data)
+    evaluator.evaluate_on(fold, evaluate_on_tasks, use_head, always_use_last_head, do_pod=do_pod, enhanced=enhanced, use_all_data=use_all_data)
 
 # -- Main function for setup execution -- #
 def main():

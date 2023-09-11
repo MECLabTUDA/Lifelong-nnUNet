@@ -21,23 +21,22 @@ class MultiHead_Module(nn.Module):
             :param split_at: The path in the network where the split should be performed. Use the dot notation ('.') to
                              specify the path to a desired split point.
             :param task: The name of the first head. Since this function will perform a split, the splitted part needs to
-                         have a name; this specifies it.
-            :param prev_trainer: If the split should be performed on a previously trained/existing model, than this can be provided
-                                 with this variable. NOTE: The type needs be equal to the provided class_object.
+                         have a name, this specifies it.
+            :param prev_trainer: If the split should be performed on previously trained model, than this can be provided
+                                 with this variable. Note: The type should be equal to the class_object.
             :param *args, **kwargs: Provide all further positional and keyword arguments that are necessary by the class_object
-                                    class when performing an initialization. NOTE: This needs to be done correctly, since
+                                    class when performing an initialization. Note: This needs to be done correctly, since
                                     if it is not, class_object has missing/too much positional arguemnts and will fail during
-                                    runtime in initialization. This is only necessary when prev_trainer is not provided or None.
+                                    runtime in initialization.
             NOTE: The model that can be accessed using self.model represents the running model, and is of the same type as 
-                  class_object. 'self' btw is a MultiHead_Module consisting of a body (self.body), heads (self.heads) and
+                  class_object. self btw. is a MultiHead_Module consisting of a nody (self.body), heads (self.heads) and
                   the running model (self.model) based on the activated task (self.active_task). When training on a new task
-                  is desired, the useer needs to activate this task before calling .forward() in such a way that the running
-                  model has the right parameters and structure loaded etc. Tasks are activated using self.assemble_model(..).
-                  As mentioned before, prev_trainer is not necessary but can be used when a pre-trained model should be used
-                  as initialization and not a complete new initialized class_object. Further, all tasks that will be added
-                  using self.add_new_task(..) use the Module that is extracted based on to the split from the prev_trainer model,
-                  including its state_dict etc. if a prev_trainer is used, otherwise the head from a new initialized class_object
-                  is used.
+                  is desired, the useer needs to actiavte this task before calling .forward() in such a way that the running
+                  model has the right parameters and structure loaded etc. Tasks are actiavted using self.assemble_model(..).
+                  As mentione before, prev_trainer is not necessary but can be used when a pre-trained model should be used
+                  as initialization and not a complete new initialized class_object. Further, all splits that will be added
+                  using self.add_new_task(..) use the Module that is extracted due to the split from the prev_trainer model,
+                  including its state_dict etc.
         """
         # -- Initialize using super -- #
         super().__init__()
@@ -58,7 +57,6 @@ class MultiHead_Module(nn.Module):
                 "When using a prev_trainer, please ensure that it is not empty or do not specify one."
             # -- Set the models class to prev_trainer -- #
             self.model = prev_trainer
-            del prev_trainer
             
         # -- Save the split_at, so it can be used throughout the class -- #
         assert isinstance(split_at, str), "The provided split needs to be a string.."
@@ -105,74 +103,46 @@ class MultiHead_Module(nn.Module):
         # -- NOTE: If prev_trainer was used, init_module is now the splitted part from -- #
         # --       the prev_trainer and not from a new generated class_object, ie. this part -- #
         # --       is always used when calling self.add_new_task --> keep this in mind -- #
-        self.body, init_module, _, _ = self._split_model_recursively_into_body_head(layer_id=0, model=self.model) # Start from root with full model
-
-        # -- Copy the state_dict from the init_module -- #
-        self.state_init = init_module.state_dict()
-
+        self.body, self.init_module, _, _ = self._split_model_recursively_into_body_head(layer_id=0, model=self.model) # Start from root with full model
+        
         # -- Register the init_module into self.heads based on self.active_task
-        self.heads[self.active_task] = init_module
-
-        # -- Remove the init_module since it is only used for initializing the first task -- #
-        del init_module
-
-        # -- Define a flag that indicates if the body weights are frozen or not -- #
-        self.body_freezed = True
+        self.add_new_task(self.active_task)
 
         # -- Assemble the model so it can be used for training -- #
-        self.assemble_model(task, freeze_body=False)
-        # -- Now the body is not freezed anymore and we made sure of that -- #
-        self.body_freezed = False
+        self.assemble_model(task)
+        #print(self.replace_layers(self.heads[task], nn.Conv2d, nn.AdaptiveMaxPool2d((6, 6)))) 
 
     def forward(self, x):
         r"""Forward pass during training --> task needs to be specified before calling forward.
-            Assemble the model before callinng this function.
-            NOTE: Follow with a split of the model after the backward pass to update the head and the body;
-                  use self.update_after_iteration(..) for it.
+            Assemble the model based on self.body and selected task. Then use parent class to perform
+            forward pass. Follow with a split of the model after the pass to update the head and the body.
         """
         # -- Let the class_object do the work since the assembled model is an object of this class -- #
         res = self.class_object.forward(self.model, x) # --> Do not use super, since we want to set the correct self object ;)
 
+        # -- Update the body and corresponding head so these variables are always up to date -- #
+        # -- Simply do a splitting again -- #
+        self.body, self.heads[self.active_task], _, _ = self._split_model_recursively_into_body_head(layer_id=0, model=self.model)
+
         # -- Return the forward result generated by Generic_UNet.forward -- #
         return res
-
-    def update_after_iteration(self, model=None, update_body=True):
-        r"""This function is used to update the head and body. This should be used after every backward pass
-            of the network that is trained on.
-            :param model: The model that should be split and with which the parameters for self.body and the
-                          current head are updated.
-            :param update_body: This boolean flag identifies if the body should be updated as well or only the
-                                head.
-        """
-        # -- If model is None set it to self.model -- #
-        if model is None:
-            model = self.model
-
-        # -- Split the model and update body with the corresponding head if desired -- #
-        if update_body: # Update body and head both
-            self.body, head, _, _ = self._split_model_recursively_into_body_head(layer_id=0, model=model) # Start from root with full model
-        else:   # Do not update the body, ie. only update the head
-            _, head, _, _ = self._split_model_recursively_into_body_head(layer_id=0, model=model) # Start from root with full model
-        self.heads[self.active_task] = head
-        self.heads[self.active_task].load_state_dict(head.state_dict())
-
+    
     def _split_model_recursively_into_body_head(self, layer_id, model, body=nn.Module(), head=nn.Module(),
                                                 parent=list(), simplify_split=False):
-        r"""This function splits a provided model into a body and a single head.
-            It returns the body, head, layeron_id and a parent_list on which the split is performed.
-            :param layer_id: The current index of the layer. 0 is root, 1 is child of root, etc.
+        r"""This function splits a provided model into a base and a single head.
+            It returns the body, head and layeron_id on which the split is performed.
+            :param layer_id: The current index of the layer, so 0 is root, 1 is child of root, etc.
             :param model: The model to be split or a submodule of it
             :param body: Representing the base of the initial model since this is a recursive function
             :param head: Representing the head after the split of the initial model since this is a recursive function
-            :param parent: List of strings representing the name of the parent module (path to current node in tree)
+            :param parent: String representing the name of the parent module
             :param simplify_split: Bool whether the split should be simplified. Use this only if the function is called from outside.
                                    When it is called from inside, self.split is already simplified, but if it should change throughout
                                    it should be simplified again, then set this to true (wondering if that's ever the case..).
-            :return body, head, layer_id, parent: The splitted model (body and head) with the layer_id where the split is performed
-                                                  and the list of parents (should be empty at the end, ie. after recursion is finished)
+            :return body, head, layer_id: The splitted model (body and head) with the layer_id where the split is performed
             NOTE: This function is a recursive function, a split should be initialized with self.model and
                   a layer_id of 0. Further, the returned layer_id is for recursion and might not be of interest
-                  to the user since at the end it is equal to the length of self.split. Same goes for the return list of parents.
+                  to the user since at the end it is equal to the length of self.split.
         """
         # -- If the function is called the first time, perform some checks -- #
         if layer_id == 0:
@@ -217,16 +187,13 @@ class MultiHead_Module(nn.Module):
         # -- Perform splitting: Loop through the models modules -- #
         for idx, (name, n_module) in enumerate(list(model.named_children())):
             # -- Deep copy the module to bypass the runtime error that would occur due to changing of the module -- #
-            # module = copy.deepcopy(n_module)
-            # module = n_module
-
+            module = copy.deepcopy(n_module)
             # -- If, given layer_id, a desired module from the path is not reached and layer_id is -- #
             # -- smaller than number of split path elements --> set body -- #
             # -- Ensure that nothing is added twice due to recursion, thus layer_id == 0 -- #
             if layer_id == 0 and layer_id < len(self.split)-1 and name != self.split[layer_id]:
                 # -- Add this whole module with all children to body -- #
-                # body.add_module(name, module)
-                body.add_module(name, n_module)
+                body.add_module(name, module)
 
             # -- If the layer_id is equal to the number of split path elements and equal to the last element in split -- #
             # -- the split point is found --> the last node of the split, so everything after that is head -- #
@@ -265,6 +232,7 @@ class MultiHead_Module(nn.Module):
                         # -- In this step we are in recursion level, so only add the current module, -- #
                         # -- due to loop the rest of the sibling will be added as well and due to recursion -- #
                         # -- all aunts, uncles, etc. will be added as well -- #
+                        #head.add_module(head_part[0][0], head_part[0][1])
                         # -- Define all layers from parent so they can be reached accordingly in the head -- #
                         r_p = []    # --> Running parents to keep track of the path
                         for p in parent:
@@ -275,13 +243,13 @@ class MultiHead_Module(nn.Module):
                                 setattr(head, p, nn.Module())
                             r_p.append(p)
                         # -- In this step we are in recursion level, so add all the siblings of the current module, -- #
-                        # -- due to the loop, all aunts, uncles, etc. will be added as well after that -- #
+                        # -- due to loop all aunts, uncles, etc. will be added as well after that -- #
                         # -- Loop through head_part and add them to the head -- #
                         for name_part, part in head_part:
                             if len(parent) > 0: # Still in a deeper layer
-                                setattr(attrgetter('.'.join(parent))(head), name_part, part)
+                                setattr(attrgetter('.'.join(parent))(head), name, module)
                             else:   # No parent exist, so we are on first layer, ie. depth 0
-                                setattr(head, name_part, part)
+                                setattr(head, name, module)
                             
                     # -- Increase layer_id so all other modules are added to head and removed from body -- #
                     layer_id += 1
@@ -295,9 +263,9 @@ class MultiHead_Module(nn.Module):
                 # -- Use the parent, otherwise layers might be overwritten and -- #
                 # -- the parent is necessary for setting everything right -- #
                 if len(parent) > 0: # Still in a deeper layer
-                    setattr(attrgetter('.'.join(parent))(head), name, n_module)
+                    setattr(attrgetter('.'.join(parent))(head), name, module)
                 else:   # No parent exist anymore, so we are on first layer, ie. depth 0
-                    setattr(head, name, n_module)
+                    setattr(head, name, module)
                 
                 # -- Try to remove the module from the body when adding everything to the head -- #
                 try:
@@ -313,26 +281,24 @@ class MultiHead_Module(nn.Module):
                     _ = attrgetter('.'.join([*parent, name]))(body)
                 except:
                     # -- Add this whole module with all children to body since it does not exist yet -- #
-                    body.add_module(name, n_module)
+                    body.add_module(name, module)
                 # -- Only go into recursion when the name of the layer is equal to where the split is desired -- #
                 if name == self.split[len(parent)]:
                     # -- Set the parent node name -- #
                     parent.append(name)
                     # -- Continue with children of current model --> use module -- #
-                    body, head, layer_id, parent = self._split_model_recursively_into_body_head(layer_id+1, n_module, body, head, parent)
+                    body, head, layer_id, parent = self._split_model_recursively_into_body_head(layer_id+1, module, body, head, parent)
+        
+        # -- Once it is finished, return body and head -- #
+        return body, head, layer_id, parent[:-1]
 
-        return body, copy.deepcopy(head), layer_id, parent[:-1]
-
-    def assemble_model(self, task, freeze_body=False):
+    def assemble_model(self, task):
         r"""This function assembles a desired model structure based on self.body and corresponding head based
             on the provided task. The parameters of the self.model are updated using the assembled_model composing
             of self.body and specified head.
-            :param task: Task name of the head to specify which head should be joined with the body.
-            :param freeze_body: Specify if the body weights should be freezed or not.
-            :return: Function returns the running model (self.model)
         """
         # -- Check if this task is not already activated -- #
-        if self.active_task == task and freeze_body == self.body_freezed:
+        if self.active_task == task:
             return self.model # --> Nothing to do, task already set
 
         # -- Assert if the task does not exist in the ModuleDict -- #
@@ -340,7 +306,7 @@ class MultiHead_Module(nn.Module):
             "The provided task \'{}\' is not a known head, so either initialize the task or provide one that already exists: {}.".format(task, list(self.heads.keys()))
 
         # -- Extract the corresponding head based on the task -- #
-        head = copy.deepcopy(self.heads[task])
+        head = self.heads[task]
 
         # -- Assemble the model based on self.body and head to update self.model afterwards -- #
         assembled_model = nn.Module()
@@ -349,137 +315,47 @@ class MultiHead_Module(nn.Module):
         for name, module in self.body.named_children():
             assembled_model.add_module(name, module)
 
-        # -- Add all modules from the head based on their names to assembled_model -- #
-        assembled_model, _ = self._join_body_head_recursively(assembled_model, head, list())
+        # -- Loop through corresponding head and add the modulew based on their names to assembled_model -- #
+        layer_id = len(self.split)-1
+        for name, head_part in head.named_children():
+            # -- At this point no module is split in between itself anymore, so there is no fusion, only concatenation -- #
+            # -- When we are at the top layer, add the head_part directly, no extraction necessary -- #
+            if layer_id == 0:
+                assembled_model.add_module(name, head_part)
+            else:
+                # -- Add the head_part based on the current layer_id -- #
+                attrgetter('.'.join(self.split[:layer_id]))(assembled_model).add_module(name, head_part) 
+                # -- Reduce layer_id so the following modules will be added to the right level -- #
+                layer_id -= 1
 
         # -- Set the active_task -- #
         self.active_task = task
-        
-        # -- Load the state_dict from the assembled model into self.model for updating the running model -- #
-        self.model.load_state_dict(assembled_model.state_dict())
-        del assembled_model
 
-        # -- Freeze the body if desired and not freezed -- #
-        if freeze_body and not self.body_freezed:
-            # -- Freeze all body weights -- #
-            self._set_requires_grad(False)
-            # -- Update the internal flag as well -- #
-            self.body_freezed = True
-        
-        # -- Unfreeze the body if desired and freezed -- #
-        if not freeze_body and self.body_freezed:
-            # -- Unfreeze all body weights -- #
-            self._set_requires_grad(True)
-            # -- Update the internal flag as well -- #
-            self.body_freezed = False
+        # -- Update the assembled_model attributes -- #
+        self._update_model_modules(assembled_model)
 
         # -- Return the updated model since it might be used in a calling function (inheritance) -- #
         return self.model
 
-    def _set_requires_grad(self, requires_grad):
-        r"""This function is used to freeze/unfreeeze all layers in the body so when training, the body weights are/ are not
-            changed during backpropagation.
-            :param model: The model for which the body will be freezed/unfreezed.
-            :param requires_grad: Specifies if the gradients are required or not. If set to false, the body will be freezed.
-                                  If set to True, the body will not be freezed and the weights are updated during
-                                  optimizer.step() again.
-            :return: The modified model with the freezed/unfreezed body will be returned.
+    def _update_model_modules(self, model):
+        r"""Monkey-patch the self.model in such a way, that the state dicts are correct
+            and the functions do properly work using the provided model.
         """
-        # -- Extract the parameter names belonging to the body -- #
-        body_parameters = [name for name, _ in self.body.named_parameters()]
-        # -- Loop through the parameter names of the model -- #
-        for name, param in self.model.named_parameters():
-            # -- If the parameter name is in the list of the body_parameters, ie. param belongs to the body -- #
-            if name in body_parameters:
-                # -- Set requires_grad accordingly -- #
-                param.requires_grad = requires_grad
-
-    def _join_body_head_recursively(self, body, head, parents=list()):
-        r"""This function is used to join a body with a head in a recursive manner. This function
-            is only used internally when assembling a model given a specific task.
-        """
-        # -- Loop through the modules in the head -- #
-        for name, module in head.named_children():
-            # -- If there are still children left, go recursive -- #
-            if len(list(module.children())) > 0:
-                # -- Try to access the module in the body -- #
-                try:
-                    # -- If it does exist, than move on as used to -- #
-                    _ = attrgetter('.'.join([*parents, name]))(body)
-                except:
-                    # -- NOTE: The modules from the head do not exist in body so simply set the modules at the right position -- #
-                    if len(parents) > 0:
-                        # -- We are in a deeper layer so use the tracked path to add the module at correct position -- #
-                        setattr(attrgetter('.'.join(parents))(body), name, module)
-                    else:
-                        # -- No parent exist, ie. first layer, than just add the module -- #
-                        setattr(body, name, module)
-
-                # -- Add the current name into parents to keep track of the path -- #
-                parents.append(name)
-
-                # -- Go one layer deeper -- #
-                body, parents = self._join_body_head_recursively(body, module, parents)
-
-            else:
-                if len(parents) > 0:
-                    # -- We are in a deeper layer so use the tracked path to add the module at correct position -- #
-                    setattr(attrgetter('.'.join(parents))(body), name, module)
-                else:
-                    # -- No parent exist, ie. first layer, than just add the module -- #
-                    setattr(body, name, module)
-
-        # -- Return the updated body, head and parent without the current node -- #
-        return body, parents[:-1]
+        # -- Loop through the provided model and set (monkey-path) the module in the GenericUNet -- #
+        for name, module in model.named_children():
+            setattr(self.model, name, module)
     
-    def add_new_task(self, task, use_init, model=None):
-        r"""Use this function to add the initial module from on the first split.
-            Specify the task name with which it will be registered in the ModuleDict.
-            :param task: Task name of the new task (key for the ModuleDict)
-            :param model: nn.Module that represent the new task. If this is None, the new head
-                          is a copy from the very first splitted head during initialization
-            NOTE: If the task already exists, it will be overwritten. If the user provides
-                  a model, than ensure that it works with the forward function from the
-                  class_object. If this does not map than an error will be thrown later on.
-        """
-        # -- Create a new task in self.heads with the module from the first split -- #
-        if model is None:
-            # -- Add the latest task -- #
-            self.heads[task] = copy.deepcopy(self.heads[list(self.heads.keys())[-1]])
-            
-            if use_init:
-                # -- Load the state_dict from the very first split -- #
-                self.heads[task].load_state_dict(self.state_init)
-            
-            # -- ELSE: The head has the state_dict from the last trained head --> used for transfer learning -- #
-
-        else:
-            # -- Register the provided model -- #
-            self.heads[task] = copy.deepcopy(model)
-
-    def add_n_tasks_and_activate(self, list_of_tasks, activate_with, remove_old_tasks=True):
+    def add_n_tasks_and_activate(self, list_of_tasks, activate_with):
         r"""Use this function to initialize for each task name in the list a new head. --> Important when restoring a model,
             since the heads are not created in this init function and need to be set manually before loading a state_dict
-            that includes n heads. Further, self.model will be assembled based on activate_with. In the case of calling
+            that includes n heads. Further self.model will be assembled based on activate_with. In the case of calling
             this function before restoring, the user needs to provide the correct activate_with, ie. the head that was activated
-            in times of saving the Multi Head Network. otherwise there will be a mixup that might be difficult to spot (wrong head
-            with wrong state_dict eg.).
-            :param list_of_tasks: List of strings representing the task names
-            :param activate_with: String, for instance a task that is used to assemble self.model
-            :param remove_old_tasks: Bool, indicating if all heads that are not mentioned in list_of_tasks should be removed
+            in times of saving the Multi Head Network.
         """
         # -- Loop through list of tasks -- #
         for task in list_of_tasks:
-            # -- Add the task to the head if it does not exist-- #
-            if task not in self.heads:
-                self.add_new_task(task, use_init=True)
-
-        # -- Remove all heads that are not in the list_of_tasks if desired -- #
-        if remove_old_tasks:
-            for task in list(self.heads.keys()):
-                if task not in list_of_tasks:
-                    # -- Remove it from the head -- #
-                    del self.heads[task]
+            # -- Add the task to the head -- #
+            self.add_new_task(task)
 
         # -- Assemble the model based on activate_with -- #
         self.assemble_model(activate_with)
@@ -487,48 +363,36 @@ class MultiHead_Module(nn.Module):
     # -- Getter and Setters -- #
     def get_heads(self):
         r"""This function returns the ModuleDict with the multiple heads.
-            :return: Function returns a deepcopy of self.heads
         """
         # -- Return the ModuleDict -- #
         return copy.deepcopy(self.heads)
 
     def get_body(self):
-        r"""This function returns the Module representing the body of the model.
-            :return: Function returns a deepcopy of self.body
+        r"""This function returns the Module representing the body of the model. 
         """
         # -- Return the Module representing the body for all tasks -- #
         return copy.deepcopy(self.body)
 
-    def set_heads(self, heads, reset=True):
-        r"""This function resets (reset=True) or updates (reset=False) the ModuleDict with the multiple heads.
-            :param heads: nn.Module which will update or reset self.heads
-            :param reset: Boolean specifying if the heads should be deleted and reset or just updated
+    def set_heads(self, heads):
+        r"""This function updates the ModuleDict with the multiple heads.
         """
         # -- Check that heads are of desired instance -- #
-        assert isinstance(heads, nn.ModuleDict), "Provided heads are not a nn.ModuleDict."
+        assert isinstance(heads, nn.ModuleDict), "Provided heads are not a nn.ModuleDict.."
 
-        # -- Reset or update the head based on the reset flag -- #
-        if reset:
-            # -- Reset the heads -- #
-            del self.heads
-            self.heads = heads
-        else:
-            # -- Update the heads without clearing it -- #
-            self.heads.update(heads)
-        
+        # -- Update the heads -- #
+        self.heads = heads
+
     def set_body(self, body):
         r"""This function updates the Module representing the body of the model. 
-            :param body: nn.Module which will update self.body
         """
         # -- Check that body is of desired instance -- #
         assert isinstance(body, nn.Module), "Provided body is not a nn.Module.."
 
         # -- Update the body -- #
-        del self.body
-        self.body = copy.deepcopy(body)
+        self.body = body
 
     def get_model_type(self):
-        r"""Simply return the running models object type which is the same
+        r"""Simply return the assembled model object type which is the same
             as the class object name.
         """
         # -- Return the class objects name -- #
@@ -536,10 +400,17 @@ class MultiHead_Module(nn.Module):
 
     def get_split_path(self):
         r"""This function returns the path to the layer, where the split has been performed.
-            NOTE: This split is simplified if the user did not change it after simplification.
         """
         # -- Return the split path -- #
         return '.'.join(self.split)
+
+    def add_new_task(self, task):
+        r"""Use this function to add the initial module from on the first split.
+            Specify the task name with which it will be registered in the ModuleDict.
+            NOTE: If the task already exists, it will be overwritten.
+        """
+        # -- Create a new task in self.heads with the module from the first split -- #
+        self.heads[task] = copy.deepcopy(self.init_module)
 
     def replace_layers(self, model, old, new):
         r"""This function is based on: https://www.kaggle.com/ankursingh12/why-use-setattr-to-replace-pytorch-layers.
@@ -549,7 +420,7 @@ class MultiHead_Module(nn.Module):
             :param new: nn.Module representing a specific layer, like nn.Conv2d, nn.ReLU, etc. which will replace old
             :return: Function returns the updated module.
             NOTE: This function can be used for instance to replace e.g. a desired layer in the body/head. It does
-                  not have to be a Module directly from torch.nn, it can also be any Module that inherits nn.Module.
+                  not have to be Module directly from torch.nn, it can also be any Module that inherits nn.Module.
                   For instance we could replace a nnU-Net seg_outputs layer in a specified head with a new desired layer.
                   For this, the model would be the desired head (nn.Module) not a ModuleDict.
         """

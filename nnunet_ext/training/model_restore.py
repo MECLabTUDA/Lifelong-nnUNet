@@ -7,7 +7,6 @@ import importlib, pkgutil, nnunet, nnunet_ext
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet.training.model_restore import recursive_find_python_class
 from nnunet.training.network_training.nnUNetTrainer import nnUNetTrainer
-from nnunet_ext.training.network_training.nnViTUNetTrainer import nnViTUNetTrainer
 
 def recursive_find_python_class_file(folder, trainer_name, current_module):
     r"""This returns the file to import, but not the actual class within this file.
@@ -30,7 +29,7 @@ def recursive_find_python_class_file(folder, trainer_name, current_module):
 
     return mod
 
-def restore_model(pkl_file, checkpoint=None, train=False, fp16=True, use_extension=False, extension_type='multihead', del_log=False, param_search=False, network=None):
+def restore_model(pkl_file, checkpoint=None, train=False, fp16=True, use_extension=False, extension_type='multihead', del_log=False, param_search=False, network=None, mcdo=-1):
     """ This function is modified to work for the nnU-Net extension as well and ensures a correct loading of trainers
         for both (conventional and extension). Use del_log when using this for evaluation to remove the then created log_file
         during intialization.
@@ -49,30 +48,6 @@ def restore_model(pkl_file, checkpoint=None, train=False, fp16=True, use_extensi
     init = info['init']
     name = info['name']
     
-    # init_ = []
-    # for i in init:
-    #     try:
-    #         i = i.replace('/home/aranem_locale/Desktop/mnts/local', '/local')
-    #         i = i.replace('/home/aranem_locale/Storage', '/local/scratch/aranem')
-    #     except:
-    #         pass
-    #     init_.append(i)
-    # info['init'] = init_
-    # print(pkl_file)
-    # write_pickle(info, pkl_file)
-    
-    # info['init'] = ('/home/aranem_locale/Desktop/mnts/local/scratch/aranem/Lifelong-nnUNet-storage/nnUNet_preprocessed/Task031_LungCT/nnUNetPlansv2.1_plans_2D.pkl', 0, '/home/aranem_locale/Storage/Lifelong-nnUNet-storage/nnUNet_trained_models/nnUNet_ext/2d/Task031_LungCT/nnViTUNetTrainer__nnUNetPlansv2.1/ViT_VoxingV2/base/not_task_specific/reg/', '/home/aranem_locale/Desktop/mnts/local/scratch/aranem/Lifelong-nnUNet-storage/nnUNet_preprocessed/Task031_LungCT',
-    #                 True, 0, True, False, True, 25, True, 2, 'base',
-    #                 False, False, None, False, False, False, False, 0.35, None, 10,
-    #                 False, 'none', None, False, False, False, 'ViT_Voxing', [1., 0.01])
-    
-    # write_pickle(info, pkl_file)
-    
-    # -- Reset arguments if a Generic_ViT_UNet is used -- #
-    if use_extension and nnViTUNetTrainer.__name__ in pkl_file:
-        # Only occurs during evaluation when building a MH network which sets a wrong extension_type
-        extension_type = None
-    
     # -- Set search_in and base_module given the current arguments -- #
     if use_extension:   # -- Extension search in nnunet_ext
         if extension_type is None: # Should only be None when using the Generic_ViT_UNet
@@ -87,7 +62,7 @@ def restore_model(pkl_file, checkpoint=None, train=False, fp16=True, use_extensi
 
     # -- Search for the trainer class based on search_in, name of the trainer and base_module -- #
     tr = recursive_find_python_class([join(*search_in)], name, current_module=base_module)
-    
+
     # -------------------- From nnUNet implementation (modifed, but same output) -------------------- #
     if tr is None:
         try:
@@ -96,6 +71,7 @@ def restore_model(pkl_file, checkpoint=None, train=False, fp16=True, use_extensi
             tr = recursive_find_python_class([search_in], name, current_module="meddec.model_training")
         except ImportError:
             pass
+        
     if tr is None:
         raise RuntimeError("Could not find the model trainer specified in checkpoint in nnunet.trainig.network_training. If it "
                            "is not located there, please move it or change the code of restore_model. Your model "
@@ -104,6 +80,7 @@ def restore_model(pkl_file, checkpoint=None, train=False, fp16=True, use_extensi
     assert issubclass(tr, nnUNetTrainer), "The network trainer was found but is not a subclass of nnUNetTrainer. " \
                                           "Please make it so!"
     # -------------------- From nnUNet implementation (modifed, but same output) -------------------- #
+
     if use_extension and extension_type is not None:    # Only for extensions, with the exception of ViT_U-Net
         assert network is not None, "Please provide the network setting that is used.."
         trainer = tr(*init, network=network)
@@ -111,8 +88,15 @@ def restore_model(pkl_file, checkpoint=None, train=False, fp16=True, use_extensi
         trainer.param_split = param_search
     else:
         trainer = tr(*init)
+    # Some trainers do not yet support mcdo
+    try:
+        if network in ['2d', '3d_lowres', '3d_fullres', '3d_cascade_fullres']:
+            trainer.initialize(train, mcdo=mcdo, network_arch='generic')
+        else:
+            trainer.initialize(train, mcdo=mcdo, network_arch=network)
+    except:
+        trainer.initialize(train)
 
-    trainer.initialize(train)
     # -------------------- From nnUNet implementation (modifed, but same output) -------------------- #
     if fp16 is not None:
         trainer.fp16 = fp16

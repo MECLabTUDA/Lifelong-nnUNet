@@ -11,9 +11,9 @@ from tqdm import tqdm
 import SimpleITK as sitk
 from nnunet.configuration import default_num_threads
 from nnunet.experiment_planning.utils import split_4d
-from nnunet_ext.utilities.helpful_functions import delete_dir_con, copy_dir
+from nnunet_ext.utilities.helpful_functions import delete_dir_con
+from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet_ext.paths import preprocessing_output_dir, nnUNet_raw_data, nnUNet_cropped_data
-from batchgenerators.utilities.file_and_folder_operations import join, load_json, save_json
 from nnunet.experiment_planning.nnUNet_convert_decathlon_task import crawl_and_remove_hidden_from_decathlon
 
 def _extract_desired_channels(path, task_name, channels):
@@ -49,7 +49,7 @@ def _extract_desired_channels(path, task_name, channels):
     os.makedirs(new_path)
 
     # -- Copy the labels folder (since they always have one channel) and all other files except imagesTr, imagesTs -- #
-    copy_dir(join(path, "labelsTr"), join(new_path, "labelsTr"))
+    shutil.copytree(join(path, "labelsTr"), join(new_path, "labelsTr"))
     shutil.copy(join(path, "dataset.json"), new_path)
 
     # -- Go into each folder (if it exists) and then extract the desired channels -- #
@@ -79,27 +79,19 @@ def _extract_desired_channels(path, task_name, channels):
 
     return new_path  # Return the path to the new task
 
-def _perform_transformation_on_mask_using_mapping(mask, mapping, join_labels):
-    r"""This function changes the labeling in the mask given a specified mapping. The mask should be a SimpleITK image.
-        join_labels (bool) indicated if the labels should be joined, so we only have background and one single label.
-    """
-    # -- Ensure that mapping is not empty if join_labels is false -- #
-    if not join_labels:
-        assert mapping is not None and len(mapping) != 0, "The mapping dict is empty --> can not change labels according to empty mapping."
+def _perform_transformation_on_mask_using_mapping(mask, mapping):
+    r"""This function changes the labeling in the mask given a specified mapping. The mask should be a SimpleITK image."""
+    # -- Ensure that mapping is not empty -- #
+    assert mapping is not None and len(mapping) != 0, "The mapping dict is empty --> can not change labels according to empty mapping."
     
     # -- Load the mask using SimpleITK and convert it to a numpy array for transformation -- #
     img_array = sitk.GetArrayFromImage(mask).astype(np.float32)
 
     # -- Now, loop through the mappings again and start to transform the mask using the mapping -- #
-    # -- use two different ways, one using the mapping and one joining all labels != 0 -- # 
-    if join_labels:
-        # -- Set all labels != 0 to -1, so the absolute function will set them to 1 and everything is correct again -- #
-        img_array[img_array != 0] = -1
-    else:
-        for original_labels_pair, new_label in mapping.items():
-            # -- Change the original label to the new label and set everything else to background (= 0) -- #
-            # -- Change the old label with the negative new_label, so there are no side effects if new_label is one of old labels -- #
-            img_array[img_array == int([x.strip() for x in original_labels_pair.split('-->')][1])] = -int(new_label)
+    for original_labels_pair, new_label in mapping.items():
+        # -- Change the original label to the new label and set everything else to background (= 0) -- #
+        # -- Change the old label with the negative new_label, so there are no side effects if new_label is one of old labels -- #
+        img_array[img_array == int([x.strip() for x in original_labels_pair.split('-->')][1])] = -int(new_label)
 
     # -- Set everything that is greater than 0 to 0 -- #
     img_array[img_array > 0] = 0    # Set all old labels to background
@@ -114,9 +106,35 @@ def _perform_transformation_on_mask_using_mapping(mask, mapping, join_labels):
     return mask
             
 
-def main(use_parser=True, **kwargs):
+def main():
+    # -----------------------
+    # Build argument parser
+    # -----------------------
+    # -- Create argument parser and add arguments -- #
+    parser = argparse.ArgumentParser()
+    
+    # NOTE: The input task should have the same structure as for the conventional nnUNet!
+    parser.add_argument("-t_in", "--tasks_in_path", nargs="+", help="Specify one or a list of paths to tasks TaskXX_TASKNAME folders.", required=True)
+    parser.add_argument("-t_out", "--tasks_out_ids", nargs="+", type=int, help="Specify the unique task ids for the output folders. "
+                                                                               "Since the task ids of the input folder are already used "
+                                                                               "with the original (unchanged) masked this is required."
+                                                                               "Keep in mind that IDs need to be unique --> This will be tested!", required=True)
+    parser.add_argument("-m", "--mapping_files_path", nargs="+", help="Specify a list of paths to the mapping (.json) files corresponding to the task ids.",
+                        required=True)
+    parser.add_argument("-c", "--channels", nargs="+", help="Specify which channels to extract. Use (possible) indices 0, 1, ... or \'all\'."
+                                                            " When using multiple tasks, consider that it is used for each task. Further consider"
+                                                            " that the indices are all 0-based. If not specified, all channels will be extracted", required=False)
+    parser.add_argument("-p", required=False, default=default_num_threads, type=int,
+                        help="Use this to specify how many processes are used to run the script. "
+                             "Default is %d" % default_num_threads)
+    parser.add_argument("--no_pp", "--disable_plan_preprocess_tasks", required=False, action='store_true', default=False,
+                        help="Set this if the plan and preprocessing step for each task using nnUNet_plan_and_preprocess "
+                             "should not be performed after a transformation. "
+                             "Default: After each task is transformed, nnUNet_plan_and_preprocess is performed.")
+
+    
     # -----------------------------------------------------------------------------------------
-    #                           Mapping .json structure definition
+    #                           Mapping .json strcutre definition
     # The mapping file should be a .json file and needs to have the following structure:
     #   {
     #        "old_label_description --> old_label": new_label,
@@ -133,84 +151,28 @@ def main(use_parser=True, **kwargs):
     #        "Posterior --> 2": 1
     #   }
     # NOTE: Spaces before or after --> is not mandatory and will be stripped either way.
-    # NOTE: When no mapping is provided, all mask labels are joined, so we only have on mask
-    #        at the end --> in this case, a name of the label needs to be provided as well.
     # -----------------------------------------------------------------------------------------
 
-    # -- Use the ArgumentParser if desired -- #
-    if use_parser:
-        # -----------------------
-        # Build argument parser
-        # -----------------------
-        # -- Create argument parser and add arguments -- #
-        parser = argparse.ArgumentParser()
-        
-        # NOTE: The input task should have the same structure as for the conventional nnUNet!
-        parser.add_argument("-t_in", "--tasks_in_path", nargs="+", type=str, help="Specify one or a list of paths to tasks TaskXX_TASKNAME folders.", required=True)
-        parser.add_argument("-t_out", "--tasks_out_ids", nargs="+", type=int, help="Specify the unique task ids for the output folders. "
-                            "Since the task ids of the input folder are already used "
-                            "with the original (unchanged) masked this is required."
-                            "Keep in mind that IDs need to be unique --> This will be tested!", required=True)
-        parser.add_argument("-m", "--mapping_files_path", nargs="+", type=str,
-                            help="Specify a list of paths to the mapping (.json) files corresponding to the task ids. "+
-                                 "If paths are set to \'join_labels\', then all mask labels are fused to one. In this case, names "+
-                                 "for those single label masks need to be provided as well or the programm will end with an error.",
-                            required=True)
-        parser.add_argument("-ln", "--label_name", nargs="+", type=str, default=list(),
-                            help="Specify the names of the joined label masks only if -m is set to \'join_labels\' at at least one path. "+
-                                 "When setting multiple tasks to \'join_labels\', then the same amount of names needs to be "+
-                                 "provided. If in 2 out of 5 tasks \'join_labels\' is used, then we expect exactly 2 names in the same "+
-                                 "order as the tasks.",
-                            required=False)
-        parser.add_argument("-c", "--channels", nargs="+", type=str, help="Specify which channels to extract. Use (possible) indices 0, 1, ... or \'all\'."
-                            " When using multiple tasks, consider that it is used for each task. Further consider"
-                            " that the indices are all 0-based. If not specified, all channels will be extracted", required=False)
-        parser.add_argument("-p", required=False, default=default_num_threads, type=int,
-                            help="Use this to specify how many processes are used to run the script. "
-                                "Default is %d" % default_num_threads)
-        parser.add_argument("--no_pp", "--disable_plan_preprocess_tasks", required=False, action='store_true', default=False,
-                            help="Set this if the plan and preprocessing step for each task using nnUNet_plan_and_preprocess "
-                                "should not be performed after a transformation. "
-                                "Default: After each task is transformed, nnUNet_plan_and_preprocess is performed.")
 
-        # -------------------------------
-        # Extract arguments from parser
-        # -------------------------------
-        # -- Extract parser arguments -- #
-        args = parser.parse_args()
-        tasks_in = args.tasks_in_path       # List of the paths to the tasks
-        task_out = args.tasks_out_ids       # List of the tasks IDs
-        mappings = args.mapping_files_path  # List of the paths to the mapping files
-        name = args.label_name              # Name of the label if the labels should be fused into one
-        channels = args.channels            # List of the channels to extract
-        p = args.p                          # Number of processes to use
-        disable_pp = args.no_pp             # Flag that specifies if nnUNet_plan_and_preprocess should be performed
-    # -- When internally using the function, we do not want an ArgumentParser, so provide the arguments properly -- #
-    else:
-        # -- Extract arguments from positional arguments -- #
-        tasks_in = kwargs['tasks_in_path']      # List of the paths to the tasks
-        task_out = kwargs['tasks_out_ids']      # List of the tasks IDs
-        mappings = kwargs['mapping_files_path'] # List of the paths to the mapping files
-        name = kwargs['label_name']             # Name of the label if the labels should be fused into one
-        channels = kwargs['channels']           # List of the channels to extract
-        p = kwargs['p']                         # Number of processes to use
-        disable_pp = kwargs['no_pp']            # Flag that specifies if nnUNet_plan_and_preprocess should be performed
-        
+    # -------------------------------
+    # Extract arguments from parser
+    # -------------------------------
+    # -- Extract parser arguments -- #
+    args = parser.parse_args()
+    tasks_in = args.tasks_in_path    # List of the paths to the tasks
+    task_out = args.tasks_out_ids   # List of the tasks IDs
+    mappings = args.mapping_files_path       # List of the paths to the mapping files
+    channels = args.channels       # List of the channels to extract
+    disable_pp = args.no_pp # Flag that specifies if nnUNet_plan_and_preprocess should be performed
+
     # -- Sanity checks for input -- #
     if task_out is not None:
         assert len(tasks_in) == len(task_out), "Number of input tasks should be equal to the number of specified output tasks IDs."
     assert len(tasks_in) == len(mappings), "Number of input tasks should be equal to the number of provided mappings for transformation."
 
-    # -- Check that each mapping path ends with .json or is set to special use case 'join_labels'-- #
-    name_count = 0  # Use this to know how much join_labels cases we have
+    # -- Check that each mapping path ends with .json -- #
     for mapping in mappings:
-        if mapping == 'join_labels':
-            # -- Count so we know how many names should be provided -- #
-            name_count += 1
-            continue
         assert mapping[-5:] == '.json', "The mapping files should be in .json format."
-    # -- Check that the length of names is as expected based on count -- #
-    assert len(name) == name_count, 'For {} tasks the labels should be joined, so the same amount of names are necessary and not {}.'.format(name_count, len(name))
 
     # -- If channels is not set or ['all'], set it to all
     if channels is None or channels[0] == 'all':
@@ -223,7 +185,6 @@ def main(use_parser=True, **kwargs):
     # Transform masks based on the provided mappings
     # ------------------------------------------------
     # -- Loop through the input tasks and transform the label masks -- #
-    count_ns = 0
     for idx, in_task in enumerate(tasks_in):
         # -- Extract task name --> copied from nnUNet split4d function (nnunet/experiment_planning/utils.py) -- #
         full_task_name = in_task.split("/")[-1]
@@ -238,14 +199,7 @@ def main(use_parser=True, **kwargs):
                     "The task is not unique, use another one or delete all tasks in preprocessing_output_dir, nnUNet_raw_data and nnUNet_cropped_data.."
         
         # -- Load the corresponding mapping -- #
-        join_labels = False
-        if mappings[idx] == 'join_labels':
-            # -- Build the correct labels in advance given the provided name -- #
-            new_labels = {'0': 'background', '1': name[count_ns]}
-            count_ns += 1
-            join_labels = True
-        else:
-            mapping = load_json(mappings[idx])
+        mapping = load_json(mappings[idx])
 
         # -- Update user and use function from nnUNet to check for the right dataset format -- #
         print("Checking if the provided dataset has a Decathlon-like structure..")
@@ -279,7 +233,7 @@ def main(use_parser=True, **kwargs):
         
         # -- Use nnUNet provided split_4d function that is used for Decathlon data but check before if task is unique! -- #
         print("Perform 4D split..")
-        split_4d(mod_in_task, p, out_task)
+        split_4d(mod_in_task, args.p, out_task)
 
         # -- Delete the copied and modified dataset.json file -- #
         os.remove(join(in_task, 'dataset.json'))
@@ -294,22 +248,20 @@ def main(use_parser=True, **kwargs):
         if '_mod' in mod_in_task: # Modified task name because the generated folder is being used (correctly) after channel selection
             os.rename(base+'_mod', base)
 
-        # -- Only create a new_labels if it is None, else use the one already created, in case of join_labels -- #
-        if not join_labels:
-            # -- Check if the provided mapping matches the dataset_info. A mapping key consist of pairs of the old label description and the corresponding label -- #
-            # -- whereas the values represent the new label. All labels that are not listed in the mapping are classified as background! -- #
-            # -- In parallel, build the new labels dictionary that will be changed in the dataset_info file after transformation -- #
-            new_labels = {'0': dataset_info['labels']['0']}   # Add the background label to new_labels since this will never change
-            for original_labels_pair, new_label in mapping.items():
-                # -- Extract the label description and label value of the original label from the mapping -- #
-                old_label_description, old_label = [x.strip() for x in original_labels_pair.split('-->')]
+        # -- Check if the provided mapping matches the dataset_info. A mapping key consist of pairs of the old label description and the corresponding label -- #
+        # -- whereas the values represent the new label. All labels that are not listed in the mapping are classified as background! -- #
+        # -- In parallel, build the new labels dictionary that will be changed in the dataset_info file after transformation -- #
+        new_labels = {'0': dataset_info['labels']['0']}   # Add the background label to new_labels since this will never change
+        for original_labels_pair, new_label in mapping.items():
+            # -- Extract the label description and label value of the original label from the mapping -- #
+            old_label_description, old_label = [x.strip() for x in original_labels_pair.split('-->')]
 
-                # -- Check if the labels description is in the dataset_info under the specified label, if not raise error -- #
-                assert dataset_info['labels'][old_label] == old_label_description, "The provided mapping of labels can not be "\
-                                                                                "resolved since it does not match the datasets information .json file."
+            # -- Check if the labels description is in the dataset_info under the specified label, if not raise error -- #
+            assert dataset_info['labels'][old_label] == old_label_description, "The provided mapping of labels can not be "\
+                                                                               "resolved since it does not match the datasets information .json file."
 
-                # -- Add new label to new_labels -- #
-                new_labels[str(new_label)] = old_label_description
+            # -- Add new label to new_labels -- #
+            new_labels[str(new_label)] = old_label_description
         
         # -- Extract all mask paths from the preprocessed directory -- #
         masks = [x for x in os.listdir(join(base, 'labelsTr')) if '._' not in x]
@@ -320,7 +272,7 @@ def main(use_parser=True, **kwargs):
             m_img = sitk.ReadImage(join(base, 'labelsTr', mask))
 
             # -- Transform the image mask -- #
-            m_img = _perform_transformation_on_mask_using_mapping(m_img, mapping, join_labels)
+            m_img = _perform_transformation_on_mask_using_mapping(m_img, mapping)
 
             # -- Save the image -- #
             sitk.WriteImage(m_img, join(base, 'labelsTr', mask))

@@ -2,16 +2,12 @@
 #------This module contains useful functions that are used throughout the nnUNet_extensions project.-----#
 ##########################################################################################################
 
+import os, shutil
 import pandas as pd
-from types import ModuleType
-from datetime import datetime
-from torch.cuda.amp import autocast
-from contextlib import contextmanager
-import copy, torch, time, sys, os, shutil, importlib
-from nnunet.utilities.to_torch import maybe_to_torch, to_cuda
 from batchgenerators.utilities.file_and_folder_operations import *
-from nnunet_ext.paths import nnUNet_raw_data, nnUNet_cropped_data, preprocessing_output_dir
-
+from nnunet_ext.nnunet.training.model_restore import restore_model
+import torch
+import torch.nn as nn
 def delete_dir_con(path):
     r"""This function deletes the whole content in the folder specified by the path and then deletes the empty folder
         if it still exists.
@@ -52,10 +48,7 @@ def move_dir(source, dest):
     shutil.move(source, dest, copy_function=shutil.copytree)
 
     # -- Delete empty folder from which everything has been moved -- #
-    try:
-        delete_dir_con(source)
-    except: # Folder does not exist anymore
-        pass
+    delete_dir_con(source)
 
 def join_texts_with_char(texts, combine_with):
     r"""This function takes a list of strings and joins them together with the combine_with between each text from texts.
@@ -67,64 +60,46 @@ def join_texts_with_char(texts, combine_with):
     # -- Combine the string series from the list with the combine_with -- #
     return combine_with.join(texts)
 
-def delete_task(task_id):
-    r"""This function can be used to sucessfully delete a task in all nnU-Net directories.
-        If it does not exists there is nothign to delete.
-        :param task_id: A string representing the ID of the task to delete, e.g. '002' for the Decathlong Heart Dataset.
+def get_nr_parameters(model):
+    r"""This function returns the number of parameters and trainable parameters of a network.
+        Based on: https://stackoverflow.com/questions/49201236/check-the-total-number-of-parameters-in-a-pytorch-model
     """
-    # -- Ensure that the task_id is of type string since an integer with a beginning 0 is not accepted as integer -- #
-    # -- Further ensure that the provided task_id is three digits long so we can be sure it is unique and only one task is removed -- #
-    assert isinstance(task_id, str) and len(task_id) == 3, "The provided task_id should be a string and exactly three digits long."
-    
-    # -- Extract all existing tasks as long as the desired id is in there -- #
-    task = [x for x in os.listdir(nnUNet_raw_data) if task_id in x] # Only the one with the mapping id
-    
-    # -- Check that the list only includes one element, if not raise an error since we do not know what to delete now -- #
-    assert len(task) == 1, "The task does not exist or there are multiple tasks with the same task_id: {}.".format(join_texts_with_char(task, ' '))
+    # -- Extract and count nr of parameters -- #
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    # -- Return the information -- #
+    return total_params, trainable_params
 
-    # -- Delete the task in raw_data, cropped_data and preprocessed_data -- #
-    # -- For each deletion make a seperate try, since some script might crashed in between there and some parts are missing/deleted! -- #
-    try:
-        delete_dir_con(join(nnUNet_raw_data, task[0]))
-    except Exception as e:
-        print(e)
-    try:
-        delete_dir_con(join(nnUNet_cropped_data, task[0]))
-    except Exception as e:
-        print(e)
-    try:
-        delete_dir_con(join(preprocessing_output_dir, task[0]))
-    except Exception as e:
-        print(e)
-
-def refresh_mod_imports(mod, reload=False):
-    r"""This function can be used especially during generic testing, when a specific import
-        needs to be refreshed, ie. resetted or reloaded.
-        :param mod: String specifying module name or distinct string (stem like 'nnunet') that is
-                    included in a bunch of modules that should all be refreshed/removed from sys modules.
-                    If reload is True than mod needs to be a module otherwise the reload fails.
-        :param reload: Boolean specifying if using importlib to reload a module.
-        Example: All imported modules during a test that are connnected to nnUNet or Lifelong-nnUNet
-                 need to be refreshed, then simply provide mod = 'nnunet'.
-                 If a specific module needs to be reloaded like MultiHead_Module, then mod = MultiHead_Module
-                 and reload = True. Note that mod needs to be of type Module for this to work.
+def get_model_size(model):
+    r"""This function return the size in MB of a model.
+        Based on: https://discuss.pytorch.org/t/finding-model-size/130275
     """
-    # -- When the user wants to reload a Module, then use importlib -- #
-    if reload == True:
-        # -- Check that mod is a Module, otherwise importlib will throw an error -- #
-        assert isinstance(mod, ModuleType), "When trying to reload a module, then please provide a module."
-        # -- Reload/Reimport mod -- #
-        importlib.reload(mod)
-    # -- User does not want to use importlib, ie. the modules that contain mod in their name are removed from the sys modules -- #
-    else:
-        # -- Check that mod is of type string in this case -- #
-        assert isinstance(mod, str), "When removing all modules based on a mapping string, than mod should be a string."
-        # -- loop through all present modules in sys -- #
-        for key in list(sys.modules.keys()):
-            # -- If mod is part of the key name in any shape or form -- #
-            if mod in key:
-                # -- Remove it from the sys modules -- #
-                del sys.modules[key]
+    # -- Extract parameter and buffer sizes -- #
+    param_size = 0
+    for param in model.parameters():
+        param_size += param.nelement() * param.element_size()
+    buffer_size = 0
+    for buffer in model.buffers():
+        buffer_size += buffer.nelement() * buffer.element_size()
+    # -- Transform into MB -- #
+    size_all_mb = (param_size + buffer_size) / 1024**2
+    # -- Return the size -- #
+    return size_all_mb
+
+def dumpDataFrameToCsv(data, path, name, sep='\t'):
+    r"""This function dumps a DataFrame in form of a .csv file.
+        :param data: A DataFrame.
+        :param path: Path as a string indicating where to store the file.
+        :param name: String indicating the name of the file.
+        :param sep: String indicating the seperator for the csv file, ie. how to seperate the content."""
+    # -- Check if csv is in the name -- #
+    if '.csv' not in name:
+        # -- Add it if its missing -- #
+        name = name + '.csv'
+    # -- Build the absolute path based on the path and name -- #
+    path = os.path.join(path, name)
+    # -- Dump the DataFrame using the path and seperator without using the index from the frame -- #
+    data.to_csv(path, index=False, sep=sep)
 
 def flattendict(data, delim):
     r"""This function can be used to flatten any dictionary/json no matter how nested the dict is.
@@ -188,183 +163,40 @@ def nestedDictToFlatTable(nested_dict, cols):
         """
     # -- Build the DataFrame from the dictionary and return the Frame -- #
     return flatteneddict_to_df(flattendict(nested_dict, "__"), cols, '__')
-
-def dumpDataFrameToCsv(data, path, name, sep='\t'):
-    r"""This function dumps a DataFrame in form of a .csv file.
-        :param data: A DataFrame.
-        :param path: Path as a string indicating where to store the file.
-        :param name: String indicating the name of the file.
-        :param sep: String indicating the seperator for the csv file, ie. how to seperate the content."""
-    # -- Check if csv is in the name -- #
-    if '.csv' not in name:
-        # -- Add it if its missing -- #
-        name = name + '.csv'
-    # -- Build the absolute path based on the path and name -- #
-    path = os.path.join(path, name)
-    # -- Dump the DataFrame using the path and seperator without using the index from the frame -- #
-    data.to_csv(path, index=False, sep=sep)
-
-def calculate_target_logits(mh_network, gen, num_batches_per_epoch, fp16, gpu_id=0):
-    r"""This function is used to calculate the target_logits based on a transmitted generator.
-        The function returns a dictionary representing the target_logits based on the mh_network.
-        This function is essential for the LwF Trainer.
-        :param mh_network: A MultiHead Network that is used to generate the target logits with (every head is used)
-        :param gen: The generator for which the target_logits are extracted
-        :param num_batches_per_epoch: Represents the number of batches per epoch
-        :param fp16: Specify if using floating point 16 or not
-        :param gpu_id: Specify the CUDA ID to put the model and data on. If set to -1, the CPU will be used
-        :return: A dictionary with the target_logits (list of tensors) per task (head)
-    """
-    # -- Define where to put the data and model during the calculation -- #
-    if gpu_id == -1:
-        device = 'cpu'
+def getIndexOfBottleneckLayer(folder,checkpoint_name="model_final_checkpoint",model_type='3d_fullres',mcdo:int=-1,folds=None,mixed_precision=True):
+    if isinstance(folds, str):
+        folds = [join(folder, "all")]
+        assert isdir(folds[0]), "no output folder for fold %s found" % folds
+    elif isinstance(folds, (list, tuple)):
+        if len(folds) == 1 and folds[0] == "all":
+            folds = [join(folder, "all")]
+        else:
+            folds = [join(folder, "fold_%d" % i) for i in folds]
+        assert all([isdir(i) for i in folds]), "list of folds specified but not all output folders are present"
+    elif isinstance(folds, int):
+        folds = [join(folder, "fold_%d" % folds)]
+        assert all([isdir(i) for i in folds]), "output folder missing for fold %d" % folds
+    elif folds is None:
+        print("folds is None so we will automatically look for output folders (not using \'all\'!)")
+        folds = subfolders(folder, prefix="fold")
+        print("found the following folds: ", folds)
     else:
-        device = 'cuda:'+str(gpu_id)
+        raise ValueError("Unknown value for folds. Type: %s. Expected: list of int, int, str or None", str(type(folds)))
+    trainer = restore_model(join(folds[0], "%s.model.pkl" % checkpoint_name), fp16=mixed_precision)
+    trainer.output_folder = folder
+    trainer.output_folder_base = folder
+    trainer.update_fold(0)
 
-    # -- Loop through tasks and build the corresponding model to make predictions -- #
-    target_logits = dict()
-    for task in list(mh_network.heads.keys()):
-        # -- Build the corresponding network -- #
-        network = mh_network.assemble_model(task)
-        # -- Remove the softmax layer at the end by replacing the corresponding element with an identity function -- #
-        network.inference_apply_nonlin = lambda x: x
-        # -- Put netowrl to CPU or GPU device as desired -- #
-        network.to(device)
-        # -- Set network to eval -- #
-        network.eval()
-        # -- Add the task to the dict -- #
-        target_logits[task] = list()
+    if model_type in ['2d', '3d_lowres', '3d_fullres', '3d_cascade_fullres']:
+        trainer.initialize(False, mcdo=mcdo, network_arch='generic')
+    else:
+        trainer.initialize(False, mcdo=mcdo, network_arch=model_type)
+        
 
-        # -- Make the predictions and store them in a dictionary to use during the LwF loss -- #
-        for _ in range(num_batches_per_epoch):
-            # -- Extract the current batch from data transform to tensor and push to GPU -- #
-            data_dict = next(gen)
-            x = maybe_to_torch(data_dict['data'])
-            # -- Put data on GPU if no CPU is desired --> currently x is on CPU -- #
-            if device != 'cpu':
-                x = to_cuda(x, gpu_id=gpu_id)
-
-            # -- Make predictions using the loaded model and data -- #
-            if fp16:
-                with autocast():
-                    output = network(x)[0]
-            else:
-                output = network(x)[0]
-                
-            task_logit = copy.deepcopy(output.detach().cpu())   # --> To cut any links or references
-            del x, output
-
-            # -- Append the result to target_logits -- #
-            target_logits[task].append(task_logit)
-            del task_logit
-
-    # -- Empty the GPU cache if a GPU was used -- #
-    if device != 'cpu':
-        torch.cuda.empty_cache()
-
-    # -- Return the target_logits -- #
-    return target_logits
-
-# -- Modified version of https://www.geeksforgeeks.org/common-divisors-of-two-numbers/ -- # 
-# Function to calculate all common divisors
-# of two given numbers
-# a, b --> input integer numbers
-def gcd(a, b):
-    if a == 0:
-        return b
-    return gcd(b % a, a)
-
-def commDiv(a, b):
-    # -- GCD of a, b -- #
-    n = gcd(a, b)
-
-    # -- Extract divisors of n -- #
-    result = []
-    for i in range(1, n+1):
-        if n % i == 0:
-            result.append(i)         
-    return result
-
-def get_ViT_LSA_SPT_folder_name(do_LSA, do_SPT):
-    r"""Use this function when the ViT_U-Net is used and the output folder needs to be build.
-    """
-    # -- Specify the folder name based on do_LSA and do_SPT -- #
-    folder_n = ''
-    if do_SPT:
-        folder_n += 'SPT'
-    if do_LSA:
-        folder_n += 'LSA' if len(folder_n) == 0 else '_LSA'
-    if len(folder_n) == 0:
-        folder_n = 'traditional'
-    # -- Return the folder name -- #
-    return folder_n
-
-def get_nr_parameters(model):
-    r"""This function returns the number of parameters and trainable parameters of a network.
-        Based on: https://stackoverflow.com/questions/49201236/check-the-total-number-of-parameters-in-a-pytorch-model
-    """
-    # -- Extract and count nr of parameters -- #
-    total_params = sum(p.numel() for p in model.parameters())
-    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    # -- Return the information -- #
-    return total_params, trainable_params
-
-def get_model_size(model):
-    r"""This function return the size in MB of a model.
-        Based on: https://discuss.pytorch.org/t/finding-model-size/130275
-    """
-    # -- Extract parameter and buffer sizes -- #
-    param_size = 0
-    for param in model.parameters():
-        param_size += param.nelement() * param.element_size()
-    buffer_size = 0
-    for buffer in model.buffers():
-        buffer_size += buffer.nelement() * buffer.element_size()
-    # -- Transform into MB -- #
-    size_all_mb = (param_size + buffer_size) / 1024**2
-    # -- Return the size -- #
-    return size_all_mb
-
-#-------------------------- Copied from nnU-Net implementation but changed -----------------------------------#
-def print_to_log_file(log_file, output_folder=None, prefix_name='', *args):
-    r"""This function can be used to log information into a txt file."""
-    # -- Get the current timestamp -- #
-    timestamp = time.time()
-    dt_object = datetime.fromtimestamp(timestamp)
-
-    # -- Extract the arguments -- #
-    args = ("%s:" % dt_object, *args)
-
-    # -- Create the log file if it does not exist -- #
-    if log_file is None:
-        assert output_folder is not None and len(prefix_name) > 0,\
-            'When no log_file path is provided, then set the output_folder and prefix_name so we can create one..'
-        maybe_mkdir_p(output_folder)
-        timestamp = datetime.now()
-        log_file = join(output_folder, prefix_name+"_%d_%d_%d_%02.0d_%02.0d_%02.0d.txt" %
-                       (timestamp.year, timestamp.month, timestamp.day, timestamp.hour, timestamp.minute,
-                        timestamp.second))
-                        
-    # -- Write everything form args into the log file -- #
-    with open(log_file, 'a+') as f:
-        for a in args:
-            f.write(str(a))
-            f.write(" ")
-        f.write("\n")
-
-    # -- Return the log file since we do not use global variables and then the file will be overwritten over and over again since log_file is always None -- #
-    return log_file
-#-------------------------- Copied from nnU-Net implementation but changed -----------------------------------#
-
-@contextmanager
-def suppress_stdout():
-    r"""This can be used to surpress the output when executing a function.
-        Extracted from: https://thesmithfam.org/blog/2012/10/25/temporarily-suppress-console-output-in-python/
-    """
-    with open(os.devnull, "w") as devnull:
-        old_stdout = sys.stdout
-        sys.stdout = devnull
-        try:  
-            yield
-        finally:
-            sys.stdout = old_stdout
+    conv_blocks_context = nn.ModuleList(trainer.network.conv_blocks_context)
+    print("length of modulelist:",len(conv_blocks_context))
+    isMultiBlock=False
+    if isinstance(conv_blocks_context[-1],torch.nn.modules.container.Sequential):
+        isMultiBlock=True
+        return len(conv_blocks_context)-1,isMultiBlock,len(conv_blocks_context[-1])-1
+    return len(conv_blocks_context)-1,isMultiBlock,None

@@ -5,6 +5,7 @@
 
 import numpy as np
 import os, copy, torch
+from pandas import to_datetime
 from itertools import tee
 from torch.cuda.amp import autocast
 from collections import OrderedDict
@@ -21,12 +22,10 @@ from nnunet.training.loss_functions.dice_loss import DC_and_CE_loss
 from nnunet_ext.run.default_configuration import get_default_configuration
 from nnunet.training.network_training.nnUNetTrainerV2 import nnUNetTrainerV2
 from nnunet_ext.network_architecture.MultiHead_Module import MultiHead_Module
-from nnunet_ext.network_architecture.generic_ViT_UNet import Generic_ViT_UNet
 from nnunet.training.loss_functions.deep_supervision import MultipleOutputLoss2
-from nnunet_ext.training.network_training.nnViTUNetTrainer import nnViTUNetTrainer
+from nnunet.training.dataloading.dataset_loading import load_dataset, DataLoader3D, DataLoader2D, unpack_dataset
 from nnunet.training.data_augmentation.data_augmentation_noDA import get_no_augmentation
 from nnunet.training.data_augmentation.data_augmentation_moreDA import get_moreDA_augmentation
-from nnunet.training.dataloading.dataset_loading import load_dataset, DataLoader3D, DataLoader2D, unpack_dataset
 from nnunet_ext.paths import default_plans_identifier, evaluation_output_dir, preprocessing_output_dir, default_plans_identifier
 
 # -- Add this since default option file_descriptor has a limitation on the number of open files. -- #
@@ -291,18 +290,9 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         if self.use_vit:
             self.batch_size = self.batch_size // 2
 
-    def initialize_optimizer_and_scheduler(self):
-        r"""Update this so params without gradients are never updated during training --> Don't forget to recall
-            if the gradients are changed during training..
-        """
-        assert self.network is not None, "self.initialize_network must be called first"
-        self.optimizer = torch.optim.SGD(filter(lambda p: p.requires_grad==True, self.network.parameters()), self.initial_lr, weight_decay=self.weight_decay,
-                                         momentum=0.99, nesterov=True)
-        self.lr_scheduler = None
-        
     def initialize(self, training=True, force_load_plans=False, num_epochs=500, prev_trainer_path=None, call_for_eval=False):
         r"""Overwrite parent function, since we want to include a prev_trainer that is used as a base for the Multi Head Trainer.
-            Further the num_epochs should be set by the user if desired.
+            Further the num_epochs should be set by the user ifdesired.
         """
         # -- The Trainer embodies the actual model that will be used as foundation to continue training on -- #
         # -- It should be already initialized since the output_folder will be used. If it is None, the model will be initialized and trained. -- #
@@ -351,22 +341,12 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             # -- Do not rely on self.task for initialization, since the user might provide the wrong task (unintended), -- #
             # -- however for self.plans, the user needs to extract the correct plans_file path by himself using always the -- #
             # -- first task from a list of tasks since the network is build using the plans_file and thus the structure might vary -- #
-            if self.use_vit:
-                self.first_task_name = self.tasks_list_with_char[0][0]
-                # -- Initialize from beginning and start training, since no model is provided using ViT architecture -- #
-                nnViTUNetTrainer.initialize_network(self) # --> This updates the corresponding variables automatically since we inherit this class
-                self.mh_network = MultiHead_Module(Generic_ViT_UNet, self.split, self.tasks_list_with_char[0][0], prev_trainer=self.network,
-                                                   input_channels=self.num_input_channels, base_num_features=self.base_num_features,\
-                                                   num_classes=self.num_classes, num_pool=len(self.net_num_pool_op_kernel_sizes),\
-                                                   patch_size=patch_size.tolist(), vit_version=self.version, vit_type=self.vit_type,\
-                                                   split_gpu=self.split_gpu, ViT_task_specific_ln=self.ViT_task_specific_ln,\
-                                                   first_task_name=self.tasks_list_with_char[0][0], do_LSA=self.LSA, do_SPT=self.SPT)
-            else:
-                # -- Initialize from beginning and start training, since no model is provided -- #
-                super().initialize_network() # --> This updates the corresponding variables automatically since we inherit this class
-                self.mh_network = MultiHead_Module(Generic_UNet, self.split, self.tasks_list_with_char[0][0], prev_trainer=self.network,
-                                                   input_channels=self.num_input_channels, base_num_features=self.base_num_features,\
-                                                   num_classes=self.num_classes, num_pool=len(self.net_num_pool_op_kernel_sizes))
+
+            # -- Initialize from beginning and start training, since no model is provided -- #
+            super().initialize_network() # --> This updates the corresponding variables automatically since we inherit this class
+            self.mh_network = MultiHead_Module(Generic_UNet, self.split, self.tasks_list_with_char[0][0], prev_trainer=self.network,
+                                                input_channels=self.num_input_channels, base_num_features=self.base_num_features,\
+                                                num_classes=self.num_classes, num_pool=len(self.net_num_pool_op_kernel_sizes))
                 
             # -- Load the correct plans file again, ie. the one from the current task -- #
             self.process_plans(load_pickle(self.plans_file))
@@ -429,18 +409,10 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             self.mh_network = MultiHead_Module(Generic_UNet, self.split, self.tasks_list_with_char[0][0], prev_trainer=self.trainer_model.network,
                                                input_channels=self.num_input_channels, base_num_features=self.base_num_features,\
                                                num_classes=self.num_classes, num_pool=len(self.net_num_pool_op_kernel_sizes))
-        elif self.trainer_model.__class__.__name__ == nnViTUNetTrainer.__name__:   # Important when doing evaluation, since nnViTUNetTrainer has no mh_network
-            self.mh_network = MultiHead_Module(Generic_ViT_UNet, self.split, self.tasks_list_with_char[0][0], prev_trainer=self.trainer_model.network,
-                                               input_channels=self.num_input_channels, base_num_features=self.base_num_features,\
-                                               num_classes=self.num_classes, num_pool=len(self.net_num_pool_op_kernel_sizes),\
-                                               patch_size=self.patch_size.tolist(), vit_version=self.version, vit_type=self.vit_type,\
-                                               split_gpu=self.split_gpu, ViT_task_specific_ln=self.ViT_task_specific_ln,\
-                                               first_task_name=self.tasks_list_with_char[0][0], do_LSA=self.LSA, do_SPT=self.SPT)
         else:
             self.mh_network = self.trainer_model.mh_network
 
-        if not self.trainer_model.__class__.__name__ == nnUNetTrainerV2.__name__\
-        and not self.trainer_model.__class__.__name__ == nnViTUNetTrainer.__name__: # Do not use isinstance, since nnUNetTrainerMultiHead is instance of nnUNetTrainerV2 
+        if not self.trainer_model.__class__.__name__ == nnUNetTrainerV2.__name__: # Do not use isinstance, since nnUNetTrainerMultiHead is instance of nnUNetTrainerV2 
             # -- Ensure that the split that has been previously used and the current one are equal -- #
             # -- NOTE: Do this after initialization, since the splits might be different before but still lead to the same level after -- #
             # -- Split simplification. -- #
@@ -607,6 +579,9 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         data = data_dict['data']
         target = data_dict['target']
 
+        # -- Track the subjects if desired for validation, the list gets emptied after validation is done -- #
+        self.subject_names_raw.append(data_dict['keys'])
+
         data = maybe_to_torch(data)
         target = maybe_to_torch(target)
 
@@ -662,9 +637,6 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                  at every nth epoch which is not what we want. This will further lead into an error because too many
                  files will be then opened, thus we do it here.
         """
-        # -- Include this so the frozen parts in the network are not updated -- #
-        # self.initialize_optimizer_and_scheduler()
-        
         # -- Perform everything the parent class makes -- #
         res = super().on_epoch_end()
 
@@ -693,6 +665,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                                   is used in the context of an evaluation. Further if set to False, the head for validation
                                   will be selected based on the task that the model gets validated on.
             :param param_search: Boolean indicating if this function is called during the parameter search method.
+            :param use_all_data: Boolean indicating if the train and validation data should be used for validation.
             NOTE: Have a look at nnunet_ext/run/run_evaluation.py to see how this function can be 'misused' for evaluation purposes.
         """
         # -- Assert if eval but not eval output dir in path -- #
@@ -715,13 +688,6 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # --       is nothing to restore at the end. -- #
         # -- For each previously trained task perform the validation on the full validation set -- #
         running_task_list = list()
-
-        # -- For evaluation purposes, reduce the batch size by half to avoid cuda OOM -- #
-        batch_backup = self.batch_size
-        self.batch_size //= 2
-        # -- Define the number of iterations during evaluation. If batch was even then times 2 otherwise times 3 -- #
-        nr_batches = self.num_val_batches_per_epoch*2 if batch_backup % 2 == 0 else self.num_val_batches_per_epoch*3
-
         # -- Put current network into evaluation mode -- #
         self.network.eval()
         for idx, task in enumerate(tasks):
@@ -765,7 +731,10 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                                                                     use_nondetMultiThreadedAugmenter=False)
 
             # -- Update the log -- #
-            self.print_to_log_file("Performing validation with validation data from task {}.".format(task))
+            if use_all_data:
+                self.print_to_log_file("Performing validation with validation and training data from task {}.".format(task))
+            else:
+                self.print_to_log_file("Performing validation with validation data from task {}.".format(task))
 
             # -- Activate the current task to train on the right model -- #
             # -- Set self.network, since the parent classes all use self.network to train -- #
@@ -785,74 +754,48 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             # --       no heads except one so omit it --> NOTE: The calling function needs to ensure -- #
             # --       that self.network is assembled correctly ! -- #
 
-            # -- For evaluation, no gradients are necessary so do not use them -- #
-            with torch.no_grad():
-                # -- Put current network into evaluation mode -- #
-                self.network.eval()
-
-                if use_all_data:
-                    for gen in [self.tr_gen, self.val_gen]:
-                        # -- Run an iteration for each batch in validation generator -- #
-                        gen_copy = tee(gen, 1)[0] # <-- Duplicate the generator so the names are extracted correctly during the loop
-                        
+            # -- Add validation subject names to list -- #
+            unique_subject_names = self.dl_val.list_of_keys
+            if use_all_data:    # --> Use train and val generator
+                unique_subject_names.extend(self.dl_tr.list_of_keys)
+                with torch.no_grad():
+                     # -- Put current network into evaluation mode -- #
+                    self.network.eval()
+                    for gen in (self.tr_gen, self.val_gen):
                         # -- Loop through generator based on number of defined batches -- #
-                        for _ in range(nr_batches):   # As we reduced batch_size by half, remember ?
-                            # -- First, extract the subject names so we can map the predictions to the names -- #
-                            data = next(gen_copy)
-                            self.subject_names_raw.append(data['keys'])
-
+                        for _ in range(50):
                             # -- Run iteration without backprop but online_evaluation to be able to get TP, FP, FN for Dice and IoU -- #
                             if call_for_eval:
                                 # -- Call only this run_iteration since only the one from MultiHead has no_loss flag -- #
                                 _ = self.run_iteration(gen, False, True, no_loss=True)
                             else:
                                 _ = self.run_iteration(gen, False, True)
-                        del gen_copy 
-                else:
-                    # -- Run an iteration for each batch in validation generator -- #
-                    val_gen_copy = tee(self.val_gen, 1)[0] # <-- Duplicate the generator so the names are extracted correctly during the loop
-                    
+            else:   # Eval only on val generator
+                # -- For evaluation, no gradients are necessary so do not use them -- #
+                with torch.no_grad():
+                    # -- Put current network into evaluation mode -- #
+                    self.network.eval()
                     # -- Loop through generator based on number of defined batches -- #
-                    for _ in range(nr_batches):   # As we reduced batch_size by half, remember ?
-                        # -- First, extract the subject names so we can map the predictions to the names -- #
-                        data = next(val_gen_copy)
-                        self.subject_names_raw.append(data['keys'])
-
+                    for _ in range(50):
+                        self.num_batches_per_epoch
                         # -- Run iteration without backprop but online_evaluation to be able to get TP, FP, FN for Dice and IoU -- #
                         if call_for_eval:
                             # -- Call only this run_iteration since only the one from MultiHead has no_loss flag -- #
                             _ = self.run_iteration(self.val_gen, False, True, no_loss=True)
                         else:
                             _ = self.run_iteration(self.val_gen, False, True)
-                    del val_gen_copy 
-
+                    
             # -- Calculate Dice and IoU --> self.validation_results is already updated once the evaluation is done -- #
-            self.finish_online_evaluation_extended(task)
-
-        # -- After evaluation restore batch size -- #
-        self.batch_size = batch_backup
-        del batch_backup
-
-        # -- Re-build dataloaders etc. with correct batch_size when this is done during training.. -- #
-        if not call_for_eval:
-            self.dl_tr, self.dl_val = self.get_basic_generators()
-            self.tr_gen, self.val_gen = get_moreDA_augmentation(self.dl_tr, self.dl_val,
-                                                                self.data_aug_params['patch_size_for_spatialtransform'],
-                                                                self.data_aug_params,
-                                                                deep_supervision_scales=self.deep_supervision_scales,
-                                                                pin_memory=self.pin_memory,
-                                                                use_nondetMultiThreadedAugmenter=False)
-            # -- Everything else is set as we evaluated on the current task just now -- #
-
+            self.finish_online_evaluation_extended(task, unique_subject_names)
 
         # -- Put current network into train mode again -- #
         self.network.train()
 
         # -- Save the dictionary as json file in the corresponding output_folder -- #
         if call_for_eval:
-            save_json(self.validation_results, join(self.output_folder, 'val_metrics_eval.json'), sort_keys=False)
+            save_json(self.validation_results, join(self.output_folder, 'tr_val_metrics_eval.json' if use_all_data else 'val_metrics_eval.json'), sort_keys=False)
         else:
-            save_json(self.validation_results, join(self.output_folder, 'val_metrics.json'), sort_keys=False)
+            save_json(self.validation_results, join(self.output_folder, 'tr_val_metrics.json' if use_all_data else 'val_metrics.json'), sort_keys=False)
 
         # -- Save as csv if desired as well -- #
         if self.csv:
@@ -860,9 +803,9 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             val_res = nestedDictToFlatTable(self.validation_results, ['Epoch', 'Task', 'subject_id', 'seg_mask', 'metric', 'value'])
             # -- Dump validation_results as csv file -- #
             if call_for_eval:
-                dumpDataFrameToCsv(val_res, self.output_folder, 'val_metrics_eval.csv')
+                dumpDataFrameToCsv(val_res, self.output_folder, 'tr_val_metrics_eval.csv' if use_all_data else 'val_metrics_eval.csv')
             else:
-                dumpDataFrameToCsv(val_res, self.output_folder, 'val_metrics.csv')
+                dumpDataFrameToCsv(val_res, self.output_folder, 'tr_val_metrics.csv' if use_all_data else 'val_metrics.csv')
 
         # -- Update already_trained_on if not already done before and only if this is not called during evaluation -- #
         if not call_for_eval and not self.already_trained_on[str(self.fold)]['val_metrics_should_exist']:
@@ -897,9 +840,6 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             except OSError:
                 pass
 
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-
     #------------------------------------------ Partially copied from original implementation ------------------------------------------#
     def get_basic_generators(self, use_all_data=False):
         self.load_dataset()
@@ -920,7 +860,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                                   oversample_foreground_percent=self.oversample_foreground_percent,
                                   pad_mode="constant", pad_sides=self.pad_all_sides, memmap_mode='r')
         return dl_tr, dl_val
-        
+
     def run_online_evaluation(self, output, target):
         r"""Overwrite the existing one, since for evaluation at every nth epoch we want the tp, fp, fn
             per subject and not per batch over every subject.
@@ -1003,7 +943,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             fp.append(np.array(self.online_eval_fp)[subject_idxs].sum(axis=0))
             fn.append(np.array(self.online_eval_fn)[subject_idxs].sum(axis=0))
 
-        # -- Assign the correct values to corresponding lists and remove the three generated lists -- #
+        # -- Assign the correct values to corresponding lists and remove the three generated lists
         self.online_eval_tp, self.online_eval_fp, self.online_eval_fn = tp, fp, fn
         del tp, fp, fn
 
@@ -1046,7 +986,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         self.online_eval_tp = []
         self.online_eval_fp = []
         self.online_eval_fn = []
-        self.subject_names_raw = [] # <-- Subject names necessary to map IoU and Dice per subject
+        self.subject_names_raw = [] # <-- Subject names necessary to map IoU and dice per subject
     #------------------------------------------ Partially copied from original implementation ------------------------------------------#
 
     def validate(self, do_mirroring: bool = True, use_sliding_window: bool = True,
@@ -1321,37 +1261,13 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         if 'fold_' in output_folder.split(os.path.sep)[-1]:
             output_folder = os.path.join(*output_folder.split(os.path.sep)[:-1])
             
-        # -- Specify if this is a ViT Architecture or not, since the paths are different -- #
-        if self.use_vit:
-            # -- Extract the folder name in case we have a ViT -- #
-            folder_n = get_ViT_LSA_SPT_folder_name(self.LSA, self.SPT)
 
-            # -- Update the output_folder accordingly -- #
-            if self.version != output_folder.split(os.path.sep)[-1] and self.version not in output_folder:
-                if not meta_data:
-                    output_folder = os.path.join(output_folder, Generic_ViT_UNet.__name__+self.version)
-                else:   # --> Path were meta data is stored, i.e. already_trained_on file
-                    output_folder = os.path.join(output_folder, 'metadata', Generic_ViT_UNet.__name__+self.version)
-
-            # -- Add the vit_type before the fold -- #
-            if self.vit_type != output_folder.split(os.path.sep)[-1] and self.vit_type not in output_folder:
-                output_folder = os.path.join(output_folder, self.vit_type)
-
-            # -- Add the ViT_task_specific_ln before the fold -- #
-            if self.ViT_task_specific_ln:
-                if 'task_specific'!= output_folder.split(os.path.sep)[-1] and 'task_specific' not in output_folder:
-                    output_folder = os.path.join(output_folder, 'task_specific', folder_n)
-            else:
-                if 'not_task_specific'!= output_folder.split(os.path.sep)[-1] and 'not_task_specific' not in output_folder:
-                    output_folder = os.path.join(output_folder, 'not_task_specific', folder_n)
-
-        elif nnViTUNetTrainer.__name__ not in output_folder:    # Then Generic_UNet is used --> will not apply if ViT Trainer + evaluation
-            # -- Generic_UNet will be used so update the path accordingly -- #
-            if Generic_UNet.__name__ != output_folder.split(os.path.sep)[-1] and Generic_UNet.__name__ not in output_folder:
-                if not meta_data:
-                    output_folder = os.path.join(output_folder, Generic_UNet.__name__)
-                else:   # --> Path were meta data is stored, i.e. already_trained_on file
-                    output_folder = os.path.join(output_folder, 'metadata', Generic_UNet.__name__)
+        # -- Generic_UNet will be used so update the path accordingly -- #
+        if Generic_UNet.__name__ != output_folder.split(os.path.sep)[-1] and Generic_UNet.__name__ not in output_folder:
+            if not meta_data:
+                output_folder = os.path.join(output_folder, Generic_UNet.__name__)
+            else:   # --> Path were meta data is stored, i.e. already_trained_on file
+                output_folder = os.path.join(output_folder, 'metadata', Generic_UNet.__name__)
 
         # -- In every case, change the current folder in such a way that there is an indication if transfer_heads was true or false -- #
         if 'MH' not in output_folder and 'SEQ' not in output_folder:
@@ -1386,23 +1302,3 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         self.loss = MultipleOutputLoss2(self.loss, self.ds_loss_weights)
         ################# END ###################
         #------------------------------------------ Partially copied from original implementation ------------------------------------------#
-        
-        
-    def reorder_UNet_components(self):
-        r"""Use this to reorder the networks components.
-        """
-        # -- Create copies of the different parts and delete them all again -- #
-        conv_blocks_localization = self.network.conv_blocks_localization
-        conv_blocks_context = self.network.conv_blocks_context
-        td = self.network.td
-        tu = self.network.tu
-        seg_outputs = self.network.seg_outputs
-        del self.network.conv_blocks_localization, self.network.conv_blocks_context, self.network.td, self.network.tu, self.network.seg_outputs
-
-        # -- Re-register all modules properly using backups to create a specific order -- #
-        # -- NEW Order: Encoder -- Decoder -- Segmentation Head
-        self.network.conv_blocks_context = conv_blocks_context  # Encoder part 1
-        self.network.td = td  # Encoder part 2
-        self.network.tu = tu   # Decoder part 1
-        self.network.conv_blocks_localization = conv_blocks_localization   # Decoder part 2
-        self.network.seg_outputs = seg_outputs  # Segmentation head
