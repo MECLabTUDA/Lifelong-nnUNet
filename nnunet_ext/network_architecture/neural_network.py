@@ -20,12 +20,12 @@ from batchgenerators.augmentations.utils import pad_nd_image
 from nnunet.utilities.random_stuff import no_op
 from nnunet.utilities.to_torch import to_cuda, maybe_to_torch
 from torch import nn
-import torch, pickle
+import torch, pickle, os
 from scipy.ndimage.filters import gaussian_filter
 from typing import Union, Tuple, List
 
 from torch.cuda.amp import autocast
-from batchgenerators.utilities.file_and_folder_operations import write_pickle, join
+from batchgenerators.utilities.file_and_folder_operations import write_pickle, join, load_pickle
 
 class NeuralNetwork(nn.Module):
     def __init__(self):
@@ -732,7 +732,7 @@ class SegmentationNetwork(NeuralNetwork):
                                           pad_border_mode: str, pad_kwargs: dict, all_in_gpu: bool,
                                           verbose: bool,
                                           ground_truth_segmentation: np.ndarray, feature_dir:str,
-                                          layer_name_for_feature_extraction: str, z: int=None) -> Tuple[np.ndarray, np.ndarray]:
+                                          layer_name_for_feature_extraction: str, z: int=None, max_z: int=None) -> Tuple[np.ndarray, np.ndarray]:
         # better safe than sorry
         assert len(x.shape) == 3, "x must be (c, x, y)"
 
@@ -873,7 +873,19 @@ class SegmentationNetwork(NeuralNetwork):
                         _features_and_skips = [f.cpu().numpy() for f in features_and_skips]
                         pickle.dump(_features_and_skips, outfile, pickle.HIGHEST_PROTOCOL)
 
+                    if os.path.isfile(join(_feature_dir, "meta.pkl")):
+                        _dict = load_pickle(join(_feature_dir, "meta.pkl"))
+                    else:
+                        _dict = dict()
 
+                    if not arr[-1] in _dict.keys():
+                        _dict[arr[-1]] = {
+                            'max_x': steps[0][-1],
+                            'max_y': steps[1][-1],
+                            'max_z': max_z-1
+                        }
+                        write_pickle(_dict, join(_feature_dir, "meta.pkl"))
+                    
 
                 else:
                     assert not self.do_ds
@@ -997,7 +1009,7 @@ class SegmentationNetwork(NeuralNetwork):
                 ground_truth_patch = None
             pred_seg, softmax_pres = self._internal_predict_2D_2Dconv_tiled(
                 x[:, s], step_size, do_mirroring, mirror_axes, patch_size, regions_class_order, use_gaussian,
-                pad_border_mode, pad_kwargs, all_in_gpu, verbose, ground_truth_patch, feature_dir, layer_name_for_feature_extraction, z=s)
+                pad_border_mode, pad_kwargs, all_in_gpu, verbose, ground_truth_patch, feature_dir, layer_name_for_feature_extraction, z=s, max_z=x.shape[1])
 
             predicted_segmentation.append(pred_seg[None])
             softmax_pred.append(softmax_pres[None])

@@ -326,6 +326,81 @@ class CFullyConnectedVAE2(nn.Module):
     def to_gpus(self):
         self.cuda(0)
 
+class CFullyConnectedVAE4(nn.Module):
+    def __init__(self, shape, num_classes:int, conditional_dim:int) -> None:
+        super().__init__()
+        #for now:
+        assert len(shape) == 3  
+        # shape: (C, H, W)
+        self.label_embedding = nn.Embedding(num_classes, conditional_dim)
+    
+        num_dimensions = np.prod(shape)
+        self.num_dimensions=num_dimensions
+        self.encoder = nn.Sequential(
+                                nn.Linear(num_dimensions + conditional_dim, num_dimensions + conditional_dim),
+                                nn.BatchNorm1d(num_dimensions + conditional_dim),
+                                nn.LeakyReLU(inplace=True),
+                                nn.Linear(num_dimensions + conditional_dim, int(1.5 * num_dimensions)),
+                                nn.BatchNorm1d(int(1.5 * num_dimensions)),
+                                nn.LeakyReLU(inplace=True),
+                                nn.Linear(int(1.5 * num_dimensions), int(1.2 * num_dimensions)),
+                                nn.BatchNorm1d(int(1.2 * num_dimensions)),
+                                nn.LeakyReLU(inplace=True),
+                                nn.Linear(int(1.2 * num_dimensions),int(1.2 * num_dimensions)),
+                                nn.BatchNorm1d(int(1.2 * num_dimensions)),
+                                nn.LeakyReLU(inplace=True))
+        
+        self.compute_mean = nn.Linear(int(1.2 * num_dimensions), num_dimensions)
+        self.compute_log_var = nn.Linear(int(1.2 * num_dimensions), num_dimensions)
+        
+        self.decoder = nn.Sequential(nn.Linear(num_dimensions + conditional_dim, num_dimensions + conditional_dim),
+                                nn.BatchNorm1d(num_dimensions + conditional_dim),
+                                nn.LeakyReLU(inplace=True),
+                                nn.Linear(num_dimensions + conditional_dim, int(1.5 * num_dimensions)),
+                                nn.BatchNorm1d(int(1.5 * num_dimensions)),
+                                nn.LeakyReLU(inplace=True),
+                                nn.Linear(int(1.5 * num_dimensions), int(1.2 * num_dimensions)),
+                                nn.BatchNorm1d(int(1.2 * num_dimensions)),
+                                nn.LeakyReLU(inplace=True),
+                                nn.Linear(int(1.2 * num_dimensions), int(1.2 * num_dimensions)),
+                                nn.BatchNorm1d(int(1.2 * num_dimensions)),
+                                nn.LeakyReLU(inplace=True),
+                                nn.Linear(int(1.2 * num_dimensions), num_dimensions),
+                                nn.Unflatten(1, shape),
+                                nn.LeakyReLU(inplace=True)
+                                )
+    
+    def sample_from(self, mean, log_var):
+        eps = torch.randn(mean.shape, device=mean.device)
+        var =  torch.exp(0.5 *log_var)
+        return mean + eps * var
+
+    def encode(self, x, y):
+        x = torch.flatten(x, start_dim=1)
+        x = torch.cat((x,y), dim=1)
+        x = self.encoder(x)
+        return self.compute_mean(x), self.compute_log_var(x)
+
+    def decode(self, z, y):
+        z = torch.cat((z,y), dim=1)
+        return self.decoder(z)
+
+    def forward(self, x, y):
+        y = self.label_embedding(y)
+        mean, log_var = self.encode(x , y)
+
+        z = self.sample_from(mean, log_var)
+        x_hat = self.decode(z, y)
+        return x_hat, mean, log_var
+
+    def generate(self, y, batch_size: int):
+        y = self.label_embedding(y)
+        z = torch.randn((batch_size, self.num_dimensions)).cuda()
+        return self.decode(z, y)
+    
+    def to_gpus(self):
+        self.cuda(0)
+
 class FullyConnectedVAE2Distributed(nn.Module):
     def __init__(self, shape, num_classes:int, conditional_dim:int) -> None:
         super().__init__()

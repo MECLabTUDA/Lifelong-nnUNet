@@ -237,7 +237,7 @@ def run_training(extension='multihead'):
         parser.add_argument('-target_type', action='store', type=str, required=False, default="ground_truth",
                             help='possible: ground_truth, distilled_output, distilled_deep_supervision. Default is ground_truth')
         
-    if extension in ['feature_rehearsal2', 'feature_rehearsal_no_freeze', 'feature_rehearsal_no_replay', 'vae_rehearsal_no_skips', 'feature_rehearsal_no_skips', 'vae_rehearsal_no_skips_no_conditioning']:
+    if extension in ['feature_rehearsal2', 'feature_rehearsal_no_freeze', 'feature_rehearsal_no_replay', 'vae_rehearsal_no_skips', 'feature_rehearsal_no_skips', 'vae_rehearsal_no_skips_no_conditioning', 'vae_rehearsal_no_skips_larger_vae_force_init']:
         # num_rehearsal_samples_in_perc
         parser.add_argument('-num_samples_in_perc', action='store', type=float, required=False, default=0.25,
                             help='Specify how much of the previous tasks should be considered during training.'
@@ -494,7 +494,7 @@ def run_training(extension='multihead'):
     if extension in ['feature_rehearsal2', 'feature_rehearsal_no_freeze', 'feature_rehearsal_no_replay', 'feature_rehearsal_no_skips']:
         feature_rehearsal_target_type = FeatureRehearsalTargetType[args.target_type.upper()]
 
-    if extension in ['feature_rehearsal2', 'feature_rehearsal_no_freeze', 'feature_rehearsal_no_replay', 'vae_rehearsal_no_skips', 'feature_rehearsal_no_skips', 'vae_rehearsal_no_skips_no_conditioning']:
+    if extension in ['feature_rehearsal2', 'feature_rehearsal_no_freeze', 'feature_rehearsal_no_replay', 'vae_rehearsal_no_skips', 'feature_rehearsal_no_skips', 'vae_rehearsal_no_skips_no_conditioning', 'vae_rehearsal_no_skips_larger_vae_force_init']:
         num_rehearsal_samples_in_perc = args.num_samples_in_perc
         layer_name_for_feature_extraction = args.layer_name
     
@@ -572,6 +572,7 @@ def run_training(extension='multihead'):
               'nnUNetTrainerSequentialNoSkips': basic_exts,
               'nnUNetTrainerVAERehearsalNoSkips': vae_rehearsal_args,
               'nnUNetTrainerVAERehearsalNoSkipsNoConditioning': vae_rehearsal_args,
+              'nnUNetTrainerVAERehearsalNoSkipsLargerVaeForceInit': vae_rehearsal_args,
               'nnUNetTrainerFeatureRehearsalNoSkips': rehearsal_args}
 
     
@@ -1076,3 +1077,6 @@ def main_feature_rehearsal_no_skips():
 
 def main_vae_rehearsal_no_skips_no_conditioning():
     run_training(extension="vae_rehearsal_no_skips_no_conditioning")
+    
+def main_vae_rehearsal_no_skips_larger_vae_force_init():
+    run_training(extension="vae_rehearsal_no_skips_larger_vae_force_init")

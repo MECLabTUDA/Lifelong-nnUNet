@@ -368,3 +368,12 @@ def suppress_stdout():
             yield
         finally:
             sys.stdout = old_stdout
+
+def add_folder_before_filename(path: str, folder: str):
+    lst = path.split('/')
+    assert '.' in lst[-1]
+    lst.insert(-1, folder)
+    if path.startswith("/"):
+        return os.path.join("/", *lst)
+    else:
+        return os.path.join(*lst)

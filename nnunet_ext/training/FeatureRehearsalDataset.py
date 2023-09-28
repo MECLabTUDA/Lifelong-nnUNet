@@ -136,6 +136,8 @@ class FeatureRehearsalDataLoader(DataLoader):
             if dataset.store_task_idx:
                 output_batch['task_idx'] = torch.IntTensor([sample['task_idx'] for sample in list_of_samples])
 
+            if hasattr(dataset, 'load_meta') and dataset.load_meta:
+                output_batch['slice_idx_normalized'] = torch.IntTensor([sample['slice_idx_normalized'] for sample in list_of_samples])
 
             return output_batch
         

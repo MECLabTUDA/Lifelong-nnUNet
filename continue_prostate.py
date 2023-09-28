@@ -4,10 +4,11 @@ from nnunet_ext.training.FeatureRehearsalDataset import FeatureRehearsalDataLoad
 from nnunet_ext.training.model_restore import restore_model
 import os, torch
 import numpy as np
+from nnunet_ext.training.network_training.vae_rehearsal_base.nnUNetTrainerVAERehearsalBase import GENERATED_FEATURE_PATH_TR
 from nnunet_ext.training.network_training.vae_rehearsal_no_skips.nnUNetTrainerVAERehearsalNoSkips import nnUNetTrainerVAERehearsalNoSkips
 #torch.autograd.set_detect_anomaly(True)
-os.environ["CUDA_VISIBLE_DEVICES"] = "2,4"
-trainer_path = "/local/scratch/clmn1/master_thesis/tests/no_skips/results/nnUNet_ext/2d/Task011_Prostate-BIDMC_Task012_Prostate-I2CVB_Task013_Prostate-HK_Task015_Prostate-UCL_Task016_Prostate-RUNMC/Task011_Prostate-BIDMC_Task012_Prostate-I2CVB_Task013_Prostate-HK/nnUNetTrainerVAERehearsalNoSkips__nnUNetPlansv2.1/Generic_UNet/SEQ/fold_0"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,2"
+trainer_path = "/local/scratch/clmn1/master_thesis/tests/no_skips2/results/nnUNet_ext/2d/Task011_Prostate-BIDMC_Task012_Prostate-I2CVB_Task013_Prostate-HK_Task015_Prostate-UCL_Task016_Prostate-RUNMC/Task011_Prostate-BIDMC_Task012_Prostate-I2CVB/nnUNetTrainerVAERehearsalNoSkips__nnUNetPlansv2.1/Generic_UNet/SEQ/fold_0"
 checkpoint = os.path.join(trainer_path, "model_final_checkpoint.model")
 pkl_file = checkpoint + ".pkl"
 trainer: nnUNetTrainerVAERehearsalNoSkips = restore_model(pkl_file, checkpoint, train=False, fp16=True,\
@@ -19,43 +20,19 @@ trainer.network.__class__ = Generic_UNet_no_skips
 trainer.num_rehearsal_samples_in_perc = 1.0
 trainer.freeze_network()
 
-
-vae_dict = torch.load("/local/scratch/clmn1/master_thesis/tests/no_skips/results/nnUNet_ext/2d/Task011_Prostate-BIDMC_Task012_Prostate-I2CVB_Task013_Prostate-HK_Task015_Prostate-UCL_Task016_Prostate-RUNMC/Task011_Prostate-BIDMC_Task012_Prostate-I2CVB_Task013_Prostate-HK/nnUNetTrainerVAERehearsalNoSkips__nnUNetPlansv2.1/Generic_UNet/SEQ/fold_0/vae.model")
-trainer.vae = CFullyConnectedVAE2Distributed(vae_dict['shape'], vae_dict['num_classes'], conditional_dim=vae_dict['conditional_dim'])
-trainer.vae.load_state_dict(vae_dict['state_dict'])
+trainer.load_vae("/local/scratch/clmn1/master_thesis/tests/no_skips2/results/nnUNet_ext/2d/Task011_Prostate-BIDMC_Task012_Prostate-I2CVB_Task013_Prostate-HK_Task015_Prostate-UCL_Task016_Prostate-RUNMC/Task011_Prostate-BIDMC_Task012_Prostate-I2CVB/nnUNetTrainerVAERehearsalNoSkips__nnUNetPlansv2.1/Generic_UNet/SEQ/fold_0/vae.model")
 trainer.max_num_epochs = 250
 
-
-trainer.clean_up()
-trainer.load_dataset()
-trainer.do_split()
-trainer.store_features("Task011_Prostate-BIDMC")
-trainer.store_features("Task011_Prostate-BIDMC", False)
-trainer.update_dataloader("Task011_Prostate-BIDMC")
-
-trainer.reinitialize("Task012_Prostate-I2CVB")
-trainer.store_features("Task012_Prostate-I2CVB")
-trainer.store_features("Task012_Prostate-I2CVB", False)
-trainer.update_dataloader("Task012_Prostate-I2CVB")
-
-trainer.reinitialize("Task013_Prostate-HK")
-trainer.store_features("Task013_Prostate-HK")
-trainer.store_features("Task013_Prostate-HK", False)
-trainer.update_dataloader("Task013_Prostate-HK")
-trainer.clean_up()
-#assert trainer.task_label_to_task_idx == ["Task097_DecathHip", "Task098_Dryad"]
-
-#trainer.output_folder = "/local/scratch/clmn1/master_thesis/tests/no_skips/results/nnUNet_ext/2d/Task011_Prostate-BIDMC_Task012_Prostate-I2CVB_Task013_Prostate-HK_Task015_Prostate-UCL_Task016_Prostate-RUNMC/Task011_Prostate-BIDMC_Task012_Prostate-I2CVB_Task013_Prostate-HK/nnUNetTrainerVAERehearsalNoSkips__nnUNetPlansv2.1/Generic_UNet/SEQ/fold_0"
-#trainer.feature_rehearsal_dataloader_tr = FeatureRehearsalDataLoader(trainer.extracted_features_dataset_tr, batch_size=min(len(trainer.extracted_features_dataset_tr), 512), 
-#                                                                num_workers=8, pin_memory=True, 
-#                                            deep_supervision_scales=trainer.deep_supervision_scales, persistent_workers=False,
-#                                            shuffle=True)
-
-
+trainer.update_dataloader()
+trainer.clean_up([GENERATED_FEATURE_PATH_TR])
 trainer.generate_features()
 
-trainer.run_training("Task015_Prostate-UCL", output_folder="/local/scratch/clmn1/master_thesis/tests/no_skips/results/nnUNet_ext/2d/Task011_Prostate-BIDMC_Task012_Prostate-I2CVB_Task013_Prostate-HK_Task015_Prostate-UCL_Task016_Prostate-RUNMC/Task011_Prostate-BIDMC_Task012_Prostate-I2CVB_Task013_Prostate-HK_Task015_Prostate-UCL/nnUNetTrainerVAERehearsalNoSkips__nnUNetPlansv2.1/Generic_UNet/SEQ/fold_0")
-trainer.run_training("Task016_Prostate-RUNMC", output_folder="/local/scratch/clmn1/master_thesis/tests/no_skips/results/nnUNet_ext/2d/Task011_Prostate-BIDMC_Task012_Prostate-I2CVB_Task013_Prostate-HK_Task015_Prostate-UCL_Task016_Prostate-RUNMC/Task011_Prostate-BIDMC_Task012_Prostate-I2CVB_Task013_Prostate-HK_Task015_Prostate-UCL_Task016_Prostate-RUNMC/nnUNetTrainerVAERehearsalNoSkips__nnUNetPlansv2.1/Generic_UNet/SEQ/fold_0")
+trainer.update_dataloader()
+
+trainer.output_folder = trainer_path
+trainer.run_training("Task013_Prostate-HK", output_folder="/local/scratch/clmn1/master_thesis/tests/no_skips2/results/nnUNet_ext/2d/Task011_Prostate-BIDMC_Task012_Prostate-I2CVB_Task013_Prostate-HK_Task015_Prostate-UCL_Task016_Prostate-RUNMC/Task011_Prostate-BIDMC_Task012_Prostate-I2CVB_Task013_Prostate-HK/nnUNetTrainerVAERehearsalNoSkips__nnUNetPlansv2.1/Generic_UNet/SEQ/fold_0")
+trainer.run_training("Task015_Prostate-UCL", output_folder="/local/scratch/clmn1/master_thesis/tests/no_skips2/results/nnUNet_ext/2d/Task011_Prostate-BIDMC_Task012_Prostate-I2CVB_Task013_Prostate-HK_Task015_Prostate-UCL_Task016_Prostate-RUNMC/Task011_Prostate-BIDMC_Task012_Prostate-I2CVB_Task013_Prostate-HK_Task015_Prostate-UCL/nnUNetTrainerVAERehearsalNoSkips__nnUNetPlansv2.1/Generic_UNet/SEQ/fold_0")
+trainer.run_training("Task016_Prostate-RUNMC", output_folder="/local/scratch/clmn1/master_thesis/tests/no_skips2/results/nnUNet_ext/2d/Task011_Prostate-BIDMC_Task012_Prostate-I2CVB_Task013_Prostate-HK_Task015_Prostate-UCL_Task016_Prostate-RUNMC/Task011_Prostate-BIDMC_Task012_Prostate-I2CVB_Task013_Prostate-HK_Task015_Prostate-UCL_Task016_Prostate-RUNMC/nnUNetTrainerVAERehearsalNoSkips__nnUNetPlansv2.1/Generic_UNet/SEQ/fold_0")
 exit()
 
 

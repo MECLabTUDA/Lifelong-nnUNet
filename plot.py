@@ -923,10 +923,25 @@ def hippocampus_vae_rehearsal_2d_no_skips():
                   'trainer': "nnUNetTrainerVAERehearsalNoSkips",
                   'name': "VAE rehearsal, 2D, w/o skips, w/ freezing"
     }
+    vae_rehearsal_2 = {'eval_path_base': "/local/scratch/clmn1/master_thesis/tests/no_skips2/evaluation",
+                  'eval_path_middle': "nnUNet_ext/2d/Task097_DecathHip_Task098_Dryad_Task099_HarP",
+                  'trainer': "nnUNetTrainerVAERehearsalNoSkips",
+                  'name': "VAE rehearsal, 2D, w/o skips, w/ freezing 2nd version"
+    }
     vae_rehearsal_no_conditioning = {'eval_path_base': "/local/scratch/clmn1/master_thesis/tests/no_conditional/evaluation",
                   'eval_path_middle': "nnUNet_ext/2d/Task097_DecathHip_Task098_Dryad_Task099_HarP",
                   'trainer': "nnUNetTrainerVAERehearsalNoSkips",
                   'name': "VAE rehearsal, 2D, w/o skips, w/ freezing, w/o conditioning"
+    }
+    vae_rehearsal_no_conditioning_2 = {'eval_path_base': "/local/scratch/clmn1/master_thesis/tests/no_skips/evaluation",
+                  'eval_path_middle': "nnUNet_ext/2d/Task097_DecathHip_Task098_Dryad_Task099_HarP",
+                  'trainer': "nnUNetTrainerVAERehearsalNoSkipsNoConditioning",
+                  'name': "VAE rehearsal, 2D, w/o skips, w/ freezing, w/o conditioning 2nd version"
+    }
+    vae_rehearsal_large = {'eval_path_base': "/local/scratch/clmn1/master_thesis/tests/larger_conditional/evaluation",
+                  'eval_path_middle': "nnUNet_ext/2d/Task097_DecathHip_Task098_Dryad_Task099_HarP",
+                  'trainer': "nnUNetTrainerVAERehearsalNoSkipsLargerVaeForceInit",
+                  'name': "VAE rehearsal, 2D, w/o skips, w/ freezing, large VAE, force reinit"
     }
     sequential = {'eval_path_base': "/local/scratch/clmn1/master_thesis/evaluation_folder/baselines_retrained",
                   'eval_path_middle': "nnUNet_ext/3d_fullres/Task097_DecathHip_Task098_Dryad_Task099_HarP",
@@ -934,18 +949,47 @@ def hippocampus_vae_rehearsal_2d_no_skips():
                   'name': "Sequential, 3D, w/ skips, w/o freezing"
     }
 
-    trainers = [rehearsal, feature_rehearsal_2d_no_skips, vae_rehearsal, vae_rehearsal_no_conditioning, sequential]
+    trainers = [rehearsal, feature_rehearsal_2d_no_skips, vae_rehearsal, vae_rehearsal_no_conditioning, vae_rehearsal_large, sequential]
     return trainers, combinations, None, HIPPOCAMPUS_Y_RANGE, "Hippocampus"
 
 
 
 
+def prostate_vae_rehearsal_2d_no_skips():
+    combinations = ["Task011_Prostate-BIDMC",
+                "Task011_Prostate-BIDMC_Task012_Prostate-I2CVB",
+                "Task011_Prostate-BIDMC_Task012_Prostate-I2CVB_Task013_Prostate-HK",
+                "Task011_Prostate-BIDMC_Task012_Prostate-I2CVB_Task013_Prostate-HK_Task015_Prostate-UCL",
+                "Task011_Prostate-BIDMC_Task012_Prostate-I2CVB_Task013_Prostate-HK_Task015_Prostate-UCL_Task016_Prostate-RUNMC"]
+    rehearsal = {'eval_path_base': "/local/scratch/clmn1/master_thesis/evaluation_folder/baselines_retrained",
+                  'eval_path_middle': "nnUNet_ext/3d_fullres/Task011_Prostate-BIDMC_Task012_Prostate-I2CVB_Task013_Prostate-HK_Task015_Prostate-UCL_Task016_Prostate-RUNMC",
+                  'trainer': "nnUNetTrainerRehearsal",
+                  'name': "Rehearsal, 3D, w/ skips, w/o freezing"
+    }
+    feature_rehearsal2 = {'eval_path_base': "/local/scratch/clmn1/master_thesis/evaluation_folder/retrained/distilled_output/0.25/middle_encoder",
+                  'eval_path_middle': "nnUNet_ext/3d_fullres/Task011_Prostate-BIDMC_Task012_Prostate-I2CVB_Task013_Prostate-HK_Task015_Prostate-UCL_Task016_Prostate-RUNMC",
+                  'trainer': "nnUNetTrainerFeatureRehearsal2",
+                  'name': "Feature rehearsal, distilled output, 3D, w/ skips, w/ freezing"
+    }
+    vae_rehearsal = {'eval_path_base': "/local/scratch/clmn1/master_thesis/tests/no_skips2/evaluation",
+                  'eval_path_middle': "nnUNet_ext/2d/Task011_Prostate-BIDMC_Task012_Prostate-I2CVB_Task013_Prostate-HK_Task015_Prostate-UCL_Task016_Prostate-RUNMC",
+                  'trainer': "nnUNetTrainerVAERehearsalNoSkips",
+                  'name': "VAE rehearsal, 2D, w/o skips, w/ freezing"
+    } 
+    sequential = {'eval_path_base': "/local/scratch/clmn1/master_thesis/evaluation_folder/baselines_retrained",
+                  'eval_path_middle': "nnUNet_ext/3d_fullres/Task011_Prostate-BIDMC_Task012_Prostate-I2CVB_Task013_Prostate-HK_Task015_Prostate-UCL_Task016_Prostate-RUNMC",
+                  'trainer': "nnUNetTrainerSequential",
+                  'name': "Sequential, 3D, w/ skips, w/o freezing"
+    }
+
+    trainers = [rehearsal, feature_rehearsal2, vae_rehearsal, sequential]
+    return trainers, combinations, None, PROSTATE_Y_RANGE, "Prostate"
 
 
 
 
 
-trainers, combinations, palette, y_range, title = hippocampus_vae_rehearsal_2d_no_skips()
+trainers, combinations, palette, y_range, title = prostate_vae_rehearsal_2d_no_skips()
 data = []
 mask = "mask_1"
 ## data needs to have ["case_name", "last task trained", "task the case belongs to", "value"]
