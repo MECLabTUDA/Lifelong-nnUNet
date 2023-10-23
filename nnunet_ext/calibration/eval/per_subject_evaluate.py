@@ -77,6 +77,8 @@ def per_subject_eval_with_uncertainties(eval_path, base_names, predictions_path,
                 data.append([base_name, dice, iou, energy_scoring_dict[temp][base_name], 'EnergyScoring_{}'.format(temp)])
         if 'Mahalanobis' in methods:
             for feature_key in mahal_features.keys():
+                print(feature_key)
+                print(list(spatial_mahal_uncertainty_dict.keys()))
                 data.append([base_name, dice, iou, spatial_mahal_uncertainty_dict[feature_key][base_name], 'Mahalanobis_{}'.format(feature_key)])
 
     df = pd.DataFrame(data, columns=['Subject', 'Dice', 'IoU', 'Uncertainty', 'Method'])
