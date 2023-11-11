@@ -98,8 +98,10 @@ class FeatureRehearsalDataset2(Dataset):
         data_dict['slice_idx'] = z
         if self.load_meta:
             max_z = self.dicts[task][name]['max_z']
-            data_dict['slice_idx_normalized'] = z / max_z
-
+            if z == 0: #prevent division by zero (occurs when max_z == 0 => z=0)
+                data_dict['slice_idx_normalized'] = 0
+            else:
+                data_dict['slice_idx_normalized'] = z / max_z
         return data_dict
     
 

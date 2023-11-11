@@ -21,6 +21,7 @@ trainer.freeze_network()
 
 trainer.clean_up([GENERATED_FEATURE_PATH_TR])
 if False:
+    trainer.clean_up()
     trainer.load_dataset()
     trainer.do_split()
     trainer.store_features("Task097_DecathHip")
@@ -30,7 +31,7 @@ if False:
     trainer.store_features("Task098_Dryad")
     trainer.store_features("Task098_Dryad", False)
     trainer.update_dataloader()
-
+    
     trainer.reinitialize("Task099_HarP")
     trainer.store_features("Task099_HarP")
     trainer.store_features("Task099_HarP", False)

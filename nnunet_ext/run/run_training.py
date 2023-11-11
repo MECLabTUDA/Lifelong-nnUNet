@@ -161,7 +161,7 @@ def run_training(extension='multihead'):
                             ' Default: The previously trained head is used as initialization of the new head.')
     
     # -- Add arguments for rehearsal method -- #
-    if extension == 'rehearsal':
+    if extension in ['rehearsal', 'rehearsal_no_skips_frozen']:
         parser.add_argument('-seed', action='store', type=int, nargs=1, required=False, default=3299,
                             help='Specify the seed with which the samples will be selected for building the dataset.'
                                 ' Default: seed will be set to 3299. --> If -c is set, this will be omitted,'
@@ -237,7 +237,9 @@ def run_training(extension='multihead'):
         parser.add_argument('-target_type', action='store', type=str, required=False, default="ground_truth",
                             help='possible: ground_truth, distilled_output, distilled_deep_supervision. Default is ground_truth')
         
-    if extension in ['feature_rehearsal2', 'feature_rehearsal_no_freeze', 'feature_rehearsal_no_replay', 'vae_rehearsal_no_skips', 'feature_rehearsal_no_skips', 'vae_rehearsal_no_skips_no_conditioning', 'vae_rehearsal_no_skips_larger_vae_force_init']:
+    if extension in ['feature_rehearsal2', 'feature_rehearsal_no_freeze', 'feature_rehearsal_no_replay', 'vae_rehearsal_no_skips', 
+                     'feature_rehearsal_no_skips', 'vae_rehearsal_no_skips_no_conditioning', 'vae_rehearsal_no_skips_larger_vae_force_init', 
+                     'vae_rehearsal_no_skips_condition_on_both', 'rehearsal_no_skips_frozen']:
         # num_rehearsal_samples_in_perc
         parser.add_argument('-num_samples_in_perc', action='store', type=float, required=False, default=0.25,
                             help='Specify how much of the previous tasks should be considered during training.'
@@ -355,7 +357,7 @@ def run_training(extension='multihead'):
 
     # -- Extract rehearsal arguments -- #
     seed, samples = None, None  # --> So the dictionary arguments can be build without an error even if not rehearsal desired ..
-    if extension == 'rehearsal':
+    if extension in ['rehearsal', 'rehearsal_no_skips_frozen']:
         # -- Extract the seed and samples_in_perc -- #
         seed = args.seed
         samples = args.samples_in_perc
@@ -494,7 +496,11 @@ def run_training(extension='multihead'):
     if extension in ['feature_rehearsal2', 'feature_rehearsal_no_freeze', 'feature_rehearsal_no_replay', 'feature_rehearsal_no_skips']:
         feature_rehearsal_target_type = FeatureRehearsalTargetType[args.target_type.upper()]
 
-    if extension in ['feature_rehearsal2', 'feature_rehearsal_no_freeze', 'feature_rehearsal_no_replay', 'vae_rehearsal_no_skips', 'feature_rehearsal_no_skips', 'vae_rehearsal_no_skips_no_conditioning', 'vae_rehearsal_no_skips_larger_vae_force_init']:
+    if extension in ['feature_rehearsal2', 'feature_rehearsal_no_freeze', 
+                     'feature_rehearsal_no_replay', 'vae_rehearsal_no_skips', 
+                     'feature_rehearsal_no_skips', 'vae_rehearsal_no_skips_no_conditioning', 
+                     'vae_rehearsal_no_skips_larger_vae_force_init', 'vae_rehearsal_no_skips_condition_on_both',
+                     'rehearsal_no_skips_frozen']:
         num_rehearsal_samples_in_perc = args.num_samples_in_perc
         layer_name_for_feature_extraction = args.layer_name
     
@@ -548,6 +554,8 @@ def run_training(extension='multihead'):
     ownm3_args = {'do_LSA': do_LSA, 'do_SPT': do_SPT, **ownm1_args, **basic_exts}
     ownm4_args = {'ewc_lambda': ewc_lambda, 'pod_lambda': pod_lambda, 'pod_scales': pod_scales, 'do_pod': do_pod, 'pseudo_alpha': pseudo_alpha, **basic_exts}
     
+    rehearsal_no_skips_frozen_args = {'layer_name_for_feature_extraction': layer_name_for_feature_extraction, **reh_args}
+    # feature rehearsal
     rehearsal_args = {'target_type': feature_rehearsal_target_type, 'num_rehearsal_samples_in_perc': num_rehearsal_samples_in_perc, 'layer_name_for_feature_extraction': layer_name_for_feature_extraction, **basic_exts }
     vae_rehearsal_args = {'num_rehearsal_samples_in_perc': num_rehearsal_samples_in_perc, 'layer_name_for_feature_extraction': layer_name_for_feature_extraction, **basic_exts }
 
@@ -564,6 +572,7 @@ def run_training(extension='multihead'):
               'nnUNetTrainerOwnM3': ownm3_args, 'nnUNetTrainerOwnM4': ownm4_args,
               'nnUNetTrainerFrozenBody': basic_exts,
 
+              'nnUNetTrainerRehearsalNoSkipsFrozen': rehearsal_no_skips_frozen_args,
               'nnUNetTrainerVAE': basic_exts,
               'nnUNetTrainerFeatureRehearsal': basic_exts,
               'nnUNetTrainerFeatureRehearsal2': rehearsal_args,
@@ -573,9 +582,9 @@ def run_training(extension='multihead'):
               'nnUNetTrainerVAERehearsalNoSkips': vae_rehearsal_args,
               'nnUNetTrainerVAERehearsalNoSkipsNoConditioning': vae_rehearsal_args,
               'nnUNetTrainerVAERehearsalNoSkipsLargerVaeForceInit': vae_rehearsal_args,
+              'nnUNetTrainerVAERehearsalNoSkipsConditionOnBoth': vae_rehearsal_args,
               'nnUNetTrainerFeatureRehearsalNoSkips': rehearsal_args}
 
-    
     # ---------------------------------------------
     # Train for each task for all provided folds
     # ---------------------------------------------
@@ -713,7 +722,7 @@ def run_training(extension='multihead'):
                 began_with = tasks[0]
 
                 # -- Ensure that seed and sample portion are not changed when using rehearsal method --- #
-                if extension == 'rehearsal':
+                if extension in ['rehearsal', 'rehearsal_no_skips_frozen']:
                     assert seed == int(trained_on_folds['used_seed']),\
                         "To continue training on the fold {} the same seed, ie. \'{}\' needs to be provided, not \'{}\'.".format(t_fold, trained_on_folds['used_seed'], seed)
                     assert samples == float(trained_on_folds['used_sample_portion']),\
@@ -1080,3 +1089,9 @@ def main_vae_rehearsal_no_skips_no_conditioning():
     
 def main_vae_rehearsal_no_skips_larger_vae_force_init():
     run_training(extension="vae_rehearsal_no_skips_larger_vae_force_init")
+
+def main_vae_rehearsal_no_skips_condition_on_both():
+    run_training(extension="vae_rehearsal_no_skips_condition_on_both")
+
+def main_rehearsal_no_skips_frozen():
+    run_training(extension="rehearsal_no_skips_frozen")

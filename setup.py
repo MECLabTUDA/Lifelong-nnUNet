@@ -53,16 +53,24 @@ setup(name='nnunet_ext',
               'nnUNet_train_frozen_unet = nnunet_ext.run.run_training:main_frozen_unet',       # Use for freezing all nnUNet layers
               'nnUNet_train_frozen_vit = nnunet_ext.run.run_training:main_frozen_vit',         # Use for freezing all ViT layers
 
-              'nnUNet_train_vae = nnunet_ext.run.run_training:main_vae',      
+
+              'nnUNet_train_vae = nnunet_ext.run.run_training:main_vae',# is this even used?
+
+              'nnUNet_train_rehearsal_no_skips_frozen = nnunet_ext.run.run_training:main_rehearsal_no_skips_frozen',
+
               'nnUNet_train_feature_rehearsal2 = nnunet_ext.run.run_training:main_feature_rehearsal2',   
               'nnUNet_train_feature_rehearsal_no_freeze = nnunet_ext.run.run_training:main_feature_rehearsal_no_freeze',  
-              'nnUNet_train_feature_rehearsal_no_replay = nnunet_ext.run.run_training:main_feature_rehearsal_no_replay',  
+              'nnUNet_train_feature_rehearsal_no_replay = nnunet_ext.run.run_training:main_feature_rehearsal_no_replay',
+                
               'nnUNet_train_sequential_no_skips = nnunet_ext.run.run_training:main_sequential_no_skips',    
               'nnUNet_train_vae_rehearsal_no_skips = nnunet_ext.run.run_training:main_vae_rehearsal_no_skips',    
               'nnUNet_train_feature_rehearsal_no_skips = nnunet_ext.run.run_training:main_feature_rehearsal_no_skips', 
               'nnUNet_train_vae_rehearsal_no_skips_no_conditioning = nnunet_ext.run.run_training:main_vae_rehearsal_no_skips_no_conditioning', 
-              'nnUNet_train_vae_rehearsal_no_skips_larger_vae_force_init = nnunet_ext.run.run_training:main_vae_rehearsal_no_skips_larger_vae_force_init', 
+              'nnUNet_train_vae_rehearsal_no_skips_larger_vae_force_init = nnunet_ext.run.run_training:main_vae_rehearsal_no_skips_larger_vae_force_init',
+              'nnUNet_train_vae_rehearsal_no_skips_condition_on_both = nnunet_ext.run.run_training:main_vae_rehearsal_no_skips_condition_on_both', 
               
+
+              'nnUNet_ood_detection = nnunet_ext.run.run_ood_detection:run_ood_detection',
               'nnUNet_inference = nnunet_ext.run.run_inference:main',    
               'nnUNet_evaluate2 = nnunet_ext.run.run_evaluation:run_evaluation2',    
           ],

@@ -55,11 +55,11 @@ HYPERPARAMS = {}
 FEATURE_PATH = "extracted_features"
 
 
-class nnUNetTrainerFeatureRehearsal2(nnUNetTrainerMultiHead):
+class nnUNetTrainerFeatureRehearsalUpdate3To1(nnUNetTrainerMultiHead):
     # -- Trains n tasks sequentially using transfer learning -- #
     def __init__(self, split, task, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
-                 identifier=default_plans_identifier, extension='feature_rehearsal2', tasks_list_with_char=None, 
+                 identifier=default_plans_identifier, extension='feature_rehearsal_update_3_to_1', tasks_list_with_char=None, 
                  #custom args
                  target_type: FeatureRehearsalTargetType = FeatureRehearsalTargetType.GROUND_TRUTH,
                  num_rehearsal_samples_in_perc: float= 1.0,
@@ -84,7 +84,7 @@ class nnUNetTrainerFeatureRehearsal2(nnUNetTrainerMultiHead):
         assert self.layer_name_for_feature_extraction.startswith(("conv_blocks_context","td", "tu", "conv_blocks_localization"))
         assert self.layer_name_for_feature_extraction.count('.') == 1, "layer_name must have exactly 1 dot"
         self.num_feature_rehearsal_cases = 0        # store amount of feature_rehearsal cases. init with 0
-        self.rehearse = False                       # variable for alternating schedule
+        self.rehearse_counter = 0                       # variable for alternating schedule
 
 
         self.init_args = (split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
@@ -428,8 +428,8 @@ class nnUNetTrainerFeatureRehearsal2(nnUNetTrainerMultiHead):
             #probability_for_rehearsal = self.num_feature_rehearsal_cases / (self.num_feature_rehearsal_cases + len(self.dataset_tr))
             #v = torch.bernoulli(torch.tensor([probability_for_rehearsal]))[0]# <- unpack value {0,1}
             #rehearse = (v == 1)
-            rehearse = self.rehearse
-            self.rehearse = not self.rehearse
+            self.rehearse_counter += 1 % 4
+            rehearse = self.rehearse_counter == 0
 
 
 

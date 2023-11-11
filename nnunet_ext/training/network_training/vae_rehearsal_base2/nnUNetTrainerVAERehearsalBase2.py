@@ -2,6 +2,7 @@
 #------------------This class represents the nnUNet trainer for sequential training.--------------------#
 #########################################################################################################
 
+import itertools
 import tqdm
 from nnunet_ext.paths import default_plans_identifier
 from batchgenerators.utilities.file_and_folder_operations import *
@@ -112,6 +113,9 @@ class nnUNetTrainerVAERehearsalBase2(nnUNetTrainerMultiHead):
         self.UNET_CLASS = Generic_UNet
         self.force_new_vae_init = False
         self.vae_max_num_epochs = 5000
+        self.xs_for_generation = [0]
+        self.ys_for_generation = [0]
+        self.zs_for_generation = [0]
 
     def run_training(self, task, output_folder, build_folder=True):
         #self.num_batches_per_epoch = 5
@@ -128,10 +132,13 @@ class nnUNetTrainerVAERehearsalBase2(nnUNetTrainerMultiHead):
             self.network.__class__ = self.UNET_CLASS
             self.freeze_network()
 
+        #compute the sum of all weights in the network
         
         self.network.__class__ = self.UNET_CLASS
         ret = super().run_training(task, output_folder, build_folder)
         #ret = None
+        print(self.network.conv_blocks_context[0].blocks[0].conv.weight)
+        exit()
 
         ## freeze encoder
         self.freeze_network()
@@ -328,7 +335,7 @@ class nnUNetTrainerVAERehearsalBase2(nnUNetTrainerMultiHead):
         
         dataset = FeatureRehearsalDataset2(join(self.trained_on_path, self.extension,  GENERATED_FEATURE_PATH_TR), self.deep_supervision_scales, FeatureRehearsalTargetType.DISTILLED_OUTPUT, 
                                             num_features, self.tasks_list_with_char[0], load_skips=False,
-                                            constant_skips = self.extracted_features_dataset_val.constant_skips)
+                                            constant_skips = self.extracted_features_dataset_val.constant_skips, load_meta=True)
         if len(dataset) > 0:
             self.generated_feature_rehearsal_dataset = dataset
         else:
@@ -438,7 +445,7 @@ class nnUNetTrainerVAERehearsalBase2(nnUNetTrainerMultiHead):
 
 
     def clean_up(self, to_be_deleted=[EXTRACTED_FEATURE_PATH_TR, EXTRACTED_FEATURE_PATH_VAL, GENERATED_FEATURE_PATH_TR]):
-        
+        assert isinstance(to_be_deleted, list)
         for feature_folder in to_be_deleted:
             for task in self.tasks_list_with_char[0]:
                 if os.path.isfile(join(self.trained_on_path, self.extension,  feature_folder, task, "meta.pkl")):
@@ -472,6 +479,7 @@ class nnUNetTrainerVAERehearsalBase2(nnUNetTrainerMultiHead):
         data = data_dict['data']        # torch.Tensor (normal),    list[torch.Tensor] (rehearsal)
         target = data_dict['target']    # list[torch.Tensor]
 
+
         data = maybe_to_torch(data)
         target = maybe_to_torch(target)
 
@@ -479,8 +487,8 @@ class nnUNetTrainerVAERehearsalBase2(nnUNetTrainerMultiHead):
             data = to_cuda(data)
             target = to_cuda(target)
 
-        self.optimizer.zero_grad()
 
+        self.optimizer.zero_grad()
         if self.fp16:
             with autocast():
                 if rehearse:
@@ -573,7 +581,7 @@ class nnUNetTrainerVAERehearsalBase2(nnUNetTrainerMultiHead):
         def get_nextUNetFeatures(data_gen):
             data_dict = next(data_gen)
             data = data_dict['data'][-1].float()#<- we only care about the low level features not about the skips
-            return data, data_dict['task_idx']
+            return data, data_dict['task_idx'], data_dict['slice_idx_normalized']
         self.get_next_for_vae = get_nextUNetFeatures
         shape = self.extracted_features_dataset_tr[0]['features_and_skips'][-1].shape[1:]
 
@@ -616,17 +624,20 @@ class nnUNetTrainerVAERehearsalBase2(nnUNetTrainerMultiHead):
             self.print_to_log_file("done saving the VAE model.")
 
         self.train_vae(save_callback, self.vae_max_num_epochs, prostate)
-        if self.fp16:
-            with autocast():
-                visualize_latent_space(self.vae, self.feature_rehearsal_dataloader_tr, join(self.output_folder, "vae_visualization.png"))
-        else:
-            visualize_latent_space(self.vae, self.feature_rehearsal_dataloader_tr, join(self.output_folder, "vae_visualization.png"))
+        #if self.fp16:
+        #    with autocast():
+        #        visualize_latent_space(self.vae, self.feature_rehearsal_dataloader_tr, join(self.output_folder, "vae_visualization.png"))
+        #else:
+        #    visualize_latent_space(self.vae, self.feature_rehearsal_dataloader_tr, join(self.output_folder, "vae_visualization.png"))
         self.print_to_log_file("done creating first stage VAE latent space visualization.")
 
         self.fp16 = before_fp16
 
     def train_vae(self, save_callback, max_num_epochs: int, prostate: bool):
         self.vae.train()
+        temp = self.network.cpu()
+        del self.network
+        self.network = temp
 
         if hasattr(self.vae, 'to_gpus'):
             self.vae.to_gpus()
@@ -656,7 +667,7 @@ class nnUNetTrainerVAERehearsalBase2(nnUNetTrainerMultiHead):
         self.vae_loss = lossMSEMean
         self.print_to_log_file(f"using loss {self.vae_loss.__name__}")
 
-        early_stop = EarlyStop(patience=200, save_callback=save_callback, trainer=self, verbose=True)
+        early_stop = EarlyStop(patience=1000 if prostate else 200, save_callback=save_callback, trainer=self, verbose=True)
         self.print_to_log_file("train using early stopping with patience=200")
 
         train_using_rehearsal = hasattr(self, 'generated_feature_rehearsal_dataset')
@@ -744,17 +755,20 @@ class nnUNetTrainerVAERehearsalBase2(nnUNetTrainerMultiHead):
         
 
     def vae_run_iteration(self, data_generator, do_backprop=True, epoch:int = None):
-        data, task_idx = self.get_next_for_vae(data_generator)
+        data, task_idx, slice_idx_normalized = self.get_next_for_vae(data_generator)
         data = maybe_to_torch(data)
         if torch.cuda.is_available():
             data = to_cuda(data)
             task_idx = to_cuda(task_idx)
 
+        if hasattr(self.vae, 'slice_embedding') and torch.cuda.is_available():
+            slice_idx_normalized = to_cuda(slice_idx_normalized)
+
 
         self.vae_optimizer.zero_grad()
         if self.fp16:
             with autocast():
-                x_hat, mean, log_var = self.vae(data, task_idx)
+                x_hat, mean, log_var = self.vae(data, task_idx, slice_idx_normalized=slice_idx_normalized)
                 reconstruction_loss, kl_div, r_mse = self.vae_loss(data, x_hat, mean, log_var)
                 reconstruction_loss_b, kl_div_b = lossMSE(data, x_hat, mean, log_var)
                 #reconstruction_loss, kl_div = torch.mean(reconstruction_loss_b) / x_hat.shape[0], torch.mean(kl_div_b) / x_hat.shape[0]
@@ -770,7 +784,8 @@ class nnUNetTrainerVAERehearsalBase2(nnUNetTrainerMultiHead):
                 self.vae_amp_grad_scaler.step(self.vae_optimizer)
                 self.vae_amp_grad_scaler.update()
         else:
-            x_hat, mean, log_var = self.vae(data, task_idx)
+            x_hat, mean, log_var = self.vae(data, task_idx, slice_idx_normalized=slice_idx_normalized)
+            #del task_idx, slice_idx_normalized
             reconstruction_loss, kl_div, r_mse = self.vae_loss(data, x_hat, mean, log_var)
             reconstruction_loss_b, kl_div_b = lossMSE(data, x_hat, mean, log_var)
             #assert torch.isclose(torch.mean(reconstruction_loss_b), reconstruction_loss), f"{reconstruction_loss}, {torch.mean(reconstruction_loss_b)}, {reconstruction_loss_b}"
@@ -781,6 +796,7 @@ class nnUNetTrainerVAERehearsalBase2(nnUNetTrainerMultiHead):
             l = reconstruction_loss + kl_div
             if do_backprop:
                 l.backward()
+                #del data, x_hat
                 torch.nn.utils.clip_grad_norm_(self.vae.parameters(), 2)#12
                 self.vae_optimizer.step()
 
@@ -791,6 +807,11 @@ class nnUNetTrainerVAERehearsalBase2(nnUNetTrainerMultiHead):
 
         return l.detach().cpu().item(), reconstruction_loss.cpu().item(), kl_div.cpu().item()
 
+    def swap_vae_and_unet(self):
+        temp = self.vae.cpu()
+        del self.vae
+        self.vae = temp
+        self.network = self.network.cuda()
 
     @torch.no_grad()
     def generate_features(self, num_samples_per_task=None):
@@ -821,8 +842,15 @@ class nnUNetTrainerVAERehearsalBase2(nnUNetTrainerMultiHead):
             self.print_to_log_file(f"generating for task {task} where {y} is the task index")
             y_tensor = torch.tensor([y], device="cuda:0")
 
-            for sample_idx in tqdm.tqdm(range(num_samples_per_task)):#20000
-                features = vae.generate(y_tensor, 1)
+            l = itertools.cycle(itertools.product(self.xs_for_generation, self.ys_for_generation, self.zs_for_generation))
+            l = itertools.islice(l, num_samples_per_task)
+
+            assert not os.path.isfile(join(output_folder, task, "meta.pkl"))
+            # _dict = load_pickle(join(output_folder, task, "meta.pkl"))
+            _dict = dict()
+
+            for sample_idx, (x, y, z) in tqdm.tqdm(enumerate(l), total=num_samples_per_task):#20000
+                features = vae.generate(y=y_tensor, slice_idx=z, batch_size=1)
                 features_and_skips = self.extracted_features_dataset_val.features_to_features_and_skips(features)
                 features_and_skips = maybe_to_torch(features_and_skips)
                 features_and_skips = to_cuda(features_and_skips)
@@ -830,12 +858,17 @@ class nnUNetTrainerVAERehearsalBase2(nnUNetTrainerMultiHead):
                 
                 segmentation = output.argmax(0)
 
-                file_name = f"{task}_{sample_idx}"
+                file_name = f"{task}_{sample_idx}_{x}_{y}_{z}"
+                _dict[f"{task}_{sample_idx}"] = {
+                            'max_x': max(self.xs_for_generation),
+                            'max_y': max(self.ys_for_generation),
+                            'max_z': max(self.zs_for_generation)
+                        }
                 
                 np.save(join(output_folder, task, "features", file_name + "_" + str(num_features-1) + ".npy"), features.cpu().numpy())
                 np.save(join(output_folder, task, "predictions", file_name + "_0.npy"), segmentation.cpu().numpy())
                 open(join(output_folder, task, "gt", file_name + ".txt"), 'a').close()
-        
+            write_pickle(_dict, join(output_folder, task, "meta.pkl"))
 
 
         self.network.do_ds = prev_do_ds
@@ -843,7 +876,7 @@ class nnUNetTrainerVAERehearsalBase2(nnUNetTrainerMultiHead):
 
         dataset = FeatureRehearsalDataset2(join(self.trained_on_path, self.extension,  GENERATED_FEATURE_PATH_TR), self.deep_supervision_scales, FeatureRehearsalTargetType.DISTILLED_OUTPUT, 
                                             num_features, self.tasks_list_with_char[0], load_skips=False,
-                                            constant_skips = self.extracted_features_dataset_val.constant_skips)
+                                            constant_skips = self.extracted_features_dataset_val.constant_skips, load_meta=True)
         self.generated_feature_rehearsal_dataset = dataset
         
         dataloader = FeatureRehearsalDataLoader(dataset, batch_size=int(self.batch_size), num_workers=8, pin_memory=True, deep_supervision_scales=self.deep_supervision_scales, persistent_workers=True)
@@ -941,14 +974,13 @@ class nnUNetTrainerVAERehearsalBase2(nnUNetTrainerMultiHead):
             fig.colorbar(im, ax = axes.ravel().tolist(), cax=cax)
             self.summary_writer.add_one_figure_per_epoch("sample", fig, epoch)
 
-        self.summary_writer.add_hparams
         self.summary_writer.flush_if_needed()
 
 
     def load_vae(self, path=None):
         if path is None:
             path = join(self.output_folder, "vae.model")
-        elif not path.endswith("vae.model"):
+        elif not path.endswith(".model"):
             path = join(path, "vae.model")
         
         assert os.path.isfile(path), f"{path} does not exist!"
@@ -958,3 +990,71 @@ class nnUNetTrainerVAERehearsalBase2(nnUNetTrainerMultiHead):
         prostate = np.prod(vae_dict['shape']) > 10000 # true for prostate, false otherwise
         self.vae = self.VAE_CLASSES[1 if prostate else 0](vae_dict['shape'], vae_dict['num_classes'], conditional_dim=vae_dict['conditional_dim'])
         self.vae.load_state_dict(vae_dict['state_dict'])
+
+
+    
+    
+    @torch.no_grad()
+    def ood_detection_by_vae_reconstruction(self, d: np.ndarray, do_tta: bool, mixed_precision: bool):
+        assert hasattr(self, 'vae'), "vae must be loaded before calling this function"
+        assert self.network.conv_op == nn.Conv2d
+
+        self.network.__class__ = self.UNET_CLASS
+
+        #create artificial task_idx for now (maybe change in the future)
+        task_idx = torch.tensor([0])
+
+
+        # prepare unet and vae
+        self.network.eval()
+        self.vae.eval()
+        if torch.cuda.is_available():
+            self.network.cuda()
+            self.vae.to_gpus()
+            task_idx = to_cuda(task_idx)
+
+
+        assert len(d.shape) == 4, "data must be c, x, y, z"
+
+        mse_differences = []
+
+        # iterate over slices
+        for _slice in range(d.shape[1]):
+            data_sliced = d[:, _slice]
+            assert len(data_sliced.shape) == 3, "data_sliced must be (c, x, y)"
+
+            data_sliced_padded, slicer = pad_nd_image(data_sliced, self.patch_size, 'constant', None, True, None)
+            steps = self.network._compute_steps_for_sliding_window(self.patch_size, data_sliced_padded.shape[1:], 0.5)
+            for x in steps[0]:
+                lb_x = x
+                ub_x = x + self.patch_size[0]
+                for y in steps[1]:
+                    lb_y = y
+                    ub_y = y + self.patch_size[1]
+                    data_patch = data_sliced_padded[None, :, lb_x:ub_x, lb_y:ub_y]
+                    assert len(data_patch.shape) == 4, 'data_patch must be (b, c, x, y)'
+
+                    assert np.all(data_patch.shape[2:4] == self.patch_size), "data_patch must be of size patch_size"
+
+                    slice_idx_normalized = torch.tensor([_slice / (d.shape[1] - 1)])
+                    data_patch = maybe_to_torch(data_patch)
+                    if torch.cuda.is_available():
+                        data_patch = to_cuda(data_patch)
+                        slice_idx_normalized = to_cuda(slice_idx_normalized)
+                    
+                    logits, features_and_skips = self.network(data_patch, layer_name_for_feature_extraction=self.layer_name_for_feature_extraction)
+
+
+                    # reconstruct features using vae
+                    features_reconstructed, _, _ = self.vae(features_and_skips[-1], task_idx, slice_idx_normalized=slice_idx_normalized)
+                    mse = torch.mean((features_and_skips[-1] - features_reconstructed)**2, dim=(1,2,3))
+                    mse_differences.append(mse.item())
+
+
+        # compute mean and std of mse differences
+        mse_differences = np.array(mse_differences)
+        mean = np.mean(mse_differences)
+        #std = np.std(mse_differences)
+        return mean
+
+    

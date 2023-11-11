@@ -1,5 +1,5 @@
 from typing import Iterable
-import torch, os
+import torch, os, random
 from torch.utils.data import Dataset, DataLoader, RandomSampler, ConcatDataset
 import numpy as np
 from nnunet.training.data_augmentation import downsampling
@@ -20,10 +20,12 @@ class FeatureRehearsalDataset(Dataset):
         super().__init__()
         self.data_path = data_path
         self.data_patches = os.listdir(join(data_path, "gt"))
+        self.data_patches.sort()
         self.deep_supervision_scales = deep_supervision_scales
         self.target_type = target_type
         self.num_features = num_features
         self.load_skips = load_skips
+        self.load_meta = False
 
         if not self.load_skips:
             if constant_skips is None:
@@ -91,7 +93,9 @@ class FeatureRehearsalDataset(Dataset):
     
 class FeatureRehearsalDataLoader(DataLoader):
 
-    def __init__(self, dataset: Dataset, batch_size = 1, shuffle = None, sampler= None, batch_sampler= None, num_workers: int = 0, pin_memory: bool = False, drop_last: bool = False, timeout: float = 0, worker_init_fn = None, multiprocessing_context=None, generator=None, *, prefetch_factor = None, persistent_workers: bool = False, pin_memory_device: str = "", deep_supervision_scales=None):
+    def __init__(self, dataset: Dataset, batch_size = 1, shuffle = None, sampler= None, batch_sampler= None, num_workers: int = 0, pin_memory: bool = False, drop_last: bool = False, timeout: float = 0, worker_init_fn = None, multiprocessing_context=None, generator=None, *, 
+                 prefetch_factor = None, persistent_workers: bool = False, pin_memory_device: str = "", deep_supervision_scales=None,
+                 deterministic=False):
         self.deep_supervision_scales = deep_supervision_scales
 
         assert len(dataset) >= batch_size
@@ -137,16 +141,26 @@ class FeatureRehearsalDataLoader(DataLoader):
                 output_batch['task_idx'] = torch.IntTensor([sample['task_idx'] for sample in list_of_samples])
 
             if hasattr(dataset, 'load_meta') and dataset.load_meta:
-                output_batch['slice_idx_normalized'] = torch.IntTensor([sample['slice_idx_normalized'] for sample in list_of_samples])
+                output_batch['slice_idx_normalized'] = torch.FloatTensor([sample['slice_idx_normalized'] for sample in list_of_samples])
 
             return output_batch
         
         #if sampler is None and shuffle is None or shuffle is True:
         #    sampler = RandomSampler(dataset, replacement=True, num_samples=5000), #<-- this is enough for 10 epochs but maybe this needs to be set higher (?)
         #    shuffle = None #<- sampler and shuffle are mutually exclusive. The random sampler already samples shuffled data, so this is fine.
+
+
+        def seed_worker(worker_id):
+            if deterministic:
+                worker_seed = torch.initial_seed() % 2**32
+                np.random.seed(worker_seed)
+                random.seed(worker_seed)
+            if worker_init_fn != None:
+                worker_init_fn(worker_id)
+
         super().__init__(dataset, batch_size, shuffle, 
                          sampler,
-                         batch_sampler, num_workers, my_collate_function, pin_memory, drop_last, timeout, worker_init_fn, multiprocessing_context, generator, prefetch_factor=prefetch_factor, persistent_workers=persistent_workers, pin_memory_device=pin_memory_device)
+                         batch_sampler, num_workers, my_collate_function, pin_memory, drop_last, timeout, seed_worker, multiprocessing_context, generator, prefetch_factor=prefetch_factor, persistent_workers=persistent_workers, pin_memory_device=pin_memory_device)
     # TODO handle batch size
     # TODO handle foreground oversampling
 
@@ -168,6 +182,8 @@ class FeatureRehearsalConcatDataset(ConcatDataset):
         self.dataset = main_dataset
         self.store_task_idx = main_dataset.store_task_idx
         self.target_type = main_dataset.target_type
+        
+        self.load_meta = main_dataset.load_meta
 
 class FeatureRehearsalMultiDataset(Dataset):
     #emulates multiple copies of the given dataset
@@ -176,6 +192,7 @@ class FeatureRehearsalMultiDataset(Dataset):
         self.store_task_idx = dataset.store_task_idx
         self.target_type = dataset.target_type
         self.num_copies = num_copies
+        self.load_meta = dataset.load_meta
 
     def __len__(self):
         return len(self.dataset) * self.num_copies

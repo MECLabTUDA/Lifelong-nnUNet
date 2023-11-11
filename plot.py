@@ -1,4 +1,4 @@
-import os
+import os, pickle
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -50,7 +50,8 @@ def feature_location_ablation_palette():
                       (80/255, 0/255, 80/255),    #beginning decoder
                       (120/255, 120/255, 120/255)]  #sequential
 
-def hippocampus_gt_1():    
+
+def hippocampus_gt_1():
     
     combinations = ["Task097_DecathHip",
                     "Task097_DecathHip_Task098_Dryad",
@@ -903,6 +904,11 @@ def hippocampus_vae_rehearsal_2d_no_skips():
                   'trainer': "nnUNetTrainerRehearsal",
                   'name': "Rehearsal, 3D, w/ skips, w/o freezing"
     }
+    rehearsal_2d = {'eval_path_base': "/local/scratch/clmn1/master_thesis/evaluation_folder/baselines_retrained",
+                  'eval_path_middle': "nnUNet_ext/2d/Task097_DecathHip_Task098_Dryad_Task099_HarP",
+                  'trainer': "nnUNetTrainerRehearsal",
+                  'name': "Rehearsal"#, 2D, w/ skips, w/o freezing
+    }
     feature_rehearsal2 = {'eval_path_base': "/local/scratch/clmn1/master_thesis/evaluation_folder/retrained/distilled_output/0.25/middle_encoder",
                   'eval_path_middle': "nnUNet_ext/3d_fullres/Task097_DecathHip_Task098_Dryad_Task099_HarP",
                   'trainer': "nnUNetTrainerFeatureRehearsal2",
@@ -941,15 +947,33 @@ def hippocampus_vae_rehearsal_2d_no_skips():
     vae_rehearsal_large = {'eval_path_base': "/local/scratch/clmn1/master_thesis/tests/larger_conditional/evaluation",
                   'eval_path_middle': "nnUNet_ext/2d/Task097_DecathHip_Task098_Dryad_Task099_HarP",
                   'trainer': "nnUNetTrainerVAERehearsalNoSkipsLargerVaeForceInit",
-                  'name': "VAE rehearsal, 2D, w/o skips, w/ freezing, large VAE, force reinit"
+                  'name': "CVAEr"#VAE rehearsal, 2D, w/o skips, w/ freezing, large VAE, force reinit
+    }
+    vae_rehearsal_large_double_conditional = {'eval_path_base': "/local/scratch/clmn1/master_thesis/tests/larger_conditional/evaluation",
+                  'eval_path_middle': "nnUNet_ext/2d/Task097_DecathHip_Task098_Dryad_Task099_HarP",
+                  'trainer': "nnUNetTrainerVAERehearsalNoSkipsConditionOnBoth",
+                  'name': "CCVAEr"#VAE rehearsal, 2D, w/o skips, w/ freezing, large VAE, double conditional
     }
     sequential = {'eval_path_base': "/local/scratch/clmn1/master_thesis/evaluation_folder/baselines_retrained",
                   'eval_path_middle': "nnUNet_ext/3d_fullres/Task097_DecathHip_Task098_Dryad_Task099_HarP",
                   'trainer': "nnUNetTrainerSequential",
                   'name': "Sequential, 3D, w/ skips, w/o freezing"
     }
+    sequential_2d = {'eval_path_base': "/local/scratch/clmn1/master_thesis/evaluation_folder/baselines_retrained",
+                  'eval_path_middle': "nnUNet_ext/2d/Task097_DecathHip_Task098_Dryad_Task099_HarP",
+                  'trainer': "nnUNetTrainerSequential",
+                  'name': "Sequential"#, 2D, w/ skips, w/o freezing
+    }
 
-    trainers = [rehearsal, feature_rehearsal_2d_no_skips, vae_rehearsal, vae_rehearsal_no_conditioning, vae_rehearsal_large, sequential]
+    lwf_2d = {'eval_path_base': "/local/scratch/clmn1/master_thesis/evaluation_folder/baselines_retrained",
+                  'eval_path_middle': "nnUNet_ext/2d/Task097_DecathHip_Task098_Dryad_Task099_HarP",
+                  'trainer': "nnUNetTrainerLWF",
+                  'name': "LwF"#, 2D, w/ skips, w/o freezing
+    }
+    
+    #trainers = [rehearsal_2d, feature_rehearsal_2d_no_skips, vae_rehearsal_large_double_conditional, sequential]
+    trainers = [feature_rehearsal_2d_no_skips, vae_rehearsal_large, vae_rehearsal_large_double_conditional, sequential_2d, lwf_2d]
+    #trainers = [vae_rehearsal_large]
     return trainers, combinations, None, HIPPOCAMPUS_Y_RANGE, "Hippocampus"
 
 
@@ -975,6 +999,11 @@ def prostate_vae_rehearsal_2d_no_skips():
                   'eval_path_middle': "nnUNet_ext/2d/Task011_Prostate-BIDMC_Task012_Prostate-I2CVB_Task013_Prostate-HK_Task015_Prostate-UCL_Task016_Prostate-RUNMC",
                   'trainer': "nnUNetTrainerVAERehearsalNoSkips",
                   'name': "VAE rehearsal, 2D, w/o skips, w/ freezing"
+    }
+    vae_rehearsal_double_conditional = {'eval_path_base': "/local/scratch/clmn1/master_thesis/tests/larger_conditional/evaluation",
+                  'eval_path_middle': "nnUNet_ext/2d/Task011_Prostate-BIDMC_Task012_Prostate-I2CVB_Task013_Prostate-HK_Task015_Prostate-UCL_Task016_Prostate-RUNMC",
+                  'trainer': "nnUNetTrainerVAERehearsalNoSkipsConditionOnBoth",
+                  'name': "CCVAEr"
     } 
     sequential = {'eval_path_base': "/local/scratch/clmn1/master_thesis/evaluation_folder/baselines_retrained",
                   'eval_path_middle': "nnUNet_ext/3d_fullres/Task011_Prostate-BIDMC_Task012_Prostate-I2CVB_Task013_Prostate-HK_Task015_Prostate-UCL_Task016_Prostate-RUNMC",
@@ -982,20 +1011,22 @@ def prostate_vae_rehearsal_2d_no_skips():
                   'name': "Sequential, 3D, w/ skips, w/o freezing"
     }
 
-    trainers = [rehearsal, feature_rehearsal2, vae_rehearsal, sequential]
+    trainers = [rehearsal, feature_rehearsal2, vae_rehearsal, vae_rehearsal_double_conditional, sequential]
+    #trainers = [vae_rehearsal, vae_rehearsal_double_conditional]
     return trainers, combinations, None, PROSTATE_Y_RANGE, "Prostate"
 
 
 
 
 
-trainers, combinations, palette, y_range, title = prostate_vae_rehearsal_2d_no_skips()
+trainers, combinations, palette, y_range, title = hippocampus_vae_rehearsal_2d_no_skips()
 data = []
 mask = "mask_1"
+metric = 'Dice'
 ## data needs to have ["case_name", "last task trained", "task the case belongs to", "value"]
 for trainer in trainers:
     frame = pd.read_csv(os.path.join(trainer['eval_path_base'], "trained_final", trainer['eval_path_middle'], "initialization", trainer['trainer'] + END), sep="\t")
-    frame = frame.drop(frame[frame['metric'] != 'Dice'].index)
+    frame = frame.drop(frame[frame['metric'] != metric].index)
     frame = frame.drop(frame[frame['seg_mask'] != mask].index)
     frame['Epoch'] = 0
     frame['Trainer'] = trainer['name']
@@ -1007,7 +1038,7 @@ for trainer in trainers:
 
 
             frame = pd.read_csv(os.path.join(trainer['eval_path_base'], path, trainer['eval_path_middle'], task, trainer['trainer'] + END), sep="\t")
-            frame = frame.drop(frame[frame['metric'] != 'Dice'].index)
+            frame = frame.drop(frame[frame['metric'] != metric].index)
             frame = frame.drop(frame[frame['seg_mask'] != mask].index)
 
             if False:                   #-> start after training on that repspective task
@@ -1022,10 +1053,15 @@ for trainer in trainers:
             print(frame)
 
 data = pd.concat(data)
-data = data.rename(columns={"value": "Dice"})
+data['value'] = data["value"].apply(lambda x: 1-x)
+data = data.rename(columns={"value": metric})
+
+
+#with open('test.pkl', 'wb') as handle:
+#    pickle.dump(data, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 #sns.set_theme("whitegrid")
-ax = sns.lineplot(x="Epoch", y="Dice",
+ax = sns.lineplot(x="Epoch", y=metric,
              hue="Trainer", 
              style="Task",
              data=data, 
@@ -1033,15 +1069,20 @@ ax = sns.lineplot(x="Epoch", y="Dice",
              palette=palette
              )
 
+plt.yscale("log")
 #sns.despine()
 plt.xticks(np.arange(0, (len(combinations)+1) * 250, 250))
-plt.yticks(np.arange(0, 1.2, y_range[1]))
-ax.set_ylim(y_range[0])
+#plt.yticks(np.arange(0, 1.2, y_range[1]))
+#ax.set_ylim(0.2, 0.9)
 ax.set(title=title)
 
 
 sns.move_legend(ax, "upper left", bbox_to_anchor=(1, 1))
 plt.grid(True)
+
+plt.yticks([0.1, 0.2,0.4,0.6,0.8, 1])
+plt.gca().set_yticklabels([90, 80, 60, 40, 20, 0])
+plt.gca().invert_yaxis()
 
 
 

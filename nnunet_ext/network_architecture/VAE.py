@@ -188,14 +188,14 @@ class FullyConnectedVAE2(nn.Module):
     def decode(self, z, y=None):
         return self.decoder(z)
 
-    def forward(self, x, y=None):
+    def forward(self, x, y=None, z=None):
         mean, log_var = self.encode(x)
 
         z = self.sample_from(mean, log_var)
         x_hat = self.decode(z)
         return x_hat, mean, log_var
 
-    def generate(self, y=None, batch_size: int=1):
+    def generate(self, y=None, z=None, batch_size: int=1):
         z = torch.randn((batch_size, self.num_dimensions)).cuda()
         return self.decode(z)
     
@@ -247,7 +247,7 @@ class CFullyConnectedVAE(nn.Module):
         z = torch.cat((z,y), dim=1)
         return self.decoder(z)
 
-    def forward(self, x, y):
+    def forward(self, x, y, z=None):
         y = self.label_embedding(y)
         mean, log_var = self.encode(x , y)
 
@@ -255,7 +255,7 @@ class CFullyConnectedVAE(nn.Module):
         x_hat = self.decode(z, y)
         return x_hat, mean, log_var
 
-    def generate(self, y, batch_size: int):
+    def generate(self, y, z=None, batch_size: int=1):
         y = self.label_embedding(y)
         z = torch.randn((batch_size, self.num_dimensions)).cuda()
         return self.decode(z, y)
@@ -310,7 +310,7 @@ class CFullyConnectedVAE2(nn.Module):
         z = torch.cat((z,y), dim=1)
         return self.decoder(z)
 
-    def forward(self, x, y):
+    def forward(self, x, y, slice_idx_normalized=None):
         y = self.label_embedding(y)
         mean, log_var = self.encode(x , y)
 
@@ -318,7 +318,7 @@ class CFullyConnectedVAE2(nn.Module):
         x_hat = self.decode(z, y)
         return x_hat, mean, log_var
 
-    def generate(self, y, batch_size: int):
+    def generate(self, y, z=None, batch_size: int=1):
         y = self.label_embedding(y)
         z = torch.randn((batch_size, self.num_dimensions)).cuda()
         return self.decode(z, y)
@@ -385,7 +385,7 @@ class CFullyConnectedVAE4(nn.Module):
         z = torch.cat((z,y), dim=1)
         return self.decoder(z)
 
-    def forward(self, x, y):
+    def forward(self, x, y, slice_idx_normalized=None):
         y = self.label_embedding(y)
         mean, log_var = self.encode(x , y)
 
@@ -393,13 +393,261 @@ class CFullyConnectedVAE4(nn.Module):
         x_hat = self.decode(z, y)
         return x_hat, mean, log_var
 
-    def generate(self, y, batch_size: int):
+    def generate(self, y, slice_idx=None, batch_size: int=1):
         y = self.label_embedding(y)
         z = torch.randn((batch_size, self.num_dimensions)).cuda()
         return self.decode(z, y)
     
     def to_gpus(self):
         self.cuda(0)
+
+class CFullyConnectedVAE4ConditionOnSlice(nn.Module):
+    def __init__(self, shape, num_classes:int, conditional_dim:int) -> None:
+        super().__init__()
+        #for now:
+        assert len(shape) == 3  
+        # shape: (C, H, W)
+        self.slice_embedding = nn.Embedding(10, conditional_dim)
+    
+        num_dimensions = np.prod(shape)
+        self.num_dimensions=num_dimensions
+        self.encoder = nn.Sequential(
+                                nn.Linear(num_dimensions + conditional_dim, num_dimensions + conditional_dim),
+                                nn.BatchNorm1d(num_dimensions + conditional_dim),
+                                nn.LeakyReLU(inplace=True),
+                                nn.Linear(num_dimensions + conditional_dim, int(1.5 * num_dimensions)),
+                                nn.BatchNorm1d(int(1.5 * num_dimensions)),
+                                nn.LeakyReLU(inplace=True),
+                                nn.Linear(int(1.5 * num_dimensions), int(1.2 * num_dimensions)),
+                                nn.BatchNorm1d(int(1.2 * num_dimensions)),
+                                nn.LeakyReLU(inplace=True),
+                                nn.Linear(int(1.2 * num_dimensions),int(1.2 * num_dimensions)),
+                                nn.BatchNorm1d(int(1.2 * num_dimensions)),
+                                nn.LeakyReLU(inplace=True))
+        
+        self.compute_mean = nn.Linear(int(1.2 * num_dimensions), num_dimensions)
+        self.compute_log_var = nn.Linear(int(1.2 * num_dimensions), num_dimensions)
+        
+        self.decoder = nn.Sequential(nn.Linear(num_dimensions + conditional_dim, num_dimensions + conditional_dim),
+                                nn.BatchNorm1d(num_dimensions + conditional_dim),
+                                nn.LeakyReLU(inplace=True),
+                                nn.Linear(num_dimensions + conditional_dim, int(1.5 * num_dimensions)),
+                                nn.BatchNorm1d(int(1.5 * num_dimensions)),
+                                nn.LeakyReLU(inplace=True),
+                                nn.Linear(int(1.5 * num_dimensions), int(1.2 * num_dimensions)),
+                                nn.BatchNorm1d(int(1.2 * num_dimensions)),
+                                nn.LeakyReLU(inplace=True),
+                                nn.Linear(int(1.2 * num_dimensions), int(1.2 * num_dimensions)),
+                                nn.BatchNorm1d(int(1.2 * num_dimensions)),
+                                nn.LeakyReLU(inplace=True),
+                                nn.Linear(int(1.2 * num_dimensions), num_dimensions),
+                                nn.Unflatten(1, shape),
+                                nn.LeakyReLU(inplace=True)
+                                )
+    
+    def sample_from(self, mean, log_var):
+        eps = torch.randn(mean.shape, device=mean.device)
+        var =  torch.exp(0.5 *log_var)
+        return mean + eps * var
+
+    def encode(self, x, slice_idx):
+        x = torch.flatten(x, start_dim=1)
+        x = torch.cat((x,slice_idx), dim=1)
+        x = self.encoder(x)
+        return self.compute_mean(x), self.compute_log_var(x)
+
+    def decode(self, z, slice_idx):
+        z = torch.cat((z,slice_idx), dim=1)
+        return self.decoder(z)
+
+    def forward(self, x, y, slice_idx_normalized=None):
+        slice_idx = torch.round(slice_idx_normalized * 9).long()
+        slice_idx = self.slice_embedding(slice_idx)
+        mean, log_var = self.encode(x, slice_idx)
+
+        z = self.sample_from(mean, log_var)
+        x_hat = self.decode(z, slice_idx)
+        return x_hat, mean, log_var
+
+    def generate(self, y, slice_idx=None, batch_size: int=1):
+        slice_idx = torch.tensor([slice_idx], device='cuda:0')
+        slice_idx = self.slice_embedding(slice_idx)
+        z = torch.randn((batch_size, self.num_dimensions)).cuda()
+        return self.decode(z, slice_idx)
+    
+    def to_gpus(self):
+        self.cuda(0)
+
+class CFullyConnectedVAE4ConditionOnBoth(nn.Module):
+    def __init__(self, shape, num_classes:int, conditional_dim:int) -> None:
+        super().__init__()
+        #for now:
+        assert len(shape) == 3  
+        # shape: (C, H, W)
+        self.label_embedding = nn.Embedding(num_classes, conditional_dim //2)
+        self.slice_embedding = nn.Embedding(10, conditional_dim - conditional_dim //2)
+    
+        num_dimensions = np.prod(shape)
+        self.num_dimensions=num_dimensions
+        self.encoder = nn.Sequential(
+                                nn.Linear(num_dimensions + conditional_dim, num_dimensions + conditional_dim),
+                                nn.BatchNorm1d(num_dimensions + conditional_dim),
+                                nn.LeakyReLU(inplace=True),
+                                nn.Linear(num_dimensions + conditional_dim, int(1.5 * num_dimensions)),
+                                nn.BatchNorm1d(int(1.5 * num_dimensions)),
+                                nn.LeakyReLU(inplace=True),
+                                nn.Linear(int(1.5 * num_dimensions), int(1.2 * num_dimensions)),
+                                nn.BatchNorm1d(int(1.2 * num_dimensions)),
+                                nn.LeakyReLU(inplace=True),
+                                nn.Linear(int(1.2 * num_dimensions),int(1.2 * num_dimensions)),
+                                nn.BatchNorm1d(int(1.2 * num_dimensions)),
+                                nn.LeakyReLU(inplace=True))
+        
+        self.compute_mean = nn.Linear(int(1.2 * num_dimensions), num_dimensions)
+        self.compute_log_var = nn.Linear(int(1.2 * num_dimensions), num_dimensions)
+        
+        self.decoder = nn.Sequential(nn.Linear(num_dimensions + conditional_dim, num_dimensions + conditional_dim),
+                                nn.BatchNorm1d(num_dimensions + conditional_dim),
+                                nn.LeakyReLU(inplace=True),
+                                nn.Linear(num_dimensions + conditional_dim, int(1.5 * num_dimensions)),
+                                nn.BatchNorm1d(int(1.5 * num_dimensions)),
+                                nn.LeakyReLU(inplace=True),
+                                nn.Linear(int(1.5 * num_dimensions), int(1.2 * num_dimensions)),
+                                nn.BatchNorm1d(int(1.2 * num_dimensions)),
+                                nn.LeakyReLU(inplace=True),
+                                nn.Linear(int(1.2 * num_dimensions), int(1.2 * num_dimensions)),
+                                nn.BatchNorm1d(int(1.2 * num_dimensions)),
+                                nn.LeakyReLU(inplace=True),
+                                nn.Linear(int(1.2 * num_dimensions), num_dimensions),
+                                nn.Unflatten(1, shape),
+                                nn.LeakyReLU(inplace=True)
+                                )
+    
+    def sample_from(self, mean, log_var):
+        eps = torch.randn(mean.shape, device=mean.device)
+        var =  torch.exp(0.5 *log_var)
+        return mean + eps * var
+
+    def encode(self, x, y, slice_idx):
+        x = torch.flatten(x, start_dim=1)
+        x = torch.cat((x, y, slice_idx), dim=1)
+        x = self.encoder(x)
+        return self.compute_mean(x), self.compute_log_var(x)
+
+    def decode(self, z, y, slice_idx):
+        z = torch.cat((z, y, slice_idx), dim=1)
+        return self.decoder(z)
+
+    def forward(self, x, y, slice_idx_normalized=None):
+        y = self.label_embedding(y)
+        slice_idx = torch.round(slice_idx_normalized * 9).long()
+        slice_idx = self.slice_embedding(slice_idx)
+        mean, log_var = self.encode(x, y, slice_idx)
+
+        z = self.sample_from(mean, log_var)
+        x_hat = self.decode(z, y, slice_idx)
+        return x_hat, mean, log_var
+
+    def generate(self, y, slice_idx, batch_size: int=1):
+        y = self.label_embedding(y)
+        slice_idx = torch.tensor([slice_idx], device='cuda:0')
+        slice_idx = self.slice_embedding(slice_idx)
+        z = torch.randn((batch_size, self.num_dimensions)).cuda()
+        return self.decode(z, y, slice_idx)
+    
+    def to_gpus(self):
+        self.cuda(0)
+
+
+class CFullyConnectedVAE4ConditionOnBothDistributed(nn.Module):
+    def __init__(self, shape, num_classes:int, conditional_dim:int) -> None:
+        super().__init__()
+        #for now:
+        assert len(shape) == 3  
+        # shape: (C, H, W)
+        self.label_embedding = nn.Embedding(num_classes, conditional_dim //2)
+        self.slice_embedding = nn.Embedding(10, conditional_dim - conditional_dim //2)
+    
+        num_dimensions = np.prod(shape)
+        self.num_dimensions=num_dimensions
+        self.encoder = nn.Sequential(
+                                nn.Linear(num_dimensions + conditional_dim, num_dimensions + int(0.2 * conditional_dim), bias=False),
+                                nn.BatchNorm1d(num_dimensions + int(0.2 * conditional_dim)),
+                                nn.LeakyReLU(inplace=True),
+                                nn.Linear(num_dimensions + int(0.2 * conditional_dim), int(1.0 * num_dimensions), bias=False),
+                                nn.BatchNorm1d(int(1.0 * num_dimensions)),
+                                nn.LeakyReLU(inplace=True),
+                                nn.Linear(int(1.0 * num_dimensions), int(1.0 * num_dimensions), bias=False),
+                                nn.BatchNorm1d(int(1.0 * num_dimensions)),
+                                nn.LeakyReLU(inplace=True),
+                                nn.Linear(int(1.0 * num_dimensions),int(1.0 * num_dimensions), bias=False),
+                                nn.BatchNorm1d(int(1.0 * num_dimensions)),
+                                nn.LeakyReLU(inplace=True)
+                                )
+        
+        self.compute_mean = nn.Linear(int(1.0 * num_dimensions), num_dimensions)
+        self.compute_log_var = nn.Linear(int(1.0 * num_dimensions), num_dimensions)
+        
+        self.decoder = nn.Sequential(nn.Linear(num_dimensions + conditional_dim, num_dimensions + int(0.2 * conditional_dim), bias=False),
+                                nn.BatchNorm1d(num_dimensions + int(0.2 * conditional_dim)),
+                                nn.LeakyReLU(inplace=True),
+                                nn.Linear(num_dimensions + int(0.2 * conditional_dim), int(1.0 * num_dimensions), bias=False),
+                                nn.BatchNorm1d(int(1.0 * num_dimensions)),
+                                nn.LeakyReLU(inplace=True),
+                                nn.Linear(int(1.0 * num_dimensions), int(1.0 * num_dimensions), bias=False),
+                                nn.BatchNorm1d(int(1.0 * num_dimensions)),
+                                nn.LeakyReLU(inplace=True),
+                                #nn.Linear(int(1.0 * num_dimensions), int(1.0 * num_dimensions), bias=False),
+                                #nn.BatchNorm1d(int(1.0 * num_dimensions)),
+                                #nn.LeakyReLU(inplace=True),
+                                nn.Linear(int(1.0 * num_dimensions), num_dimensions),
+                                nn.LeakyReLU(inplace=True),
+                                nn.Unflatten(1, shape)
+                                )
+    
+    def sample_from(self, mean, log_var):
+        eps = torch.randn(mean.shape, device=mean.device)
+        var =  torch.exp(0.5 *log_var)
+        return mean + eps * var
+
+    def encode(self, x, y, slice_idx):
+        x = torch.flatten(x, start_dim=1)
+        x = torch.cat((x, y, slice_idx), dim=1)
+        x = self.encoder(x)
+        
+        return self.compute_mean(x.cuda(1)), self.compute_log_var(x).cuda(1)
+
+    def decode(self, z, y, slice_idx):
+        z = torch.cat((z, y, slice_idx), dim=1)
+        return self.decoder(z)
+
+    def forward(self, x, y, slice_idx_normalized=None):
+        y = self.label_embedding(y)
+        slice_idx = torch.round(slice_idx_normalized * 9).long()
+        slice_idx = self.slice_embedding(slice_idx)
+        mean, log_var = self.encode(x, y, slice_idx)
+
+        z = self.sample_from(mean, log_var)
+        x_hat = self.decode(z, y.cuda(1), slice_idx.cuda(1))
+        return x_hat.cuda(0), mean.cuda(0), log_var.cuda(0)
+
+    def generate(self, y, slice_idx, batch_size: int=1):
+        y = self.label_embedding(y).cuda(1)
+        slice_idx = torch.tensor([slice_idx], device='cuda:0')
+        slice_idx = self.slice_embedding(slice_idx).cuda(1)
+        z = torch.randn((batch_size, self.num_dimensions), device='cuda:1')
+        return self.decode(z, y, slice_idx)
+    
+    def to_gpus(self):
+        self.label_embedding.cuda(0)
+        self.slice_embedding.cuda(0)
+        self.encoder.cuda(0)
+
+        self.compute_log_var.cuda(0)
+        self.compute_mean.cuda(1)
+        self.decoder.cuda(1)
+
+
 
 class FullyConnectedVAE2Distributed(nn.Module):
     def __init__(self, shape, num_classes:int, conditional_dim:int) -> None:
@@ -446,14 +694,14 @@ class FullyConnectedVAE2Distributed(nn.Module):
     def decode(self, z, y=None):
         return self.decoder(z)
 
-    def forward(self, x, y=None):
+    def forward(self, x, y=None, z=None):
         mean, log_var = self.encode(x)
 
         z = self.sample_from(mean, log_var).cuda(1)
         x_hat = self.decode(z)
         return x_hat.cuda(0), mean, log_var
 
-    def generate(self, y=None, batch_size: int=1):
+    def generate(self, y=None, z=None, batch_size: int=1):
         z = torch.randn((batch_size, self.num_dimensions)).cuda(1)
         return self.decode(z, y)
     
@@ -512,7 +760,7 @@ class CFullyConnectedVAE2Distributed(nn.Module):
         z = torch.cat((z,y), dim=1)
         return self.decoder(z)
 
-    def forward(self, x, y):
+    def forward(self, x, y, z=None):
         y = self.label_embedding(y)
         mean, log_var = self.encode(x , y)
 
@@ -520,7 +768,7 @@ class CFullyConnectedVAE2Distributed(nn.Module):
         x_hat = self.decode(z, y.cuda(1))
         return x_hat.cuda(0), mean, log_var
 
-    def generate(self, y, batch_size: int):
+    def generate(self, y, z=None, batch_size: int=1):
         y = self.label_embedding(y).cuda(1)
         z = torch.randn((batch_size, self.num_dimensions)).cuda(1)
         return self.decode(z, y)
@@ -587,7 +835,7 @@ class CFullyConnectedVAE3(nn.Module):
         z = torch.cat((z.cuda(1), y.cuda(1)), dim=1)
         return self.decoder(z)
 
-    def forward(self, x, y):
+    def forward(self, x, y, z=None):
         y = self.label_embedding(y)
         mean, log_var = self.encode(x , y)
 
@@ -596,7 +844,7 @@ class CFullyConnectedVAE3(nn.Module):
         x_hat = self.decode(z, y)
         return x_hat.cuda(0), mean, log_var.cuda(0)
 
-    def generate(self, y, batch_size: int):
+    def generate(self, y, z=None, batch_size: int=1):
         y = y.cuda(0)
         y = self.label_embedding(y).cuda(1)
         z = torch.randn((batch_size, self.num_dimensions)).cuda(1)
@@ -754,7 +1002,7 @@ class FullyConnectedVAE(nn.Module):
         x_hat = self.decode(z)
         return x_hat, mean, log_var
 
-    def generate(self, batch_size: int):
+    def generate(self, z=None, batch_size: int=1):
         z = torch.randn((batch_size, self.num_dimensions))
         return self.decode(z)
     
@@ -839,7 +1087,7 @@ class ConvolutionalVAE(nn.Module):
         x_hat = self.decode(z)
         return x_hat, mean, log_var
 
-    def generate(self, batch_size: int):
+    def generate(self, z=None, batch_size: int=1):
         z = torch.randn((batch_size, self.latent_dim)).cuda()
         return self.decode(z)
 
