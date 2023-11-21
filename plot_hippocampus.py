@@ -9,11 +9,11 @@ END = "__nnUNetPlansv2.1/Generic_UNet/SEQ/head_None/fold_0/val_metrics_eval.csv"
 END_TRAIN = "__nnUNetPlansv2.1/Generic_UNet/SEQ/fold_0/val_metrics.csv"
 
 def rename_tasks(task_name: str):
-    if task_name == "Task097_DecathHip":
+    if task_name.endswith("DecathHip"):
         return "DecathHip"
-    elif task_name == "Task098_Dryad":
+    elif task_name.endswith("Dryad"):
         return "Dryad"
-    elif task_name == "Task099_HarP":
+    elif task_name.endswith("HarP"):
         return "HarP"
     elif task_name == "Task008_mHeartA":
         return "Siemens"
@@ -29,6 +29,7 @@ def rename_tasks(task_name: str):
         return "UCL"
     elif task_name == "Task016_Prostate-RUNMC":
         return "RUNMC"
+    print("WARNING: unknown task")
     return "unknown task"
 
 def convert_epoch_string_to_int(epoch_str: str):
@@ -37,6 +38,10 @@ def convert_epoch_string_to_int(epoch_str: str):
 combinations = ["Task097_DecathHip",
                 "Task097_DecathHip_Task098_Dryad",
                 "Task097_DecathHip_Task098_Dryad_Task099_HarP"]
+
+combinations_splitted = ["Task197_DecathHip",
+                "Task197_DecathHip_Task198_Dryad",
+                "Task197_DecathHip_Task198_Dryad_Task199_HarP"]
 
 ############### baselines ###############
 rehearsal_3d = {'eval_path_base': "/local/scratch/clmn1/master_thesis/evaluation_folder/baselines_retrained",
@@ -261,8 +266,51 @@ def hippocampus_vae_rehearsal_2d_no_skips():
     trainers = [rehearsal_2d, feature_rehearsal_2d_no_skips, vae_rehearsal_large, vae_rehearsal_large_double_conditional, sequential_2d]
     return trainers, "Hippocampus"
 
+def hippocampus_seeded():
+    rehearsal_seeded = {'eval_path_base': "/local/scratch/clmn1/master_thesis/seeded/evaluation",
+                    'eval_path_middle': "nnUNet_ext/2d/Task197_DecathHip_Task198_Dryad_Task199_HarP",
+                    'trainer': "nnUNetTrainerRehearsal",
+                    'name': "Rehearsal"#, 2D, w/ skips, w/o freezing
+    }
+    feature_rehearsal_seeded = {'eval_path_base': "/local/scratch/clmn1/master_thesis/seeded/evaluation",
+                    'eval_path_middle': "nnUNet_ext/2d/Task197_DecathHip_Task198_Dryad_Task199_HarP",
+                    'trainer': "nnUNetTrainerFeatureRehearsal2",
+                    'name': "Feature Rehearsal"#, 2D, w/ skips, w/o freezing
+    }
+    upper_bound = {'eval_path_base': "/local/scratch/clmn1/master_thesis/seeded/evaluation",
+                    'eval_path_middle': "nnUNet_ext/2d/Task197_DecathHip_Task198_Dryad_Task199_HarP",
+                    'trainer': "nnUNetTrainerRehearsalNoSkipsFrozen",
+                    'name': "upper bound"#, 2D, w/o skips, w/ freezing
+    }
+    vae_rehearsal = {'eval_path_base': "/local/scratch/clmn1/master_thesis/seeded/evaluation",
+                    'eval_path_middle': "nnUNet_ext/2d/Task197_DecathHip_Task198_Dryad_Task199_HarP",
+                    'trainer': "nnUNetTrainerVAERehearsalNoSkipsConditionOnBoth",
+                    'name': "CCVAEr"#, 2D, w/o skips, w/ freezing
+    }
+    lwf_seeded = {'eval_path_base': "/local/scratch/clmn1/master_thesis/seeded/evaluation",
+                    'eval_path_middle': "nnUNet_ext/2d/Task197_DecathHip_Task198_Dryad_Task199_HarP",
+                    'trainer': "nnUNetTrainerLWF",
+                    'name': "LwF"#, 2D, w/ skips, w/o freezing
+    }
+    sequential_seeded = {'eval_path_base': "/local/scratch/clmn1/master_thesis/seeded/evaluation",
+                    'eval_path_middle': "nnUNet_ext/2d/Task197_DecathHip_Task198_Dryad_Task199_HarP",
+                    'trainer': "nnUNetTrainerSequential",
+                    'name': "Sequential"#, 2D, w/ skips, w/o freezing
+    }
 
-trainers, title = hippocampus_vae_rehearsal_2d_no_skips()
+    trainers = [rehearsal_seeded, feature_rehearsal_seeded, upper_bound, vae_rehearsal, lwf_seeded, sequential_seeded]
+    return trainers, "Hippocampus, seeded", combinations_splitted
+
+
+
+
+
+
+t = hippocampus_seeded()
+if len(t) == 3:
+    trainers, title, combinations = t
+else:
+    trainers, title = hippocampus_seeded()
 data = []
 mask = "mask_1"
 metric = 'Dice'
@@ -284,7 +332,7 @@ for trainer in trainers:
         palette.append(plot_colors.colors[trainer['name']])
     else:
         print(f"WARNING: trainer {trainer['name']} has no associated color")
-        palette.append(list(np.random.choice(range(256), size=3)))
+        palette.append(list(np.random.choice(range(256), size=3) / 255))
 
     for i, task in enumerate(combinations):
         for intermediate_train_step, path in zip([49,99,149,199,250], ["trained_49", "trained_99", "trained_149", "trained_199", "trained_final"]):

@@ -34,7 +34,16 @@ class nnUNetTrainerRehearsalNoSkipsFrozen(nnUNetTrainerRehearsal):
                          fp16, save_interval, already_trained_on, use_progress, identifier, extension, tasks_list_with_char, samples_in_perc, seed, mixed_precision,
                          save_csv, del_log, use_vit, vit_type, version, split_gpu, True, ViT_task_specific_ln, do_LSA, do_SPT,
                          network, use_param_split)
-        
+
+        self.init_args = (split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
+                          deterministic, fp16, save_interval, self.already_trained_on, use_progress, identifier, extension,
+                          tasks_list_with_char, 
+
+                          samples_in_perc, seed, layer_name_for_feature_extraction, 
+
+                          mixed_precision, save_csv, del_log, use_vit, self.vit_type,
+                          version, split_gpu, transfer_heads, ViT_task_specific_ln, do_LSA, do_SPT)
+
         self.layer_name_for_feature_extraction = layer_name_for_feature_extraction
         assert self.layer_name_for_feature_extraction.startswith(("conv_blocks_context","td", "tu", "conv_blocks_localization"))
         assert self.layer_name_for_feature_extraction.count('.') == 1, "layer_name must have exactly 1 dot"

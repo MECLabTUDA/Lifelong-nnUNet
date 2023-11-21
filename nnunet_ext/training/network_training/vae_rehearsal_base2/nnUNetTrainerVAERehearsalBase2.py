@@ -3,6 +3,8 @@
 #########################################################################################################
 
 import itertools
+import pandas as pd
+import sklearn
 import tqdm
 from nnunet_ext.paths import default_plans_identifier
 from batchgenerators.utilities.file_and_folder_operations import *
@@ -26,7 +28,7 @@ from torch.cuda.amp import GradScaler, autocast
 from torch.optim.lr_scheduler import _LRScheduler
 from nnunet.network_architecture.initialization import InitWeights_He
 
-from nnunet_ext.utilities.helpful_functions import add_folder_before_filename
+from nnunet_ext.utilities.helpful_functions import add_folder_before_filename, flattendict, nestedDictToFlatTable
 matplotlib.use("agg")
 from time import time, sleep
 import torch
@@ -137,8 +139,6 @@ class nnUNetTrainerVAERehearsalBase2(nnUNetTrainerMultiHead):
         self.network.__class__ = self.UNET_CLASS
         ret = super().run_training(task, output_folder, build_folder)
         #ret = None
-        print(self.network.conv_blocks_context[0].blocks[0].conv.weight)
-        exit()
 
         ## freeze encoder
         self.freeze_network()
@@ -995,7 +995,7 @@ class nnUNetTrainerVAERehearsalBase2(nnUNetTrainerMultiHead):
     
     
     @torch.no_grad()
-    def ood_detection_by_vae_reconstruction(self, d: np.ndarray, do_tta: bool, mixed_precision: bool):
+    def ood_detection_by_vae_reconstruction(self, d: np.ndarray):
         assert hasattr(self, 'vae'), "vae must be loaded before calling this function"
         assert self.network.conv_op == nn.Conv2d
 
@@ -1057,4 +1057,251 @@ class nnUNetTrainerVAERehearsalBase2(nnUNetTrainerMultiHead):
         #std = np.std(mse_differences)
         return mean
 
+
+    def _iterate_over_volume(self, d: np.ndarray, function, segmentation: np.ndarray = None, callback_end_of_slice=None):
+        assert len(d.shape) == 4, "data must be c, x, y, z"
+
+        if segmentation is not None:
+            assert len(segmentation.shape) == 3, "segmentation must be x, y, z"
+            # segmentation does not have modalities dimension
+            assert np.all(segmentation.shape == d.shape[1:]), "segmentation must be of same shape as data"
+
+        # iterate over slices
+        for _slice in range(d.shape[1]):
+            data_sliced = d[:, _slice]
+            assert len(data_sliced.shape) == 3, "data_sliced must be (c, x, y)"
+
+            if segmentation is not None:
+                segmentation_sliced = segmentation[_slice]
+                assert len(segmentation_sliced.shape) == 2, "segmentation_sliced must be (x, y)"
+
+
+            data_sliced_padded, slicer = pad_nd_image(data_sliced, self.patch_size, 'constant', None, True, None)
+            if segmentation is not None:
+                segmentation_sliced_padded, _ = pad_nd_image(segmentation_sliced, self.patch_size, 'constant', None, True, None)
+                assert np.all(segmentation_sliced_padded.shape == data_sliced_padded.shape[1:]), "segmentation_sliced_padded must be of same shape as data_sliced_padded"
+
+            steps = self.network._compute_steps_for_sliding_window(self.patch_size, data_sliced_padded.shape[1:], 0.5)
+            for x in steps[0]:
+                lb_x = x
+                ub_x = x + self.patch_size[0]
+                for y in steps[1]:
+                    lb_y = y
+                    ub_y = y + self.patch_size[1]
+                    data_patch = data_sliced_padded[None, :, lb_x:ub_x, lb_y:ub_y]
+                    assert len(data_patch.shape) == 4, 'data_patch must be (b, c, x, y)'
+
+                    assert np.all(data_patch.shape[2:4] == self.patch_size), "data_patch must be of size patch_size"
+                    if segmentation is not None:
+                        segmentation_patch = segmentation_sliced_padded[lb_x:ub_x, lb_y:ub_y]
+                        assert len(segmentation_patch.shape) == 2, "segmentation_patch must be (x, y)"
+                        assert np.all(segmentation_patch.shape == self.patch_size), "segmentation_patch must be of size patch_size"
+                        function(data_patch, _slice, lb_x, ub_x, lb_y, ub_y, segmentation_patch)
+                    else:
+                        function(data_patch, _slice, lb_x, ub_x, lb_y, ub_y)
+            if callback_end_of_slice is not None:
+                callback_end_of_slice()
+
+
+    @torch.no_grad()
+    def ood_detection_by_uncertainty_mse_temperature(self, d: np.ndarray, threshold: float):
+        assert hasattr(self, 'vae'), "vae must be loaded before calling this function"
+        assert self.network.conv_op == nn.Conv2d
+
+        self.network.__class__ = self.UNET_CLASS
+        prev_deep_supervision = self.network.do_ds
+        self.network.do_ds = False
+        #create artificial task_idx for now (maybe change in the future)
+        task_idx = torch.tensor([0])
+
+
+        # prepare unet and vae
+        self.network.eval()
+        self.vae.eval()
+        if torch.cuda.is_available():
+            self.network.cuda()
+            self.vae.to_gpus()
+            task_idx = to_cuda(task_idx)
+
+
+        assert len(d.shape) == 4, "data must be c, x, y, z"
+
+        uncertainties = []
+
+        def compute_and_append_mse_diff(data_patch, _slice, lb_x, ub_x, lb_y, ub_y):
+            slice_idx_normalized = torch.tensor([_slice / (d.shape[1] - 1)])
+            data_patch = maybe_to_torch(data_patch)
+            if torch.cuda.is_available():
+                data_patch = to_cuda(data_patch)
+                slice_idx_normalized = to_cuda(slice_idx_normalized)
+            
+            logits, features_and_skips = self.network(data_patch, layer_name_for_feature_extraction=self.layer_name_for_feature_extraction)
+            logits = logits[0]#unpack batch dimension
+
+            # reconstruct features using vae
+            features_reconstructed, _, _ = self.vae(features_and_skips[-1], task_idx, slice_idx_normalized=slice_idx_normalized)
+            mse = torch.mean((features_and_skips[-1] - features_reconstructed)**2, dim=(1,2,3))
+            mse = mse.item()
+
+            temperature = mse / threshold
+            assert temperature > 0
+            softmax = F.softmax(logits / temperature, dim=0)
+            softmax = softmax.cpu().numpy()
+            assert np.all(softmax >= 0) 
+            assert np.all(np.isclose(np.sum(softmax, axis= 0), 1))
+
+            confidence = softmax.max(axis=0).mean()
+            uncertainty = 1 - confidence
+            uncertainties.append(uncertainty)
+
+        self._iterate_over_volume(d, compute_and_append_mse_diff)
+
+        # compute mean and std of mse differences
+        uncertainties = np.array(uncertainties)
+        mean = np.mean(uncertainties)
+        #std = np.std(mse_differences)
+
+        self.network.do_ds = prev_deep_supervision
+        return mean
+    
+
+    @torch.no_grad()
+    def ood_detection_by_vae_reconstruction_and_eval_and_build_df(self, d: np.ndarray, segmentation: np.ndarray):
+        assert hasattr(self, 'vae'), "vae must be loaded before calling this function"
+        assert self.network.conv_op == nn.Conv2d
+
+        self.network.__class__ = self.UNET_CLASS
+        prev_deep_supervision = self.network.do_ds
+        self.network.do_ds = False
+        #create artificial task_idx for now (maybe change in the future)
+        task_idx = torch.tensor([0])
+
+        gaussian_importance_map = self.network._get_gaussian(self.patch_size, sigma_scale=1. / 8)
+
+        # prepare unet and vae
+        self.network.eval()
+        self.vae.eval()
+        if torch.cuda.is_available():
+            self.network.cuda()
+            self.vae.to_gpus()
+            task_idx = to_cuda(task_idx)
+        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+
+        assert len(d.shape) == 4, "data must be c, x, y, z"
+
+        dict_per_slice = []
+        out_df = []
+
+
+        for _slice in range(d.shape[1]):
+            slice_idx_normalized = torch.tensor([_slice / (d.shape[1] - 1)], device=device)
+            data_sliced = d[:, _slice]
+            assert len(data_sliced.shape) == 3, "data_sliced must be (c, x, y)"
+            segmentation_sliced = segmentation[_slice]
+            assert len(segmentation_sliced.shape) == 2, "segmentation_sliced must be (x, y)"
+
+            data_sliced_padded, slicer = pad_nd_image(data_sliced, self.patch_size, 'constant', None, True, None)
+
+            steps = self.network._compute_steps_for_sliding_window(self.patch_size, data_sliced_padded.shape[1:], 0.5)
+            num_tiles = len(steps[0]) * len(steps[1])
+
+            aggregated_results = np.zeros([self.num_classes] + list(data_sliced_padded.shape[1:]), dtype=np.float32)
+            aggregated_nb_of_predictions = np.zeros([self.num_classes] + list(data_sliced_padded.shape[1:]), dtype=np.float32)
+
+            if num_tiles > 1:
+                add_for_nb_of_preds = gaussian_importance_map
+            else:
+                add_for_nb_of_preds = np.ones(data_sliced_padded.shape[1:], dtype=np.float32)
+
+            gaussian_importance_map_gpu = maybe_to_torch(gaussian_importance_map)
+            if torch.cuda.is_available():
+                gaussian_importance_map_gpu = to_cuda(gaussian_importance_map_gpu)
+
+            uncertainties = []
+            for x in steps[0]:
+                lb_x = x
+                ub_x = x + self.patch_size[0]
+                for y in steps[1]:
+                    lb_y = y
+                    ub_y = y + self.patch_size[1]
+                    data_patch = data_sliced_padded[None, :, lb_x:ub_x, lb_y:ub_y]
+                    assert len(data_patch.shape) == 4, 'data_patch must be (b, c, x, y)'
+
+                    assert np.all(data_patch.shape[2:4] == self.patch_size), "data_patch must be of size patch_size"
+                    data_patch = maybe_to_torch(data_patch)
+                    if torch.cuda.is_available():
+                        data_patch = to_cuda(data_patch)
+                    logits, features_and_skips = self.network(data_patch, layer_name_for_feature_extraction=self.layer_name_for_feature_extraction)
+                    pred = self.network.inference_apply_nonlin(logits)
+                    pred[:, :] *= gaussian_importance_map_gpu
+
+                    pred = pred[0] #unpack batch dimension
+
+                    aggregated_results[:, lb_x:ub_x, lb_y:ub_y] += pred.cpu().numpy()
+                    aggregated_nb_of_predictions[:, lb_x:ub_x, lb_y:ub_y] += add_for_nb_of_preds
+
+
+                    # reconstruct features using vae
+                    features_reconstructed, _, _ = self.vae(features_and_skips[-1], task_idx, slice_idx_normalized=slice_idx_normalized)
+                    mse = torch.mean((features_and_skips[-1] - features_reconstructed)**2, dim=(1,2,3))
+                    mse = mse.item()
+                    uncertainties.append(mse)
+
+                ## end y
+            ## end x
+
+            slicer = tuple(
+            [slice(0, aggregated_results.shape[i]) for i in
+             range(len(aggregated_results.shape) - (len(slicer) - 1))] + slicer[1:])
+            aggregated_results = aggregated_results[slicer]
+            aggregated_nb_of_predictions = aggregated_nb_of_predictions[slicer]
+            # computing the class_probabilities by dividing the aggregated result with result_numsamples
+            class_probabilities = aggregated_results / aggregated_nb_of_predictions
+            predicted_segmentation = class_probabilities.argmax(0)
+
+            assert predicted_segmentation.shape == segmentation_sliced.shape
+
+            ## Compute metrics
+
+            results_dict = {}
+            for c in range(1, self.num_classes): #skip background class
+                tn, fp, fn, tp = sklearn.metrics.confusion_matrix((segmentation_sliced == c).flatten(), (predicted_segmentation == c).flatten(), labels=[False, True]).ravel()
+                assert tp + fn == (segmentation_sliced == c).sum()
+                if (tp + fp + fn) != 0:
+                    iou = tp / (tp + fp + fn)
+                    dice = 2 * tp / ( 2 * tp + fp + fn)
+                else:
+                    iou = 0
+                    dice = 0
+                score_dict = {"IoU": iou, "Dice": dice}
+                results_dict['mask_'+str(c)] = score_dict
+
+            _dict={
+                'slice_idx': _slice,
+                'slice_idx_normalized': slice_idx_normalized.item(),
+                'ood_score': np.mean(uncertainties),
+                'segmentation_res': results_dict
+            }
+            dict_per_slice.append(_dict)
+        ## end _slice
+
+        df = []
+        for d in dict_per_slice:
+            temp = {
+                'slice_idx': d['slice_idx'],
+                'slice_idx_normalized': d['slice_idx_normalized'],
+                'ood_score': d['ood_score']
+            }
+            for c in range(1, self.num_classes):
+                inner_temp = temp.copy()
+                inner_temp["seg_mask"] = f"mask_{c}"
+                inner_temp["Dice"] = d['segmentation_res'][f"mask_{c}"]["Dice"]
+                inner_temp["IoU"] = d['segmentation_res'][f"mask_{c}"]["IoU"]
+                df.append(inner_temp)
+        
+        df = pd.DataFrame(df)
+
+        self.network.do_ds = prev_deep_supervision
+        return df
     

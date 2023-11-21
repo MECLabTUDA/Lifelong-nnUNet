@@ -70,6 +70,7 @@ setup(name='nnunet_ext',
               'nnUNet_train_vae_rehearsal_no_skips_condition_on_both = nnunet_ext.run.run_training:main_vae_rehearsal_no_skips_condition_on_both', 
               
 
+              'nnUNet_ood_detection_per_slice = nnunet_ext.run.run_ood_detection_per_slice:run_ood_detection_per_slice',
               'nnUNet_ood_detection = nnunet_ext.run.run_ood_detection:run_ood_detection',
               'nnUNet_inference = nnunet_ext.run.run_inference:main',    
               'nnUNet_evaluate2 = nnunet_ext.run.run_evaluation:run_evaluation2',    

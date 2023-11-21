@@ -123,8 +123,6 @@ class nnUNetTrainerFeatureRehearsal2(nnUNetTrainerMultiHead):
 
 
         ret = super().run_training(task, output_folder, build_folder)
-        print(self.network.conv_blocks_context[0].blocks[0].conv.weight)
-        exit()
         #ret = None
         #print("after training: ", self.network.conv_blocks_context[0].blocks[0].conv.weight)
 

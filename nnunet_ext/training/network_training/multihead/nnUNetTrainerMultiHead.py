@@ -1385,14 +1385,18 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
 
 
 
-    def ood_detection_by_confidence(self, d: np.ndarray, do_tta: bool, mixed_precision: bool):
+    def ood_detection_by_uncertainty(self, d: np.ndarray, do_tta: bool, mixed_precision: bool):
         softmax: np.ndarray = self.predict_preprocessed_data_return_seg_and_softmax(
             d, do_mirroring=do_tta, mirror_axes=self.data_aug_params['mirror_axes'], use_sliding_window=True,
             step_size=0.5, use_gaussian=True, all_in_gpu=False,
             mixed_precision=mixed_precision)[1]
-        
+
+        assert np.all(softmax > 0) 
         softmax = softmax.reshape(softmax.shape[0], -1)
+        # softmax.shape: 2, L (L=H*W*D)
         entropy = (softmax * np.log2(softmax)).sum()
+        assert np.all(np.isclose(np.sum(softmax, axis= 0), 1))
+
 
         confidence = softmax.max(axis=0).mean()
-        return confidence
+        return 1 - confidence

@@ -10,6 +10,7 @@ from nnunet_ext.utilities.helpful_functions import get_ViT_LSA_SPT_folder_name, 
 from nnunet_ext.paths import evaluation_output_dir, default_plans_identifier
 from nnunet.utilities.task_name_id_conversion import convert_id_to_task_name
 from nnunet_ext.paths import network_training_output_dir, preprocessing_output_dir, default_plans_identifier
+import nnunet_ext.training.network_training.vae_rehearsal_base2.nnUNetTrainerVAERehearsalBase2
 
 from nnunet_ext.evaluation import evaluator2
 from nnunet_ext.inference import predict
@@ -27,7 +28,7 @@ EXT_MAP['nnUNetTrainerV2'] = 'standard'
 EXT_MAP['nnViTUNetTrainerCascadeFullRes'] = None
 
 
-def run_ood_detection():
+def run_ood_detection_per_slice():
     # -- First of all check that evaluation_output_dir is set otherwise we do not perform an evaluation -- #
     assert evaluation_output_dir is not None, "Before running any evaluation, please specify the Evaluation folder (EVALUATION_FOLDER) as described in the paths.md."
 
@@ -118,7 +119,7 @@ def run_ood_detection():
                         default=None)
     
     parser.add_argument('--method',
-                        help='uncertainty or vae_reconstruction or uncertainty_mse_temperature',
+                        help='vae_reconstruction',
                         required=True,
                         default=None)
     
@@ -293,11 +294,28 @@ def run_ood_detection():
                 f = f + ".nii.gz"
             cleaned_output_files.append(join(dr, f))
 
+
+        ground_truth_segmentations = []
+        for input_path_in_list in list_of_lists:
+            input_path = input_path_in_list[0]
+            # read segmentation file and place it in ground_truth_segmentations
+            input_path_array = input_path.split('/')
+            assert(input_path_array[-2] == "imagesTr")
+            input_path_array[-2] = "labelsTr"
+            assert(input_path_array[-1].endswith('_0000.nii.gz'))
+            input_path_array[-1] = input_path_array[-1][:-12] + '.nii.gz'
+
+            segmentation_path = join(*input_path_array)
+            segmentation_path = "/" + segmentation_path
+            ground_truth_segmentations.append(segmentation_path)
+
+
         print("starting preprocessing generator")
-        preprocessing = predict.preprocess_multithreaded(trainer, list_of_lists, cleaned_output_files, 1)
+        #preprocessing = predict.preprocess_multithreaded(trainer, list_of_lists, cleaned_output_files, 1)
+        preprocessing = trainer._preprocess_multithreaded(list_of_lists, cleaned_output_files, segs_from_prev_stage=ground_truth_segmentations)
         print("starting prediction...")
 
-        _dict = dict()
+        dataframe_of_task = []
 
         if args.method in ['vae_reconstruction', 'uncertainty_mse_temperature']:
             trainer.load_vae()
@@ -309,31 +327,41 @@ def run_ood_detection():
             assert args.threshold != None, 'Please provide a threshold for the ood detection.'
 
         for preprocessed in preprocessing:
-            output_filename, (d, dct) = preprocessed
+            output_filename, (d, dct), gt_segmentation = preprocessed
             if isinstance(d, str):
                 data = np.load(d)
                 os.remove(d)
                 d = data
 
+                s = np.load(gt_segmentation)
+                os.remove(gt_segmentation)
+                gt_segmentation = s
+            
+
+            assert gt_segmentation.shape == d.shape[1:], f"Shapes of gt_segmentation and d do not match: {gt_segmentation.shape} vs {d.shape[1:]}"
+
             if args.method == 'uncertainty':
-                ood_score = trainer.ood_detection_by_uncertainty(d, args.enable_tta, mixed_precision)
-            elif args.method == 'vae_reconstruction':
-                ood_score = trainer.ood_detection_by_vae_reconstruction(d)
+                assert False, f"Unknown method {args.method}"
+                #ood_score = trainer.ood_detection_by_uncertainty(d, args.enable_tta, mixed_precision)
+            if args.method == 'vae_reconstruction':
+                assert isinstance(trainer, nnunet_ext.training.network_training.vae_rehearsal_base2.nnUNetTrainerVAERehearsalBase2.nnUNetTrainerVAERehearsalBase2), f"Trainer is not of type nnUNetTrainerVaeRehearsalBase2 but {type(trainer)}"
+                df = trainer.ood_detection_by_vae_reconstruction_and_eval_and_build_df(d, gt_segmentation)
             elif args.method == 'uncertainty_mse_temperature':
-                ood_score = trainer.ood_detection_by_uncertainty_mse_temperature(d, float(args.threshold))
+                assert False, f"Unknown method {args.method}"
+                #ood_score = trainer.ood_detection_by_uncertainty_mse_temperature(d, float(args.threshold))
             else:
                 assert False, f"Unknown method {args.method}"
             
             case_name = output_filename.split('/')[-1].split('.')[0]    # Get the case name from the output filename
-            _dict[case_name] = ood_score
+            df["case"] = case_name
+            dataframe_of_task.append(df)
 
-        df = pd.DataFrame.from_dict(_dict, orient='index', columns=['ood_score'])
+        df = pd.concat(dataframe_of_task, ignore_index=True)
         df['split'] = 'val'
         df['Task'] = evaluate_on
         df['is_ood'] = evaluate_on not in use_model_w_tasks
         df.reset_index(inplace=True)
-        df.rename(columns={'index': 'case'}, inplace=True)
-
+        #df.rename(columns={'index': 'case'}, inplace=True)
 
         dataset_directory = join(preprocessing_output_dir, evaluate_on)
         splits_final = load_pickle(join(dataset_directory, "splits_final.pkl"))
@@ -348,6 +376,7 @@ def run_ood_detection():
                 elif row['case'] in splits_final[fold[0]]['test']:
                     df.loc[index, 'split'] = 'test'
 
+
         os.rmdir(output_folder)
         dataframes.append(df)
 
@@ -361,5 +390,5 @@ def run_ood_detection():
 
     # write dataframe to csv
     if save_csv:
-        df.to_csv(os.path.join(parent_folder, f"ood_scores_{args.method}.csv"), index=False, sep='\t')
-        print(f"safe to {parent_folder} as ood_scores_{args.method}.csv")
+        df.to_csv(os.path.join(parent_folder, f"slice_ood_scores_{args.method}.csv"), index=False, sep='\t')
+        print(f"safe to {parent_folder} as slice_ood_scores_{args.method}.csv")

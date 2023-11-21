@@ -5,13 +5,13 @@ import pandas as pd
 import os
 
 def rename_tasks(task_name: str):
-    if task_name == "Task097_DecathHip":
+    if task_name.endswith("DecathHip"):
         return "DecathHip"
-    elif task_name == "Task098_Dryad":
+    elif task_name.endswith("Dryad"):
         return "Dryad"
-    elif task_name == "Task099_HarP":
+    elif task_name.endswith("HarP"):
         return "HarP"
-    elif task_name == "Task008_mHeartA":
+    elif task_name.endswith("mHeartA"):
         return "Siemens"
     elif task_name == "Task009_mHeartB":
         return "Philips"
@@ -28,11 +28,11 @@ def rename_tasks(task_name: str):
     return "unknown task"
 
 def task_color(task_name: str):
-    if task_name == "Task097_DecathHip":
+    if task_name.endswith("DecathHip"):
         return "red"
-    elif task_name == "Task098_Dryad":
+    elif task_name.endswith("Dryad"):
         return "green"
-    elif task_name == "Task099_HarP":
+    elif task_name.endswith("HarP"):
         return "blue"
     elif task_name == "Task008_mHeartA":
         return "purple"
@@ -49,6 +49,15 @@ def task_color(task_name: str):
     elif task_name == "Task016_Prostate-RUNMC":
         return "cyan"
     return "black"
+
+def rename_val(val: str):
+    if val == "val":
+        return "test"
+    elif val == "train":
+        return "train"
+    elif val == "test":
+        return "val"
+    return "unknown"
 
 def vae_mse():
     root_path = "/local/scratch/clmn1/master_thesis/tests/larger_conditional/evaluation/nnUNet_ext/2d/"
@@ -90,13 +99,49 @@ def uncertainty_mse_temperature():
     return csv_path, trained_on, r"Scaled Uncertainty > \tau \implies OOD", threshold_on_95_train
 
 
+def uncertainty_3_split():
+    root_path = "/local/scratch/clmn1/master_thesis/seeded/evaluation/nnUNet_ext/2d/"
+    all_tasks = "Task197_DecathHip_Task198_Dryad_Task199_HarP"
+    trained_on = ["Task197_DecathHip"]
+    trainer = "nnUNetTrainerVAERehearsalNoSkipsConditionOnBoth"
+    file = "ood_scores_uncertainty.csv"
+
+    threshold_on_95_validation = 0.002795398235321
+
+    csv_path = os.path.join(root_path, all_tasks, '_'.join(trained_on),f"{trainer}__nnUNetPlansv2.1/Generic_UNet/SEQ/head_None/fold_0", file)
+    return csv_path, trained_on, r"Uncertainty > \tau \implies OOD", threshold_on_95_validation
 
 
 
+def vae_mse_3_split():
+    root_path = "/local/scratch/clmn1/master_thesis/seeded/evaluation/nnUNet_ext/2d/"
+    all_tasks = "Task197_DecathHip_Task198_Dryad_Task199_HarP"
+    trained_on = ["Task197_DecathHip"]
+    trainer = "nnUNetTrainerVAERehearsalNoSkipsConditionOnBoth"
+    file = "ood_scores_vae_reconstruction.csv"
+
+    threshold_on_95_validation = 0.0221546945561255
+
+    csv_path = os.path.join(root_path, all_tasks, '_'.join(trained_on),f"{trainer}__nnUNetPlansv2.1/Generic_UNet/SEQ/head_None/fold_0", file)
+    return csv_path, trained_on, r"MSE > \tau \implies OOD", threshold_on_95_validation
+
+
+#temperature: 0.0221546945561255
+def uncertainty_mse_temperature_3_split():
+    root_path = "/local/scratch/clmn1/master_thesis/seeded/evaluation/nnUNet_ext/2d/"
+    all_tasks = "Task197_DecathHip_Task198_Dryad_Task199_HarP"
+    trained_on = ["Task197_DecathHip"]
+    trainer = "nnUNetTrainerVAERehearsalNoSkipsConditionOnBoth"
+    file = "ood_scores_uncertainty_mse_temperature.csv"
+
+    threshold_on_95_validation = 0.0022281791482652
+
+    csv_path = os.path.join(root_path, all_tasks, '_'.join(trained_on),f"{trainer}__nnUNetPlansv2.1/Generic_UNet/SEQ/head_None/fold_0", file)
+    return csv_path, trained_on, r"Scaled Uncertainty > \tau \implies OOD", threshold_on_95_validation
 
 
 
-csv_path, trained_on, title, threshold = uncertainty_mse_temperature()
+csv_path, trained_on, title, threshold = uncertainty_mse_temperature_3_split()
 df = pd.read_csv(csv_path, sep="\t")
 
 
@@ -111,13 +156,13 @@ for task in tasks:
 
     split_data = task in trained_on
     if split_data:
-        arr = [False, True]
+        arr = ['train', 'test', 'val',]
     else:
         arr = [None]
     for val in arr:
         subset_df = df[df['Task'] == task]
         if split_data:
-            subset_df = subset_df[subset_df['is_val'] == val] #only validation data
+            subset_df = subset_df[subset_df['split'] == val] #only validation data
 
         y = []
         for x in xs:
@@ -125,7 +170,13 @@ for task in tasks:
             y.append(len([v for v in subset_df['ood_score'] if v > x]) / len(subset_df))
         assert len(y) == len(xs)
         if task in trained_on:
-            sns.lineplot(x=xs, y=y, label=f"{rename_tasks(task)}, {'val' if val else 'train'}", linestyle='dashed' if val else 'solid', color=task_color(task))
+            if val=='train':
+                linestyle = 'solid'
+            elif val == 'val':
+                linestyle = 'dashed'
+            elif val == 'test':
+                linestyle = 'dotted'
+            sns.lineplot(x=xs, y=y, label=f"{rename_tasks(task)}, {rename_val(val)}", linestyle=linestyle, color=task_color(task))
         else:
             sns.lineplot(x=xs, y=y, label=rename_tasks(task), linestyle='dashed', color=task_color(task))
 if threshold is not None:

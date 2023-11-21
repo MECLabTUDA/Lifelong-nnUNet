@@ -64,6 +64,11 @@ sequential_2d = {'eval_path_base': "/local/scratch/clmn1/master_thesis/evaluatio
 }
 lwf_2d = None
 
+rehearsal_2d_no_skips_freeze = {'eval_path_base': "/local/scratch/clmn1/master_thesis/tests/evaluation/",
+                'eval_path_middle': "nnUNet_ext/2d/Task011_Prostate-BIDMC_Task012_Prostate-I2CVB_Task013_Prostate-HK_Task015_Prostate-UCL_Task016_Prostate-RUNMC",
+                'trainer': "nnUNetTrainerRehearsalNoSkipsFrozen",
+                'name': "Rehearsal, 2D, w/o skips, w/ freezing"
+}
 
 
 
@@ -238,7 +243,7 @@ def prostate_vae_rehearsal_2d_no_skips():
                   'name': "CCVAEr"
     }
 
-    trainers = [rehearsal_2d, feature_rehearsal2, vae_rehearsal, vae_rehearsal_double_conditional, sequential_2d]
+    trainers = [rehearsal_2d, feature_rehearsal2, vae_rehearsal, vae_rehearsal_double_conditional, sequential_2d, rehearsal_2d_no_skips_freeze]
     #trainers = [vae_rehearsal, vae_rehearsal_double_conditional]
     return trainers, "Prostate"
 
