@@ -299,7 +299,7 @@ def run_ood_detection():
 
         _dict = dict()
 
-        if args.method in ['vae_reconstruction', 'uncertainty_mse_temperature']:
+        if args.method in ['vae_reconstruction', 'uncertainty_mse_temperature', 'segmentation_distortion']:
             trainer.load_vae()
             if len(use_model_w_tasks) > 1:
                 print("TODO Check that the correct VAE has been loaded")
@@ -315,16 +315,19 @@ def run_ood_detection():
                 os.remove(d)
                 d = data
 
+            case_name = output_filename.split('/')[-1].split('.')[0]    # Get the case name from the output filename
+            
             if args.method == 'uncertainty':
                 ood_score = trainer.ood_detection_by_uncertainty(d, args.enable_tta, mixed_precision)
             elif args.method == 'vae_reconstruction':
                 ood_score = trainer.ood_detection_by_vae_reconstruction(d)
             elif args.method == 'uncertainty_mse_temperature':
                 ood_score = trainer.ood_detection_by_uncertainty_mse_temperature(d, float(args.threshold))
+            elif args.method == 'segmentation_distortion':
+                ood_score = trainer.ood_detection_by_segmentation_distortion(d)
             else:
                 assert False, f"Unknown method {args.method}"
             
-            case_name = output_filename.split('/')[-1].split('.')[0]    # Get the case name from the output filename
             _dict[case_name] = ood_score
 
         df = pd.DataFrame.from_dict(_dict, orient='index', columns=['ood_score'])

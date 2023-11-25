@@ -59,7 +59,7 @@ from batchgenerators.augmentations.utils import pad_nd_image
 import torchvision
 from nnunet_ext.network_architecture.VAE import *
 from nnunet_ext.network_architecture.generic_UNet_no_skips import Generic_UNet_no_skips
-from nnunet_ext.training.FeatureRehearsalDataset import FeatureRehearsalConcatDataset, FeatureRehearsalTargetType, FeatureRehearsalDataLoader, InfiniteIterator
+from nnunet_ext.training.FeatureRehearsalDataset import FeatureRehearsalConcatDataset, FeatureRehearsalMultiDataset, FeatureRehearsalTargetType, FeatureRehearsalDataLoader, InfiniteIterator
 import torch.utils.data, torch.utils.data.sampler
 from nnunet_ext.training.investigate_vae import visualize_latent_space, visualize_second_stage_latent_space
 from nnunet_ext.training.IncrementalSummaryWriter import IncrementalSummaryWriter
@@ -686,6 +686,10 @@ class nnUNetTrainerVAERehearsalBase2(nnUNetTrainerMultiHead):
         else:
             self.print_to_log_file("extracted dataset:", self.extracted_features_dataset_tr.data_patches)
             dataloader = self.feature_rehearsal_dataloader_tr
+            #dataloader = FeatureRehearsalDataLoader(FeatureRehearsalMultiDataset(self.extracted_features_dataset_tr, 1.7), self.feature_rehearsal_dataloader_tr.batch_size,
+            #                                                    num_workers=8, pin_memory=True, 
+            #                                deep_supervision_scales=self.deep_supervision_scales, persistent_workers=False,
+            #                                shuffle=True)
 
 
         all_losses_tr = []
@@ -1305,3 +1309,105 @@ class nnUNetTrainerVAERehearsalBase2(nnUNetTrainerMultiHead):
         self.network.do_ds = prev_deep_supervision
         return df
     
+    @torch.no_grad()
+    def ood_detection_by_segmentation_distortion(self, d: np.ndarray):
+        assert hasattr(self, 'vae'), "vae must be loaded before calling this function"
+        assert self.network.conv_op == nn.Conv2d
+
+        self.network.__class__ = self.UNET_CLASS
+        prev_deep_supervision = self.network.do_ds
+        self.network.do_ds = False
+        #create artificial task_idx for now (maybe change in the future)
+        task_idx = torch.tensor([0])
+
+        gaussian_importance_map = self.network._get_gaussian(self.patch_size, sigma_scale=1. / 8)
+
+        # prepare unet and vae
+        self.freeze_network()#<- very simple way to give layer_name_for_feature_extraction to the UNet, which is needed for the feature_forward method calls
+        self.network.eval()
+        self.vae.eval()
+        if torch.cuda.is_available():
+            self.network.cuda()
+            self.vae.to_gpus()
+            task_idx = to_cuda(task_idx)
+        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+
+        assert len(d.shape) == 4, "data must be c, x, y, z"
+
+        uncertainty_maps = []
+        for _slice in range(d.shape[1]):
+            slice_idx_normalized = torch.tensor([_slice / (d.shape[1] - 1)], device=device)
+            data_sliced = d[:, _slice]
+            assert len(data_sliced.shape) == 3, "data_sliced must be (c, x, y)"
+
+            data_sliced_padded, slicer = pad_nd_image(data_sliced, self.patch_size, 'constant', None, True, None)
+
+            steps = self.network._compute_steps_for_sliding_window(self.patch_size, data_sliced_padded.shape[1:], 0.5)
+            num_tiles = len(steps[0]) * len(steps[1])
+
+            aggregated_results_original = np.zeros([self.num_classes] + list(data_sliced_padded.shape[1:]), dtype=np.float32)
+            aggregated_results_distorted = np.zeros([self.num_classes] + list(data_sliced_padded.shape[1:]), dtype=np.float32)
+            aggregated_nb_of_predictions = np.zeros([self.num_classes] + list(data_sliced_padded.shape[1:]), dtype=np.float32)
+
+            if num_tiles > 1:
+                add_for_nb_of_preds = gaussian_importance_map
+            else:
+                add_for_nb_of_preds = np.ones(data_sliced_padded.shape[1:], dtype=np.float32)
+
+            gaussian_importance_map_gpu = maybe_to_torch(gaussian_importance_map)
+            if torch.cuda.is_available():
+                gaussian_importance_map_gpu = to_cuda(gaussian_importance_map_gpu)
+
+            for x in steps[0]:
+                lb_x = x
+                ub_x = x + self.patch_size[0]
+                for y in steps[1]:
+                    lb_y = y
+                    ub_y = y + self.patch_size[1]
+                    data_patch = data_sliced_padded[None, :, lb_x:ub_x, lb_y:ub_y]
+                    assert len(data_patch.shape) == 4, 'data_patch must be (b, c, x, y)'
+
+                    assert np.all(data_patch.shape[2:4] == self.patch_size), "data_patch must be of size patch_size"
+                    data_patch = maybe_to_torch(data_patch)
+                    if torch.cuda.is_available():
+                        data_patch = to_cuda(data_patch)
+                    logits_original, features_and_skips = self.network(data_patch, layer_name_for_feature_extraction=self.layer_name_for_feature_extraction)
+                    
+                    # reconstruct features using vae
+                    features_reconstructed, _, _ = self.vae(features_and_skips[-1], task_idx, slice_idx_normalized=slice_idx_normalized)
+                    reconstructed_features_and_skips = [torch.zeros_like(f_s) for f_s in features_and_skips]
+                    reconstructed_features_and_skips[-1] = features_reconstructed
+                    logits_distorted = self.network.feature_forward(reconstructed_features_and_skips)
+
+
+                    
+                    pred_original = self.network.inference_apply_nonlin(logits_original)
+                    pred_distorted = self.network.inference_apply_nonlin(logits_distorted)
+                    pred_original[:, :] *= gaussian_importance_map_gpu
+                    pred_distorted[:, :] *= gaussian_importance_map_gpu
+
+                    pred_original = pred_original[0] #unpack batch dimension
+                    pred_distorted = pred_distorted[0] #unpack batch dimension
+
+                    aggregated_results_original[:, lb_x:ub_x, lb_y:ub_y] += pred_original.cpu().numpy()
+                    aggregated_results_distorted[:, lb_x:ub_x, lb_y:ub_y] += pred_distorted.cpu().numpy()
+                    aggregated_nb_of_predictions[:, lb_x:ub_x, lb_y:ub_y] += add_for_nb_of_preds
+
+                ## end y
+            ## end x
+
+            slicer = tuple(
+            [slice(0, aggregated_results_original.shape[i]) for i in
+             range(len(aggregated_results_original.shape) - (len(slicer) - 1))] + slicer[1:])
+            aggregated_results_original = aggregated_results_original[slicer]
+            aggregated_results_distorted = aggregated_results_distorted[slicer]
+            aggregated_nb_of_predictions = aggregated_nb_of_predictions[slicer]
+            # computing the class_probabilities by dividing the aggregated result with result_numsamples
+            class_probabilities_original = aggregated_results_original / aggregated_nb_of_predictions
+            class_probabilities_distorted = aggregated_results_distorted / aggregated_nb_of_predictions
+            uncertainty_map = ((class_probabilities_original - class_probabilities_distorted)**2).mean(axis=0)
+            uncertainty_maps.append(uncertainty_map)
+
+        self.network.do_ds = prev_deep_supervision
+        return np.mean(uncertainty_maps)

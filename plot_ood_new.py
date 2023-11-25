@@ -13,17 +13,17 @@ def rename_tasks(task_name: str):
         return "HarP"
     elif task_name.endswith("mHeartA"):
         return "Siemens"
-    elif task_name == "Task009_mHeartB":
+    elif task_name.endswith("mHeartB"):
         return "Philips"
-    elif task_name == "Task011_Prostate-BIDMC":
+    elif task_name.endswith("Prostate-BIDMC"):
         return "BIDMC"
-    elif task_name == "Task012_Prostate-I2CVB":
+    elif task_name.endswith("Prostate-I2CVB"):
         return "I2CVB"
-    elif task_name == "Task013_Prostate-HK":
+    elif task_name.endswith("Prostate-HK"):
         return "HK"
-    elif task_name == "Task015_Prostate-UCL":
+    elif task_name.endswith("Prostate-UCL"):
         return "UCL"
-    elif task_name == "Task016_Prostate-RUNMC":
+    elif task_name.endswith("Prostate-RUNMC"):
         return "RUNMC"
     return "unknown task"
 
@@ -34,19 +34,19 @@ def task_color(task_name: str):
         return "green"
     elif task_name.endswith("HarP"):
         return "blue"
-    elif task_name == "Task008_mHeartA":
+    elif task_name.endswith("mHeartA"):
         return "purple"
-    elif task_name == "Task009_mHeartB":
+    elif task_name.endswith("mHeartB"):
         return "orange"
-    elif task_name == "Task011_Prostate-BIDMC":
+    elif task_name.endswith("Prostate-BIDMC"):
         return "brown"
-    elif task_name == "Task012_Prostate-I2CVB":
+    elif task_name.endswith("Prostate-I2CVB"):
         return "pink"
-    elif task_name == "Task013_Prostate-HK":
+    elif task_name.endswith("Prostate-HK"):
         return "gray"
-    elif task_name == "Task015_Prostate-UCL":
+    elif task_name.endswith("Prostate-UCL"):
         return "olive"
-    elif task_name == "Task016_Prostate-RUNMC":
+    elif task_name.endswith("Prostate-RUNMC"):
         return "cyan"
     return "black"
 
@@ -59,7 +59,7 @@ def rename_val(val: str):
         return "val"
     return "unknown"
 
-def vae_mse():
+def hippocampus_vae_mse_0():
     root_path = "/local/scratch/clmn1/master_thesis/tests/larger_conditional/evaluation/nnUNet_ext/2d/"
     all_tasks = "Task097_DecathHip_Task098_Dryad_Task099_HarP"
     trained_on = ["Task097_DecathHip"]
@@ -71,7 +71,7 @@ def vae_mse():
     csv_path = os.path.join(root_path, all_tasks, '_'.join(trained_on),f"{trainer}__nnUNetPlansv2.1/Generic_UNet/SEQ/head_None/fold_0", file)
     return csv_path, trained_on, r"MSE of reconstruction and original > tau \implies OOD", threshold_on_95_train
 
-def uncertainty():
+def hippocampus_uncertainty_0():
     root_path = "/local/scratch/clmn1/master_thesis/tests/larger_conditional/evaluation/nnUNet_ext/2d/"
     all_tasks = "Task097_DecathHip_Task098_Dryad_Task099_HarP"
     trained_on = ["Task097_DecathHip"]
@@ -86,7 +86,7 @@ def uncertainty():
 
 # [x] threshold = 0.0171928624132354 (estimated on train and val)
 # [ ] threshold = 0.0055873438483104 (estimated on train only)
-def uncertainty_mse_temperature():
+def hippocampus_uncertainty_mse_temperature_0():
     root_path = "/local/scratch/clmn1/master_thesis/tests/larger_conditional/evaluation/nnUNet_ext/2d/"
     all_tasks = "Task097_DecathHip_Task098_Dryad_Task099_HarP"
     trained_on = ["Task097_DecathHip"]
@@ -99,7 +99,7 @@ def uncertainty_mse_temperature():
     return csv_path, trained_on, r"Scaled Uncertainty > \tau \implies OOD", threshold_on_95_train
 
 
-def uncertainty_3_split():
+def hippocampus_uncertainty_3_split_0():
     root_path = "/local/scratch/clmn1/master_thesis/seeded/evaluation/nnUNet_ext/2d/"
     all_tasks = "Task197_DecathHip_Task198_Dryad_Task199_HarP"
     trained_on = ["Task197_DecathHip"]
@@ -113,7 +113,7 @@ def uncertainty_3_split():
 
 
 
-def vae_mse_3_split():
+def hippocampus_vae_mse_3_split_0():
     root_path = "/local/scratch/clmn1/master_thesis/seeded/evaluation/nnUNet_ext/2d/"
     all_tasks = "Task197_DecathHip_Task198_Dryad_Task199_HarP"
     trained_on = ["Task197_DecathHip"]
@@ -127,7 +127,7 @@ def vae_mse_3_split():
 
 
 #temperature: 0.0221546945561255
-def uncertainty_mse_temperature_3_split():
+def hippocampus_uncertainty_mse_temperature_3_split_0():
     root_path = "/local/scratch/clmn1/master_thesis/seeded/evaluation/nnUNet_ext/2d/"
     all_tasks = "Task197_DecathHip_Task198_Dryad_Task199_HarP"
     trained_on = ["Task197_DecathHip"]
@@ -141,7 +141,29 @@ def uncertainty_mse_temperature_3_split():
 
 
 
-csv_path, trained_on, title, threshold = uncertainty_mse_temperature_3_split()
+
+
+
+def prostate_vae_mse_3_split_0():
+    root_path = "/local/scratch/clmn1/master_thesis/seeded/evaluation/nnUNet_ext/2d/"
+    all_tasks = "Task111_Prostate-BIDMC_Task112_Prostate-I2CVB_Task113_Prostate-HK_Task115_Prostate-UCL_Task116_Prostate-RUNMC"
+    trained_on = ["Task111_Prostate-BIDMC"]
+    trainer = "nnUNetTrainerVAERehearsalNoSkipsConditionOnBoth"
+    file = "ood_scores_vae_reconstruction.csv"
+
+    threshold_on_95_validation = 0
+
+    csv_path = os.path.join(root_path, all_tasks, '_'.join(trained_on),f"{trainer}__nnUNetPlansv2.1/Generic_UNet/SEQ/head_None/fold_0", file)
+    return csv_path, trained_on, r"MSE > \tau \implies OOD", threshold_on_95_validation
+
+
+
+
+
+
+
+
+csv_path, trained_on, title, threshold = prostate_vae_mse_3_split_0()
 df = pd.read_csv(csv_path, sep="\t")
 
 
