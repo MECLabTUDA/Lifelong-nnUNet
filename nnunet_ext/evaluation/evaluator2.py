@@ -93,9 +93,16 @@ def compute_scores_and_build_dict(evaluate_on: str, inference_folder:str, fold: 
 
         masks_dict = dict()
         for c in range(1, num_classes +1): #skip background class
-            tn, fp, fn, tp = sklearn.metrics.confusion_matrix((target == c).flatten(), (output == c).flatten()).ravel()
-            iou = tp / (tp + fp + fn)
-            dice = 2 * tp / ( 2 * tp + fp + fn)
+            tn, fp, fn, tp = sklearn.metrics.confusion_matrix((target == c).flatten(), (output == c).flatten(), labels=[False, True]).ravel()
+            if tp + fp + fn == 0:
+                #everything is classified as true negative
+                #this happens if the ground truth contains only background and the network predicted only background
+                # -> since everything is classified as background, we can set the scores to nan
+                iou = None
+                dice = None
+            else:
+                iou = tp / (tp + fp + fn)
+                dice = 2 * tp / ( 2 * tp + fp + fn)
             score_dict = {"IoU": iou, "Dice": dice}
             masks_dict['mask_'+str(c)] = score_dict
         cases_dict[case] = masks_dict

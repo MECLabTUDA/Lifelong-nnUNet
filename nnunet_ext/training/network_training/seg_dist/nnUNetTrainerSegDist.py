@@ -64,6 +64,9 @@ import torch.utils.data, torch.utils.data.sampler
 from nnunet_ext.training.investigate_vae import visualize_latent_space, visualize_second_stage_latent_space
 from nnunet_ext.training.IncrementalSummaryWriter import IncrementalSummaryWriter
 
+import nnunet_ext.network_architecture.autoencoders.ae as autoencoders
+import nnunet_ext.network_architecture.autoencoders.fully_connected as fully_connected_ae
+
 # -- Define globally the Hyperparameters for this trainer along with their type -- #
 HYPERPARAMS = {}
 
@@ -72,11 +75,11 @@ GENERATED_FEATURE_PATH_TR = "generated_features_tr"
 EXTRACTED_FEATURE_PATH_TR = "extracted_features_tr"
 EXTRACTED_FEATURE_PATH_VAL = "extracted_features_val"
 
-class nnUNetTrainerVAERehearsalBase2(nnUNetTrainerMultiHead):
+class nnUNetTrainerSegDist(nnUNetTrainerMultiHead):
     # -- Trains n tasks sequentially using transfer learning -- #
     def __init__(self, split, task, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
-                 identifier=default_plans_identifier, extension='vae_rehearsal_base2', tasks_list_with_char=None, 
+                 identifier=default_plans_identifier, extension='seg_dist', tasks_list_with_char=None, 
                  #custom args
                  #target_type: FeatureRehearsalTargetType = FeatureRehearsalTargetType.GROUND_TRUTH,
                  num_rehearsal_samples_in_perc: float= 1.0,
@@ -105,6 +108,7 @@ class nnUNetTrainerVAERehearsalBase2(nnUNetTrainerMultiHead):
         self.dict_from_file_name_to_task_idx = {}
         self.task_label_to_task_idx = []
 
+
         self.init_args = (split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
                           deterministic, fp16, save_interval, self.already_trained_on, use_progress, identifier, extension,
                           tasks_list_with_char, num_rehearsal_samples_in_perc, layer_name_for_feature_extraction, 
@@ -113,14 +117,10 @@ class nnUNetTrainerVAERehearsalBase2(nnUNetTrainerMultiHead):
         
         self.VAE_CLASSES = [CFullyConnectedVAE2, CFullyConnectedVAE2Distributed]
         self.UNET_CLASS = Generic_UNet
-        self.force_new_vae_init = False
         self.vae_max_num_epochs = 5000
-        self.xs_for_generation = [0]
-        self.ys_for_generation = [0]
-        self.zs_for_generation = [0]
+        self.force_new_vae_init = True
 
     def run_training(self, task, output_folder, build_folder=True):
-        #self.num_batches_per_epoch = 5
 
         ## clear feature folder on first task!
         if self.tasks_list_with_char[0][0] == task:
@@ -132,16 +132,12 @@ class nnUNetTrainerVAERehearsalBase2(nnUNetTrainerMultiHead):
         else:
             ## freeze encoder
             self.network.__class__ = self.UNET_CLASS
-            self.freeze_network()
 
         #compute the sum of all weights in the network
         
         self.network.__class__ = self.UNET_CLASS
         ret = super().run_training(task, output_folder, build_folder)
         #ret = None
-
-        ## freeze encoder
-        self.freeze_network()
 
         if task == self.tasks_list_with_char[0][-1]:
             self.print_to_log_file("last task. stopping already and do not train VAE.")
@@ -163,29 +159,10 @@ class nnUNetTrainerVAERehearsalBase2(nnUNetTrainerMultiHead):
         ## delete old features
         self.clean_up([EXTRACTED_FEATURE_PATH_TR]) #after training, delete extracted features -> preserve privacy
         self.clean_up([GENERATED_FEATURE_PATH_TR]) #berfore generating, make sure the previous samples are deleted!
-        self.generate_features()
-
-
-        analyzer = FeatureRehearsalDataset2Analyzer(self.generated_feature_rehearsal_dataset)
-        analyzer.compute_statistics()
-        self.print_to_log_file("generated_feature_rehearsal_dataset:")
-        self.print_to_log_file(str(analyzer))
-        del analyzer
 
 
         return ret
     
-
-    def freeze_network(self):
-        self.network.__class__ = self.UNET_CLASS
-        self.print_to_log_file("freeze network!")
-        # TODO these layers might be influenced by weight decay and/or (nesterov) momentum
-        # TODO how to deal with instance norms!
-        assert self.layer_name_for_feature_extraction.startswith(("conv_blocks_context", "td", "tu", "conv_blocks_localization"))
-        self.network.freeze_layers(self.layer_name_for_feature_extraction)
-
-
-        self.initialize_optimizer_and_scheduler()
 
     def store_features(self, task: str, train: bool=True):
         self.print_to_log_file("extract features!")
@@ -487,15 +464,7 @@ class nnUNetTrainerVAERehearsalBase2(nnUNetTrainerMultiHead):
             self.network.__class__ = self.UNET_CLASS
         
         rehearse = False
-        
-        if do_backprop and len(self.mh_network.heads.keys()) > 1: # only enable the chance of rehearsal when training (not during evaluation) and when trainind not training the first task
-            rehearse = self.rehearse
-            self.rehearse = not self.rehearse
-
-        if rehearse:
-            data_dict = next(self.generated_feature_rehearsal_dataiter)
-        else:
-            data_dict = next(data_generator)
+        data_dict = next(data_generator)
 
         data = data_dict['data']        # torch.Tensor (normal),    list[torch.Tensor] (rehearsal)
         target = data_dict['target']    # list[torch.Tensor]
@@ -574,9 +543,11 @@ class nnUNetTrainerVAERehearsalBase2(nnUNetTrainerMultiHead):
         prostate = np.prod(self.extracted_features_dataset_tr[0]['features_and_skips'][-1].shape[1:]) > 10000 # true for prostate, false otherwise
 
 
-        self.netwok = self.network.cpu()
+        #self.netwok = self.network.cpu()
         torch.cuda.empty_cache()
         before_fp16 = self.fp16
+        before_ds = self.network.do_ds
+        self.network.do_ds = False
         self.fp16 = False
 
         if prostate:
@@ -601,7 +572,8 @@ class nnUNetTrainerVAERehearsalBase2(nnUNetTrainerMultiHead):
         self.feature_rehearsal_dataloader_test = extracted_features_val_loader
         def get_nextUNetFeatures(data_gen):
             data_dict = next(data_gen)
-            data = data_dict['data'][-1].float()#<- we only care about the low level features not about the skips
+
+            data = [x.float() for x in data_dict['data']]
             return data, data_dict['task_idx'], data_dict['slice_idx_normalized']
         self.get_next_for_vae = get_nextUNetFeatures
         shape = self.extracted_features_dataset_tr[0]['features_and_skips'][-1].shape[1:]
@@ -618,13 +590,13 @@ class nnUNetTrainerVAERehearsalBase2(nnUNetTrainerMultiHead):
         if not hasattr(self, 'vae'):
             self.print_to_log_file("initialize new VAE model")
             #self.vae = FullyConnectedVAE2(shape)
-            if prostate:
-                assert torch.cuda.device_count() >= 2
-                self.vae = self.VAE_CLASSES[1](shape, num_tasks, conditional_dim=conditional_dim)
-            else:
-                self.vae = self.VAE_CLASSES[0](shape, num_tasks, conditional_dim=conditional_dim)
-            #self.vae = torch.nn.DataParallel(CFullyConnectedVAE3(shape, num_tasks, conditional_dim=conditional_dim), device_ids = [0, 1]).cuda()
-            #vae = VAEFromTutorial((1, 28, 28), nhid = 28*28)
+            #self.vae = autoencoders.AE(shape[0], np.prod(shape))
+            self.vae = fully_connected_ae.FullyConnectedAE(shape)
+            #if prostate:
+            #    assert torch.cuda.device_count() >= 2
+            #    self.vae = self.VAE_CLASSES[1](shape, num_tasks, conditional_dim=conditional_dim)
+            #else:
+            #    self.vae = self.VAE_CLASSES[0](shape, num_tasks, conditional_dim=conditional_dim)
 
         self.print_to_log_file("num parameters vae:", sum(p.numel() for p in self.vae.parameters() if p.requires_grad))
         self.print_to_log_file("Start training of the first stage VAE")
@@ -653,21 +625,27 @@ class nnUNetTrainerVAERehearsalBase2(nnUNetTrainerMultiHead):
         self.print_to_log_file("done creating first stage VAE latent space visualization.")
 
         self.fp16 = before_fp16
+        self.network.do_ds = before_ds
 
     def train_vae(self, save_callback, max_num_epochs: int, prostate: bool):
         self.vae.train()
-        temp = self.network.cpu()
-        del self.network
-        self.network = temp
+        self.network.cuda()
+        self.network.eval()
+        #temp = self.network.cpu()
+        #del self.network
+        #self.network = temp
 
+        self.network.layer_name_for_feature_extraction = self.layer_name_for_feature_extraction
         if hasattr(self.vae, 'to_gpus'):
             self.vae.to_gpus()
+        else:
+            self.vae.cuda()
 
         self.print_to_log_file(f"start training vae with fp16 being {self.fp16}")
         #lr = 0.001
         lr = 0.001 
         #self.vae_optimizer = torch.optim.Adam(self.vae.parameters(), lr=lr)
-        self.vae_optimizer = torch.optim.Adam(self.vae.parameters(), lr=lr)
+        self.vae_optimizer = torch.optim.SGD(self.vae.parameters(), lr=lr)
         #self.vae_optimizer = torch.optim.Adamax(self.vae.parameters(), lr=lr)
         self.vae_amp_grad_scaler = GradScaler()
         self.print_to_log_file(f"start training with initial lr={lr}")
@@ -692,6 +670,7 @@ class nnUNetTrainerVAERehearsalBase2(nnUNetTrainerMultiHead):
         self.print_to_log_file("train using early stopping with patience=200")
 
         train_using_rehearsal = hasattr(self, 'generated_feature_rehearsal_dataset')
+        assert not train_using_rehearsal, "we should not try to train this thing using rehearsal."
         self.print_to_log_file(f"train using rehearsal: {train_using_rehearsal}")
         if train_using_rehearsal:
 
@@ -820,25 +799,26 @@ class nnUNetTrainerVAERehearsalBase2(nnUNetTrainerMultiHead):
     def vae_run_iteration(self, data_generator, do_backprop=True, epoch:int = None):
         data, task_idx, slice_idx_normalized = self.get_next_for_vae(data_generator)
         data = maybe_to_torch(data)
+
         if torch.cuda.is_available():
             data = to_cuda(data)
-            task_idx = to_cuda(task_idx)
-
-        if hasattr(self.vae, 'slice_embedding') and torch.cuda.is_available():
-            slice_idx_normalized = to_cuda(slice_idx_normalized)
 
 
         self.vae_optimizer.zero_grad()
         if self.fp16:
             with autocast():
-                x_hat, mean, log_var = self.vae(data, task_idx, slice_idx_normalized=slice_idx_normalized)
-                reconstruction_loss, kl_div, r_mse = self.vae_loss(data, x_hat, mean, log_var)
-                reconstruction_loss_b, kl_div_b = lossMSE(data, x_hat, mean, log_var)
-                #reconstruction_loss, kl_div = torch.mean(reconstruction_loss_b) / x_hat.shape[0], torch.mean(kl_div_b) / x_hat.shape[0]
-                assert torch.isclose(torch.mean(reconstruction_loss_b), reconstruction_loss), f"{reconstruction_loss}, {torch.mean(reconstruction_loss_b)}, {reconstruction_loss_b}"
-                assert torch.isclose(torch.mean(kl_div_b), kl_div), f"{kl_div}, {torch.mean(kl_div_b)}, {kl_div_b}"
+                x_hat = self.vae(data[-1])#last layer features
+                with torch.no_grad():
+                    true_logits = self.network(data)
+                logits_hat = self.network(x_hat)
+                l = nn.functional.mse_loss(x_hat, data) + nn.functional.mse_loss(logits_hat, true_logits)
 
-                l = reconstruction_loss + kl_div
+                #reconstruction_loss, kl_div, r_mse = self.vae_loss(data, x_hat, mean, log_var)
+                #reconstruction_loss_b, kl_div_b = lossMSE(data, x_hat, mean, log_var)
+                ##reconstruction_loss, kl_div = torch.mean(reconstruction_loss_b) / x_hat.shape[0], torch.mean(kl_div_b) / x_hat.shape[0]
+                #assert torch.isclose(torch.mean(reconstruction_loss_b), reconstruction_loss), f"{reconstruction_loss}, {torch.mean(reconstruction_loss_b)}, {reconstruction_loss_b}"
+                #assert torch.isclose(torch.mean(kl_div_b), kl_div), f"{kl_div}, {torch.mean(kl_div_b)}, {kl_div_b}"
+
 
             if do_backprop:
                 self.vae_amp_grad_scaler.scale(l).backward()
@@ -847,16 +827,21 @@ class nnUNetTrainerVAERehearsalBase2(nnUNetTrainerMultiHead):
                 self.vae_amp_grad_scaler.step(self.vae_optimizer)
                 self.vae_amp_grad_scaler.update()
         else:
-            x_hat, mean, log_var = self.vae(data, task_idx, slice_idx_normalized=slice_idx_normalized)
-            #del task_idx, slice_idx_normalized
-            reconstruction_loss, kl_div, r_mse = self.vae_loss(data, x_hat, mean, log_var)
-            reconstruction_loss_b, kl_div_b = lossMSE(data, x_hat, mean, log_var)
-            #assert torch.isclose(torch.mean(reconstruction_loss_b), reconstruction_loss), f"{reconstruction_loss}, {torch.mean(reconstruction_loss_b)}, {reconstruction_loss_b}"
-            #assert torch.isclose(torch.mean(kl_div_b), kl_div), f"{kl_div}, {torch.mean(kl_div_b)}, {kl_div_b}"
-            #reconstruction_loss, kl_div = , torch.mean(kl_div_b) / x_hat.shape[0]
+            x_hat = self.vae(data[-1])#last layer features
+            l = nn.functional.mse_loss(x_hat, data[-1])
+            with torch.no_grad():
+                true_logits = self.network.feature_forward(data)
+            data[-1] = x_hat
+            logits_hat = self.network.feature_forward(data)
+            l += nn.functional.mse_loss(logits_hat, true_logits)
+            
+            
+            #reconstruction_loss, kl_div, r_mse = self.vae_loss(data, x_hat, mean, log_var)
+            #reconstruction_loss_b, kl_div_b = lossMSE(data, x_hat, mean, log_var)
+            ##assert torch.isclose(torch.mean(reconstruction_loss_b), reconstruction_loss), f"{reconstruction_loss}, {torch.mean(reconstruction_loss_b)}, {reconstruction_loss_b}"
+            ##assert torch.isclose(torch.mean(kl_div_b), kl_div), f"{kl_div}, {torch.mean(kl_div_b)}, {kl_div_b}"
+            ##reconstruction_loss, kl_div = , torch.mean(kl_div_b) / x_hat.shape[0]
 
-
-            l = reconstruction_loss + kl_div
             if do_backprop:
                 l.backward()
                 #del data, x_hat
@@ -864,86 +849,15 @@ class nnUNetTrainerVAERehearsalBase2(nnUNetTrainerMultiHead):
                 self.vae_optimizer.step()
 
         if do_backprop:
-            reconstruction_loss_b = reconstruction_loss_b.detach()
-            kl_div_b = kl_div_b.detach()
-            self.plot_vae_progress2(epoch, reconstruction_loss_b, kl_div_b, task_idx, data[0].detach(), x_hat[0].detach())
+            self.plot_vae_progress2(epoch, l.detach(), 0, task_idx, data[0].detach(), x_hat[0].detach())
 
-        return l.detach().cpu().item(), reconstruction_loss.cpu().item(), kl_div.cpu().item()
+        return l.detach().cpu().item(), 0, 0
 
     def swap_vae_and_unet(self):
         temp = self.vae.cpu()
         del self.vae
         self.vae = temp
         self.network = self.network.cuda()
-
-    @torch.no_grad()
-    def generate_features(self, num_samples_per_task=None):
-        if num_samples_per_task is None:
-            num_samples_per_task = len(self.extracted_features_dataset_tr)
-        self.print_to_log_file(f"generating {num_samples_per_task} features per task")
-        layer, id = self.layer_name_for_feature_extraction.split('.')
-        id = int(id)
-        if layer == "conv_blocks_context":
-            num_features = id + 1
-        elif layer == "td":
-            num_features = id + 2
-        else:
-            num_features = len(self.network.conv_blocks_context)
-        
-        vae = self.vae.eval()
-        vae.to_gpus()
-        output_folder = join(self.trained_on_path, self.extension,  GENERATED_FEATURE_PATH_TR)
-        maybe_mkdir_p(output_folder)
-        
-        prev_do_ds = self.network.do_ds
-        self.network.do_ds = False
-        self.network.eval()
-        self.network.cuda()
-        
-
-        for y, task in enumerate(self.already_trained_on[str(self.fold)]['finished_training_on']):
-            self.print_to_log_file(f"generating for task {task} where {y} is the task index")
-            y_tensor = torch.tensor([y], device="cuda:0")
-
-            l = itertools.cycle(itertools.product(self.xs_for_generation, self.ys_for_generation, self.zs_for_generation))
-            l = itertools.islice(l, num_samples_per_task)
-
-            assert not os.path.isfile(join(output_folder, task, "meta.pkl"))
-            # _dict = load_pickle(join(output_folder, task, "meta.pkl"))
-            _dict = dict()
-
-            for sample_idx, (x, y, z) in tqdm.tqdm(enumerate(l), total=num_samples_per_task):#20000
-                features = vae.generate(y=y_tensor, slice_idx=z, batch_size=1)
-                features_and_skips = self.extracted_features_dataset_val.features_to_features_and_skips(features)
-                features_and_skips = maybe_to_torch(features_and_skips)
-                features_and_skips = to_cuda(features_and_skips)
-                output = self.network.feature_forward(features_and_skips)[0]# <- unpack batch dimension (B,C,H,W) -> (C,H,W)
-                
-                segmentation = output.argmax(0)
-
-                file_name = f"{task}_{sample_idx}_{x}_{y}_{z}"
-                _dict[f"{task}_{sample_idx}"] = {
-                            'max_x': max(self.xs_for_generation),
-                            'max_y': max(self.ys_for_generation),
-                            'max_z': max(self.zs_for_generation)
-                        }
-                
-                np.save(join(output_folder, task, "features", file_name + "_" + str(num_features-1) + ".npy"), features.cpu().numpy())
-                np.save(join(output_folder, task, "predictions", file_name + "_0.npy"), segmentation.cpu().numpy())
-                open(join(output_folder, task, "gt", file_name + ".txt"), 'a').close()
-            write_pickle(_dict, join(output_folder, task, "meta.pkl"))
-
-
-        self.network.do_ds = prev_do_ds
-
-
-        dataset = FeatureRehearsalDataset2(join(self.trained_on_path, self.extension,  GENERATED_FEATURE_PATH_TR), self.deep_supervision_scales, FeatureRehearsalTargetType.DISTILLED_OUTPUT, 
-                                            num_features, self.tasks_list_with_char[0], load_skips=False,
-                                            constant_skips = self.extracted_features_dataset_val.constant_skips, load_meta=True)
-        self.generated_feature_rehearsal_dataset = dataset
-        
-        dataloader = FeatureRehearsalDataLoader(dataset, batch_size=int(self.batch_size), num_workers=8, pin_memory=True, deep_supervision_scales=self.deep_supervision_scales, persistent_workers=True)
-        self.generated_feature_rehearsal_dataiter = InfiniteIterator(dataloader)
 
 
     def plot_vae_progress(self, epoch: int, losses_tr: list, reconstruction_losses_tr: list, kl_divs_tr: list,
@@ -978,9 +892,9 @@ class nnUNetTrainerVAERehearsalBase2(nnUNetTrainerMultiHead):
             if len(kl_divs_val) == len(x_values):
                 ax3.plot(x_values, kl_divs_val, color='g', ls='--', label="KL div loss val")
 
-            ax.set_ylim(bottom=0,top=380)
-            ax2.set_ylim(bottom=0,top=380)
-            ax3.set_ylim(bottom=10,top=60)
+            #ax.set_ylim(bottom=0,top=380)
+            #ax2.set_ylim(bottom=0,top=380)
+            #ax3.set_ylim(bottom=10,top=60)
 
             
             ax3.spines['right'].set_position(('outward', 100))
@@ -1004,6 +918,7 @@ class nnUNetTrainerVAERehearsalBase2(nnUNetTrainerMultiHead):
 
     @torch.no_grad()
     def plot_vae_progress2(self, epoch: int, reconstruction_loss_b, kl_div_b, task_idx, sample, reconstruction):
+        return
         if not hasattr(self, 'summary_writer'):
             current_time = datetime.now().strftime("%b%d_%H-%M-%S")
             log_dir = os.path.join(self.output_folder, "runs", current_time + "_" + socket.gethostname())
@@ -1011,8 +926,7 @@ class nnUNetTrainerVAERehearsalBase2(nnUNetTrainerMultiHead):
             #self.summary_writer.add_graph(self.vae, (sample[None], task_idx[0:1]))
     
         for y, task in enumerate(self.mh_network.heads.keys()):
-            self.summary_writer.add_batch(f"Reconstruction_loss_{task}", reconstruction_loss_b[task_idx == y], epoch)
-            self.summary_writer.add_batch(f"kl_div_{task}", kl_div_b[task_idx == y], epoch)
+            self.summary_writer.add_batch(f"Reconstruction_loss_{task}", reconstruction_loss_b, epoch)
         
         if not self.summary_writer.epoch_has_figure():
             

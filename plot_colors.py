@@ -6,6 +6,9 @@ colors = {
     'Rehearsal': (0/255, 0/255, 0/255),
     'Sequential': (120/255, 120/255, 120/255),
     'LwF': (255/255, 201/255, 201/255),
+    'EWC': (144/255, 28/255, 83/255),
+    'MiB': (104/255, 57/255, 184/255),
+
 
     'between encoder and decoder': (255/255, 0/255, 0/255),
     'middle encoder': (0/255, 0/255, 255/255),
@@ -28,6 +31,9 @@ colors = {
     # yellow, and purple, and green
     ## ablation ##
     'Feature rehearsal, distilled output, 2D, w/o skips, w/ freezing': (237/255, 36/255, 224/255),
+    'upper bound': (237/255, 36/255, 224/255),
+    'Feature Rehearsal': (156/255, 165/255, 23/255),
+
     'CVAEr': (255/255, 222/255, 60/255),
     'CCVAEr': (255/255, 170/255, 60/255),
 }

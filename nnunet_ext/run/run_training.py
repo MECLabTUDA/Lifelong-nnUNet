@@ -239,7 +239,7 @@ def run_training(extension='multihead'):
         
     if extension in ['feature_rehearsal2', 'feature_rehearsal_no_freeze', 'feature_rehearsal_no_replay', 'vae_rehearsal_no_skips', 
                      'feature_rehearsal_no_skips', 'vae_rehearsal_no_skips_no_conditioning', 'vae_rehearsal_no_skips_larger_vae_force_init', 
-                     'vae_rehearsal_no_skips_condition_on_both', 'rehearsal_no_skips_frozen']:
+                     'vae_rehearsal_no_skips_condition_on_both', 'rehearsal_no_skips_frozen', 'curl', 'seg_dist']:
         # num_rehearsal_samples_in_perc
         parser.add_argument('-num_samples_in_perc', action='store', type=float, required=False, default=0.25,
                             help='Specify how much of the previous tasks should be considered during training.'
@@ -500,7 +500,7 @@ def run_training(extension='multihead'):
                      'feature_rehearsal_no_replay', 'vae_rehearsal_no_skips', 
                      'feature_rehearsal_no_skips', 'vae_rehearsal_no_skips_no_conditioning', 
                      'vae_rehearsal_no_skips_larger_vae_force_init', 'vae_rehearsal_no_skips_condition_on_both',
-                     'rehearsal_no_skips_frozen']:
+                     'rehearsal_no_skips_frozen', 'curl', 'seg_dist']:
         num_rehearsal_samples_in_perc = args.num_samples_in_perc
         layer_name_for_feature_extraction = args.layer_name
     
@@ -583,6 +583,11 @@ def run_training(extension='multihead'):
               'nnUNetTrainerVAERehearsalNoSkipsNoConditioning': vae_rehearsal_args,
               'nnUNetTrainerVAERehearsalNoSkipsLargerVaeForceInit': vae_rehearsal_args,
               'nnUNetTrainerVAERehearsalNoSkipsConditionOnBoth': vae_rehearsal_args,
+
+              'nnUNetTrainerCURL': vae_rehearsal_args,
+              'nnUNetTrainerSegDist': vae_rehearsal_args,
+
+
               'nnUNetTrainerFeatureRehearsalNoSkips': rehearsal_args}
 
     # ---------------------------------------------
@@ -1095,3 +1100,9 @@ def main_vae_rehearsal_no_skips_condition_on_both():
 
 def main_rehearsal_no_skips_frozen():
     run_training(extension="rehearsal_no_skips_frozen")
+
+def main_curl():
+    run_training(extension="curl")
+
+def main_seg_dist():
+    run_training(extension="seg_dist")

@@ -36,6 +36,30 @@ def do(TASK: int, NUM_TEST_DATA):
     elif TASK == 9:
         old_task_name = "Task099_HarP"
         new_task_name = "Task199_HarP"
+    elif TASK == 10:
+        old_task_name = "Task201_BraTS1"
+        new_task_name = "Task301_BraTS1"
+    elif TASK == 11:
+        old_task_name = "Task204_BraTS4"
+        new_task_name = "Task304_BraTS4"
+    elif TASK == 12:
+        old_task_name = "Task206_BraTS6"
+        new_task_name = "Task306_BraTS6"
+    elif TASK == 13:
+        old_task_name = "Task213_BraTS13"
+        new_task_name = "Task313_BraTS13"
+    elif TASK == 14:
+        old_task_name = "Task216_BraTS16"
+        new_task_name = "Task316_BraTS16"
+    elif TASK == 15:
+        old_task_name = "Task218_BraTS18"
+        new_task_name = "Task318_BraTS18"
+    elif TASK == 16:
+        old_task_name = "Task220_BraTS20"
+        new_task_name = "Task320_BraTS20"
+    elif TASK == 17:
+        old_task_name = "Task221_BraTS21"
+        new_task_name = "Task321_BraTS21"
     else:
         raise ValueError("Unknown task")
 
@@ -72,5 +96,5 @@ def do(TASK: int, NUM_TEST_DATA):
 if __name__ == '__main__':
     
     NUM_TEST_DATA = 0.3
-    for TASK in range(10):
+    for TASK in [10,11,12,13,14,15,16,17]:
         do(TASK, NUM_TEST_DATA)

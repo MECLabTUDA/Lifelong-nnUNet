@@ -69,6 +69,8 @@ setup(name='nnunet_ext',
               'nnUNet_train_vae_rehearsal_no_skips_larger_vae_force_init = nnunet_ext.run.run_training:main_vae_rehearsal_no_skips_larger_vae_force_init',
               'nnUNet_train_vae_rehearsal_no_skips_condition_on_both = nnunet_ext.run.run_training:main_vae_rehearsal_no_skips_condition_on_both', 
               
+              'nnUNet_train_curl = nnunet_ext.run.run_training:main_curl', 
+              'nnUNet_train_seg_dist = nnunet_ext.run.run_training:main_seg_dist', 
 
               'nnUNet_ood_detection_per_slice = nnunet_ext.run.run_ood_detection_per_slice:run_ood_detection_per_slice',
               'nnUNet_ood_detection = nnunet_ext.run.run_ood_detection:run_ood_detection',

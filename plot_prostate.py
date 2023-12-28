@@ -6,34 +6,7 @@ import numpy as np
 import plot_colors
 END = "__nnUNetPlansv2.1/Generic_UNet/SEQ/head_None/fold_0/val_metrics_eval.csv"
 END_TRAIN = "__nnUNetPlansv2.1/Generic_UNet/SEQ/fold_0/val_metrics.csv"
-
-
-def rename_tasks(task_name: str):
-    if task_name == "Task097_DecathHip":
-        return "DecathHip"
-    elif task_name == "Task098_Dryad":
-        return "Dryad"
-    elif task_name == "Task099_HarP":
-        return "HarP"
-    elif task_name == "Task008_mHeartA":
-        return "Siemens"
-    elif task_name == "Task009_mHeartB":
-        return "Philips"
-    elif task_name == "Task011_Prostate-BIDMC":
-        return "BIDMC"
-    elif task_name == "Task012_Prostate-I2CVB":
-        return "I2CVB"
-    elif task_name == "Task013_Prostate-HK":
-        return "HK"
-    elif task_name == "Task015_Prostate-UCL":
-        return "UCL"
-    elif task_name == "Task016_Prostate-RUNMC":
-        return "RUNMC"
-    return "unknown task"
-
-
-def convert_epoch_string_to_int(epoch_str: str):
-    return int(epoch_str[6:])
+from plot_utils import rename_tasks
 
 combinations = ["Task011_Prostate-BIDMC",
                     "Task011_Prostate-BIDMC_Task012_Prostate-I2CVB",
@@ -41,6 +14,11 @@ combinations = ["Task011_Prostate-BIDMC",
                     "Task011_Prostate-BIDMC_Task012_Prostate-I2CVB_Task013_Prostate-HK_Task015_Prostate-UCL",
                     "Task011_Prostate-BIDMC_Task012_Prostate-I2CVB_Task013_Prostate-HK_Task015_Prostate-UCL_Task016_Prostate-RUNMC"]
 
+combinations_splitted = ["Task111_Prostate-BIDMC",
+                    "Task111_Prostate-BIDMC_Task112_Prostate-I2CVB",
+                    "Task111_Prostate-BIDMC_Task112_Prostate-I2CVB_Task113_Prostate-HK",
+                    "Task111_Prostate-BIDMC_Task112_Prostate-I2CVB_Task113_Prostate-HK_Task115_Prostate-UCL",
+                    "Task111_Prostate-BIDMC_Task112_Prostate-I2CVB_Task113_Prostate-HK_Task115_Prostate-UCL_Task116_Prostate-RUNMC"]
 ############### baselines ###############
 rehearsal_3d = {'eval_path_base': "/local/scratch/clmn1/master_thesis/evaluation_folder/baselines_retrained",
                 'eval_path_middle': "nnUNet_ext/3d_fullres/Task011_Prostate-BIDMC_Task012_Prostate-I2CVB_Task013_Prostate-HK_Task015_Prostate-UCL_Task016_Prostate-RUNMC",
@@ -248,7 +226,70 @@ def prostate_vae_rehearsal_2d_no_skips():
     return trainers, "Prostate"
 
 
-trainers, title = prostate_vae_rehearsal_2d_no_skips()
+
+
+
+
+def prostate_seeded():
+    rehearsal_seeded = {'eval_path_base': "/local/scratch/clmn1/master_thesis/seeded/evaluation",
+                    'eval_path_middle': "nnUNet_ext/2d/Task111_Prostate-BIDMC_Task112_Prostate-I2CVB_Task113_Prostate-HK_Task115_Prostate-UCL_Task116_Prostate-RUNMC",
+                    'trainer': "nnUNetTrainerRehearsal",
+                    'name': "Rehearsal"#, 2D, w/ skips, w/o freezing
+    }
+    feature_rehearsal_seeded = {'eval_path_base': "/local/scratch/clmn1/master_thesis/seeded/evaluation",
+                    'eval_path_middle': "nnUNet_ext/2d/Task111_Prostate-BIDMC_Task112_Prostate-I2CVB_Task113_Prostate-HK_Task115_Prostate-UCL_Task116_Prostate-RUNMC",
+                    'trainer': "nnUNetTrainerFeatureRehearsal2",
+                    'name': "Feature Rehearsal"#, 2D, w/ skips, w/o freezing
+    }
+    upper_bound = {'eval_path_base': "/local/scratch/clmn1/master_thesis/seeded/evaluation",
+                    'eval_path_middle': "nnUNet_ext/2d/Task111_Prostate-BIDMC_Task112_Prostate-I2CVB_Task113_Prostate-HK_Task115_Prostate-UCL_Task116_Prostate-RUNMC",
+                    'trainer': "nnUNetTrainerRehearsalNoSkipsFrozen",
+                    'name': "upper bound"#, 2D, w/o skips, w/ freezing
+    }
+    vae_rehearsal = {'eval_path_base': "/local/scratch/clmn1/master_thesis/seeded/evaluation",
+                    'eval_path_middle': "nnUNet_ext/2d/Task111_Prostate-BIDMC_Task112_Prostate-I2CVB_Task113_Prostate-HK_Task115_Prostate-UCL_Task116_Prostate-RUNMC",
+                    'trainer': "nnUNetTrainerVAERehearsalNoSkipsConditionOnBoth",
+                    'name': "CCVAEr"#, 2D, w/o skips, w/ freezing
+    }
+    cvae_rehearsal = {'eval_path_base': "/local/scratch/clmn1/master_thesis/seeded/evaluation",
+                    'eval_path_middle': "nnUNet_ext/2d/Task111_Prostate-BIDMC_Task112_Prostate-I2CVB_Task113_Prostate-HK_Task115_Prostate-UCL_Task116_Prostate-RUNMC",
+                    'trainer': "nnUNetTrainerVAERehearsalNoSkips",
+                    'name': "CVAEr"#, 2D, w/o skips, w/ freezing
+    }
+    mib_seeded = {'eval_path_base': "/local/scratch/clmn1/master_thesis/seeded/evaluation",
+                    'eval_path_middle': "nnUNet_ext/2d/Task111_Prostate-BIDMC_Task112_Prostate-I2CVB_Task113_Prostate-HK_Task115_Prostate-UCL_Task116_Prostate-RUNMC",
+                    'trainer': "nnUNetTrainerMiB",
+                    'name': "MiB"#, 2D, w/ skips, w/o freezing
+    }
+    lwf_seeded = {'eval_path_base': "/local/scratch/clmn1/master_thesis/seeded/evaluation",
+                    'eval_path_middle': "nnUNet_ext/2d/Task111_Prostate-BIDMC_Task112_Prostate-I2CVB_Task113_Prostate-HK_Task115_Prostate-UCL_Task116_Prostate-RUNMC",
+                    'trainer': "nnUNetTrainerLWF",
+                    'name': "LwF"#, 2D, w/ skips, w/o freezing
+    }
+    sequential_seeded = {'eval_path_base': "/local/scratch/clmn1/master_thesis/seeded/evaluation",
+                    'eval_path_middle': "nnUNet_ext/2d/Task111_Prostate-BIDMC_Task112_Prostate-I2CVB_Task113_Prostate-HK_Task115_Prostate-UCL_Task116_Prostate-RUNMC",
+                    'trainer': "nnUNetTrainerSequential",
+                    'name': "Sequential"#, 2D, w/ skips, w/o freezing
+    }
+
+    trainers = [rehearsal_seeded, feature_rehearsal_seeded, upper_bound, cvae_rehearsal, vae_rehearsal, mib_seeded, sequential_seeded]
+    return trainers, "Hippocampus, seeded", combinations_splitted
+
+
+
+
+
+
+
+
+
+t = prostate_seeded()
+if len(t) == 3:
+    trainers, title, combinations = t
+else:
+    trainers, title = t
+
+
 data = []
 mask = "mask_1"
 metric = 'Dice'
@@ -309,15 +350,14 @@ ax = sns.relplot(
     col_wrap=3
 )
 
-for t in ax.axes:
+for i, t in enumerate(ax.axes):
     t.tick_params(labelbottom=True)
     t.grid(True)
     t.set_xlabel("Epoch", visible=True)
     t.set_xticks([0, 250, 500, 750, 1000, 1250])
-    #print(t.get_tightbbox())
-    #print(t.get_position())
-    #print(t.get_position(True))
-    #exit()
+    t.get_xgridlines()[i].set_color('black')
+    t.get_xgridlines()[i].set_linewidth(2)
+
 
 last_bbox = ax.axes[-1].get_tightbbox(for_layout_only=True)
 last_pos = ax.axes[-1].get_position()

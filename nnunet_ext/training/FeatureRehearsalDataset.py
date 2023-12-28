@@ -98,7 +98,7 @@ class FeatureRehearsalDataLoader(DataLoader):
                  deterministic=False):
         self.deep_supervision_scales = deep_supervision_scales
 
-        assert len(dataset) >= batch_size
+        assert len(dataset) >= batch_size, f"{len(dataset)}, {batch_size}"
 
         def my_collate_function(list_of_samples: list[dict]):
             #process the list_of_samples to create a batch and return it

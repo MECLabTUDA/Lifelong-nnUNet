@@ -297,13 +297,10 @@ def run_ood_detection():
         preprocessing = predict.preprocess_multithreaded(trainer, list_of_lists, cleaned_output_files, 1)
         print("starting prediction...")
 
-        _dict = dict()
+        results = []
 
         if args.method in ['vae_reconstruction', 'uncertainty_mse_temperature', 'segmentation_distortion']:
             trainer.load_vae()
-            if len(use_model_w_tasks) > 1:
-                print("TODO Check that the correct VAE has been loaded")
-                exit()
         
         if args.method in ['uncertainty_mse_temperature']:
             assert args.threshold != None, 'Please provide a threshold for the ood detection.'
@@ -319,24 +316,29 @@ def run_ood_detection():
             
             if args.method == 'uncertainty':
                 ood_score = trainer.ood_detection_by_uncertainty(d, args.enable_tta, mixed_precision)
-            elif args.method == 'vae_reconstruction':
-                ood_score = trainer.ood_detection_by_vae_reconstruction(d)
-            elif args.method == 'uncertainty_mse_temperature':
-                ood_score = trainer.ood_detection_by_uncertainty_mse_temperature(d, float(args.threshold))
-            elif args.method == 'segmentation_distortion':
-                ood_score = trainer.ood_detection_by_segmentation_distortion(d)
+                results.append((case_name, ood_score, None))
             else:
-                assert False, f"Unknown method {args.method}"
-            
-            _dict[case_name] = ood_score
+                for task_id, _ in enumerate(use_model_w_tasks):
+                    if args.method == 'vae_reconstruction':
+                        ood_score = trainer.ood_detection_by_vae_reconstruction(d, task_id)
+                    elif args.method == 'uncertainty_mse_temperature':
+                        ood_score = trainer.ood_detection_by_uncertainty_mse_temperature(d, float(args.threshold), task_id)
+                    elif args.method == 'segmentation_distortion':
+                        ood_score = trainer.ood_detection_by_segmentation_distortion(d, task_id)
+                    else:
+                        assert False, f"Unknown method {args.method}"
+                    
+                    results.append((case_name, ood_score, task_id))
 
-        df = pd.DataFrame.from_dict(_dict, orient='index', columns=['ood_score'])
+        print(results)
+        df = pd.DataFrame.from_records(results, columns=['case', 'ood_score', 'assumed task_idx'])
+        print(df)
         df['split'] = 'val'
         df['Task'] = evaluate_on
         df['is_ood'] = evaluate_on not in use_model_w_tasks
         df.reset_index(inplace=True)
-        df.rename(columns={'index': 'case'}, inplace=True)
 
+        print(df)
 
         dataset_directory = join(preprocessing_output_dir, evaluate_on)
         splits_final = load_pickle(join(dataset_directory, "splits_final.pkl"))

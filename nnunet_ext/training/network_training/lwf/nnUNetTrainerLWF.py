@@ -372,6 +372,8 @@ class nnUNetTrainerLWF(nnUNetTrainerMultiHead):
     def on_epoch_end(self):
         """Overwrite this function for the LwF trainer.
         """
+        if not (len(self.mh_network.heads.keys()) > 1):
+            return super().on_epoch_end()
         if self.freeze_run:
             # -- Perform everything the grandparent class makes --> no validation per task is performed here -- #
             res = super(nnUNetTrainerV2, self).on_epoch_end()

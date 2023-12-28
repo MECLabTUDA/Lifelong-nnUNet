@@ -318,7 +318,7 @@ class CFullyConnectedVAE2(nn.Module):
         x_hat = self.decode(z, y)
         return x_hat, mean, log_var
 
-    def generate(self, y, z=None, batch_size: int=1):
+    def generate(self, y, slice_idx=None, batch_size: int=1):
         y = self.label_embedding(y)
         z = torch.randn((batch_size, self.num_dimensions)).cuda()
         return self.decode(z, y)
@@ -760,7 +760,7 @@ class CFullyConnectedVAE2Distributed(nn.Module):
         z = torch.cat((z,y), dim=1)
         return self.decoder(z)
 
-    def forward(self, x, y, z=None):
+    def forward(self, x, y, slice_idx_normalized=None):
         y = self.label_embedding(y)
         mean, log_var = self.encode(x , y)
 
@@ -768,7 +768,7 @@ class CFullyConnectedVAE2Distributed(nn.Module):
         x_hat = self.decode(z, y.cuda(1))
         return x_hat.cuda(0), mean, log_var
 
-    def generate(self, y, z=None, batch_size: int=1):
+    def generate(self, y, slice_idx=None, batch_size: int=1):
         y = self.label_embedding(y).cuda(1)
         z = torch.randn((batch_size, self.num_dimensions)).cuda(1)
         return self.decode(z, y)

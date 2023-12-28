@@ -193,7 +193,8 @@ class Generic_UNet_(SegmentationNetwork):
                  conv_kernel_sizes=None,
                  upscale_logits=False, convolutional_pooling=False, convolutional_upsampling=False,
                  max_num_features=None, basic_block=ConvDropoutNormNonlin,
-                 seg_output_use_bias=False):
+                 seg_output_use_bias=False,
+                 no_skips=False):
         """
         basically more flexible than v1, architecture is the same
 
@@ -203,6 +204,7 @@ class Generic_UNet_(SegmentationNetwork):
 
         Questions? -> f.isensee@dkfz.de
         """
+        assert num_conv_per_stage is not None, num_conv_per_stage
         super(Generic_UNet_, self).__init__()
         self.convolutional_upsampling = convolutional_upsampling
         self.convolutional_pooling = convolutional_pooling
@@ -330,7 +332,11 @@ class Generic_UNet_(SegmentationNetwork):
             nfeatures_from_down = final_num_features
             nfeatures_from_skip = self.conv_blocks_context[
                 -(2 + u)].output_channels  # self.conv_blocks_context[-1] is bottleneck, so start with -2
-            n_features_after_tu_and_concat = nfeatures_from_skip * 2
+            
+            if no_skips:
+                n_features_after_tu_and_concat = nfeatures_from_skip
+            else:
+                n_features_after_tu_and_concat = nfeatures_from_skip * 2
 
             # the first conv reduces the number of features to match those of skip
             # the following convs work on that number of features
