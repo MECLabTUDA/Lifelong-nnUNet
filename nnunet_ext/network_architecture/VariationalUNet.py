@@ -122,7 +122,7 @@ class VariationalUNetNoSkips(nnunet_ext.network_architecture.generic_UNet.Generi
         #print(x.shape)
         mean = self.compute_mean(x)
         log_var = self.compute_log_variance(x)
-        eps = 0.1 * torch.randn(mean.shape, device=mean.device)
+        eps = torch.randn(mean.shape, device=mean.device)
         if not self.training:
             eps = 0
         var = torch.exp(0.5 * log_var)

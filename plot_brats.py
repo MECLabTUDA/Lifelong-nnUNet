@@ -133,7 +133,7 @@ def brats_seeded():
                     'name': "Sequential"#, 2D, w/ skips, w/o freezing
     }
 
-    trainers = [rehearsal_seeded, feature_rehearsal_seeded, ewc_seeded, mib_seeded, sequential_seeded]
+    trainers = [rehearsal_seeded, feature_rehearsal_seeded, cvae_rehearsal, ewc_seeded, mib_seeded,lwf_seeded, sequential_seeded]
     return trainers, "Hippocampus, seeded", combinations_splitted
 
 

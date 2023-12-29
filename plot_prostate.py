@@ -272,7 +272,7 @@ def prostate_seeded():
                     'name': "Sequential"#, 2D, w/ skips, w/o freezing
     }
 
-    trainers = [rehearsal_seeded, feature_rehearsal_seeded, upper_bound, cvae_rehearsal, vae_rehearsal, mib_seeded, sequential_seeded]
+    trainers = [rehearsal_seeded, feature_rehearsal_seeded, upper_bound, cvae_rehearsal, vae_rehearsal, mib_seeded, lwf_seeded, sequential_seeded]
     return trainers, "Hippocampus, seeded", combinations_splitted
 
 

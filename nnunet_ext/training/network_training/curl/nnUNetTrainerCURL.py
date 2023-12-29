@@ -12,6 +12,7 @@ from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet_ext.training.EarlyStop import EarlyStop
 from nnunet_ext.training.FeatureRehearsalDataset2 import FeatureRehearsalDataset2
 from nnunet_ext.training.FeatureRehearsalDataset2Analyzer import FeatureRehearsalDataset2Analyzer
+from nnunet_ext.training.network_training.logging.nnUNetTrainerLoggingMultiHead import nnUNetTrainerLoggingMultiHead
 from nnunet_ext.training.network_training.multihead.nnUNetTrainerMultiHead import nnUNetTrainerMultiHead
 import calendar
 import time
@@ -98,7 +99,7 @@ from nnunet.training.dataloading.dataset_loading import load_dataset, DataLoader
 from nnunet_ext.paths import default_plans_identifier, evaluation_output_dir, preprocessing_output_dir, default_plans_identifier
 
 
-
+from nnunet_ext.utilities.logger import WandbLogger
 
 
 # -- Define globally the Hyperparameters for this trainer along with their type -- #
@@ -109,7 +110,7 @@ GENERATED_FEATURE_PATH_TR = "generated_features_tr"
 EXTRACTED_FEATURE_PATH_TR = "extracted_features_tr"
 EXTRACTED_FEATURE_PATH_VAL = "extracted_features_val"
 
-class nnUNetTrainerCURL(nnUNetTrainerMultiHead):
+class nnUNetTrainerCURL(nnUNetTrainerLoggingMultiHead):
     # -- Trains n tasks sequentially using transfer learning -- #
     def __init__(self, split, task, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
@@ -138,7 +139,6 @@ class nnUNetTrainerCURL(nnUNetTrainerMultiHead):
         self.num_feature_rehearsal_cases = 0        # store amount of feature_rehearsal cases. init with 0
         self.rehearse = False                       # variable for alternating schedule
 
-
         self.dict_from_file_name_to_task_idx = {}
         self.task_label_to_task_idx = []
 
@@ -150,12 +150,23 @@ class nnUNetTrainerCURL(nnUNetTrainerMultiHead):
         
         self.UNET_CLASS = VariationalUNetNoSkips
 
+        self.initial_lr = 0.001 #0.001
+
+    def maybe_update_lr(self, epoch=None):
+        if epoch is None:
+            ep = self.epoch + 1
+        else:
+            ep = epoch
+        self.optimizer.param_groups[0]['lr'] = self.initial_lr * (0.995 ** ep)
+        self.print_to_log_file("lr:", np.round(self.optimizer.param_groups[0]['lr'], decimals=6))
+        self.wandb_logger.update({'lr': self.optimizer.param_groups[0]['lr']})
+
     def initialize_optimizer_and_scheduler(self):
         assert self.network is not None, "self.initialize_network must be called first"
-        self.optimizer = torch.optim.SGD(self.network.parameters(), self.initial_lr / 10, weight_decay=self.weight_decay,
-                                         momentum=0.99, nesterov=True)
+        #self.optimizer = torch.optim.SGD(self.network.parameters(), self.initial_lr, weight_decay=self.weight_decay,
+        #                                 momentum=0.99, nesterov=True)
         
-        #self.optimizer = torch.optim.Adam(self.network.parameters(), self.initial_lr, weight_decay=self.weight_decay)
+        self.optimizer = torch.optim.Adam(self.network.parameters(), self.initial_lr, weight_decay=self.weight_decay)
         self.lr_scheduler = None
 
     def super_initialize_network(self):
@@ -723,8 +734,15 @@ class nnUNetTrainerCURL(nnUNetTrainerMultiHead):
                         current_task_idx = len(self.mh_network.heads.keys()) - 1
                         expected_mean = 8*current_task_idx # 0, 8, 16, ...
                         assert len(mean.shape) == 4, f"mean.shape: {mean.shape}"
-                        KL_divergence = 0.5 * torch.sum(-1 - log_var + torch.exp(log_var) + (mean-expected_mean)**2) / (mean.shape[2:].numel() * batch_size)
-                        l += KL_divergence
+                        KL_divergence = 0.5 * torch.sum(-1 - log_var + torch.exp(log_var) + (mean-expected_mean)**2) / batch_size
+                        #KL_divergence_weighted = KL_divergence / (mean.shape[2:].numel() * batch_size)
+                        KL_divergence_weighted = KL_divergence / (np.prod(self.patch_size))
+                        self.wandb_logger.update({
+                            "UNetLoss": l.detach().cpu().numpy(),
+                            "KL_divergence": KL_divergence.detach().cpu().numpy(),
+                            "KL_divergence_weighted": KL_divergence_weighted.detach().cpu().numpy()
+                        })
+                        l += KL_divergence_weighted
 
 
             if do_backprop:
@@ -751,8 +769,15 @@ class nnUNetTrainerCURL(nnUNetTrainerMultiHead):
                     current_task_idx = len(self.mh_network.heads.keys()) - 1
                     expected_mean = 8*current_task_idx # 0, 8, 16, ...
                     assert len(mean.shape) == 4, f"mean.shape: {mean.shape}"
-                    KL_divergence = 0.5 * torch.sum(-1 - log_var + torch.exp(log_var) + (mean-expected_mean)**2) / (mean.shape[2:].numel() * batch_size)
-                    l += KL_divergence
+                    KL_divergence = 0.5 * torch.sum(-1 - log_var + torch.exp(log_var) + (mean-expected_mean)**2) / batch_size
+                    #KL_divergence_weighted = KL_divergence / (mean.shape[2:].numel() * batch_size)
+                    KL_divergence_weighted = KL_divergence / (np.prod(self.patch_size))
+                    self.wandb_logger.update({
+                        "UNetLoss": l.detach().cpu().numpy(),
+                        "KL_divergence": KL_divergence.detach().cpu().numpy(),
+                        "KL_divergence_weighted": KL_divergence_weighted.detach().cpu().numpy()
+                    })
+                    l += KL_divergence_weighted
 
             if do_backprop:
                 l.backward()

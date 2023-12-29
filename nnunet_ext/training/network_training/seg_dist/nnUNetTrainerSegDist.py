@@ -115,9 +115,9 @@ class nnUNetTrainerSegDist(nnUNetTrainerMultiHead):
                           mixed_precision, save_csv, del_log, use_vit, self.vit_type,
                           version, split_gpu, transfer_heads, ViT_task_specific_ln, do_LSA, do_SPT)
         
-        self.VAE_CLASSES = [CFullyConnectedVAE2, CFullyConnectedVAE2Distributed]
+        #self.VAE_CLASSES = [CFullyConnectedVAE2, CFullyConnectedVAE2Distributed]
         self.UNET_CLASS = Generic_UNet
-        self.vae_max_num_epochs = 5000
+        self.vae_max_num_epochs = 2000
         self.force_new_vae_init = True
 
     def run_training(self, task, output_folder, build_folder=True):
@@ -965,7 +965,8 @@ class nnUNetTrainerSegDist(nnUNetTrainerMultiHead):
 
         vae_dict = torch.load(path)
         prostate = np.prod(vae_dict['shape']) > 10000 # true for prostate, false otherwise
-        self.vae = self.VAE_CLASSES[1 if prostate else 0](vae_dict['shape'], vae_dict['num_classes'], conditional_dim=vae_dict['conditional_dim'])
+        self.vae = fully_connected_ae.FullyConnectedAE(vae_dict['shape'])
+        #self.vae = self.VAE_CLASSES[1 if prostate else 0](vae_dict['shape'], vae_dict['num_classes'], conditional_dim=vae_dict['conditional_dim'])
         self.vae.load_state_dict(vae_dict['state_dict'])
 
 
@@ -1296,7 +1297,7 @@ class nnUNetTrainerSegDist(nnUNetTrainerMultiHead):
         gaussian_importance_map = self.network._get_gaussian(self.patch_size, sigma_scale=1. / 8)
 
         # prepare unet and vae
-        self.freeze_network()#<- very simple way to give layer_name_for_feature_extraction to the UNet, which is needed for the feature_forward method calls
+        self.network.layer_name_for_feature_extraction = self.layer_name_for_feature_extraction#<- very simple way to give layer_name_for_feature_extraction to the UNet, which is needed for the feature_forward method calls
         self.network.eval()
         self.vae.eval()
         if torch.cuda.is_available():
@@ -1348,8 +1349,9 @@ class nnUNetTrainerSegDist(nnUNetTrainerMultiHead):
                     logits_original, features_and_skips = self.network(data_patch, layer_name_for_feature_extraction=self.layer_name_for_feature_extraction)
                     
                     # reconstruct features using vae
-                    features_reconstructed, _, _ = self.vae(features_and_skips[-1], task_idx, slice_idx_normalized=slice_idx_normalized)
-                    reconstructed_features_and_skips = [torch.zeros_like(f_s) for f_s in features_and_skips]
+                    features_reconstructed = self.vae(features_and_skips[-1])
+                    #reconstructed_features_and_skips = [torch.zeros_like(f_s) for f_s in features_and_skips]
+                    reconstructed_features_and_skips = features_and_skips
                     reconstructed_features_and_skips[-1] = features_reconstructed
                     logits_distorted = self.network.feature_forward(reconstructed_features_and_skips)
 
