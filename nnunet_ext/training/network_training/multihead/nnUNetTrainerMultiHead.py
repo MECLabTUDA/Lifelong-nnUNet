@@ -1391,7 +1391,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             step_size=0.5, use_gaussian=True, all_in_gpu=False,
             mixed_precision=mixed_precision)[1]
 
-        assert np.all(softmax > 0) 
+        assert np.all(softmax >= 0) 
         softmax = softmax.reshape(softmax.shape[0], -1)
         # softmax.shape: 2, L (L=H*W*D)
         entropy = (softmax * np.log2(softmax)).sum()

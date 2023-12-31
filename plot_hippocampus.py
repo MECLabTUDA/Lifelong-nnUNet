@@ -261,6 +261,11 @@ def hippocampus_seeded():
                     'trainer': "nnUNetTrainerVAERehearsalNoSkipsConditionOnBoth",
                     'name': "CCVAEr"#, 2D, w/o skips, w/ freezing
     }
+    cvae_rehearsal = {'eval_path_base': "/local/scratch/clmn1/master_thesis/seeded/evaluation",
+                    'eval_path_middle': "nnUNet_ext/2d/Task197_DecathHip_Task198_Dryad_Task199_HarP",
+                    'trainer': "nnUNetTrainerVAERehearsalNoSkips",
+                    'name': "CVAEr"#, 2D, w/o skips, w/ freezing
+    }
     lwf_seeded = {'eval_path_base': "/local/scratch/clmn1/master_thesis/seeded/evaluation",
                     'eval_path_middle': "nnUNet_ext/2d/Task197_DecathHip_Task198_Dryad_Task199_HarP",
                     'trainer': "nnUNetTrainerLWF",
@@ -282,7 +287,7 @@ def hippocampus_seeded():
                     'name': "Sequential"#, 2D, w/ skips, w/o freezing
     }
 
-    trainers = [rehearsal_seeded, feature_rehearsal_seeded, upper_bound, vae_rehearsal, ewc_seeded, mib_seeded, lwf_seeded, sequential_seeded]
+    trainers = [rehearsal_seeded, feature_rehearsal_seeded, upper_bound, vae_rehearsal,cvae_rehearsal, ewc_seeded, mib_seeded, lwf_seeded, sequential_seeded]
     return trainers, "Hippocampus, seeded", combinations_splitted
 
 

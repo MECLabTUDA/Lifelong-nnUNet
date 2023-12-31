@@ -133,7 +133,8 @@ def brats_seeded():
                     'name': "Sequential"#, 2D, w/ skips, w/o freezing
     }
 
-    trainers = [rehearsal_seeded, feature_rehearsal_seeded, cvae_rehearsal, ewc_seeded, mib_seeded,lwf_seeded, sequential_seeded]
+    trainers = [rehearsal_seeded, feature_rehearsal_seeded,upper_bound, cvae_rehearsal, ewc_seeded, mib_seeded,lwf_seeded, sequential_seeded]
+    #trainers = [sequential_seeded]
     return trainers, "Hippocampus, seeded", combinations_splitted
 
 
@@ -152,7 +153,7 @@ else:
 
 
 data = []
-mask = "mask_1"
+mask = "mask_3"
 metric = 'Dice'
 
 palette = [] #TODO: add palette
@@ -197,7 +198,11 @@ for trainer in trainers:
 data = pd.concat(data)
 data['value'] = data["value"].apply(lambda x: 1-x)
 data = data.rename(columns={"value": metric})
+data = data.reindex()
+data = data.fillna(1)
 
+
+print(len(data))
 ax = sns.relplot(
     data=data,
     x="Epoch", y=metric,

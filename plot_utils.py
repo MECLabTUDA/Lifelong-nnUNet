@@ -21,15 +21,21 @@ def rename_tasks(task_name: str):
     elif task_name.endswith("Prostate-RUNMC"):
         return "RUNMC"
     elif task_name.endswith("BraTS6"):
-        return "BraTS6"
+        return "Site6"
     elif task_name.endswith("BraTS13"):
-        return "BraTS13"
+        return "Site13"
     elif task_name.endswith("BraTS16"):
-        return "BraTS16"
+        return "Site16"
     elif task_name.endswith("BraTS20"):
-        return "BraTS20"
+        return "Site20"
     elif task_name.endswith("BraTS21"):
-        return "BraTS21"
+        return "Site21"
+    elif task_name.endswith("BraTS1"):
+        return "Site1"
+    elif task_name.endswith("BraTS4"):
+        return "Site4"
+    elif task_name.endswith("BraTS18"):
+        return "Site18"
     print(f"ERROR: unknown task {task_name}")
     assert(False)
     exit()

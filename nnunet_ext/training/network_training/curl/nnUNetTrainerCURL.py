@@ -100,7 +100,7 @@ from nnunet_ext.paths import default_plans_identifier, evaluation_output_dir, pr
 
 
 from nnunet_ext.utilities.logger import WandbLogger
-
+from nnunet.training.network_training.network_trainer import NetworkTrainer
 
 # -- Define globally the Hyperparameters for this trainer along with their type -- #
 HYPERPARAMS = {}
@@ -138,9 +138,12 @@ class nnUNetTrainerCURL(nnUNetTrainerLoggingMultiHead):
         assert self.layer_name_for_feature_extraction.count('.') == 1, "layer_name must have exactly 1 dot"
         self.num_feature_rehearsal_cases = 0        # store amount of feature_rehearsal cases. init with 0
         self.rehearse = False                       # variable for alternating schedule
+        self.apply_rehearsal = True
 
         self.dict_from_file_name_to_task_idx = {}
         self.task_label_to_task_idx = []
+
+        self.num_tasks = len(self.tasks_list_with_char[0])
 
         self.init_args = (split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
                           deterministic, fp16, save_interval, self.already_trained_on, use_progress, identifier, extension,
@@ -150,16 +153,6 @@ class nnUNetTrainerCURL(nnUNetTrainerLoggingMultiHead):
         
         self.UNET_CLASS = VariationalUNetNoSkips
 
-        self.initial_lr = 0.001 #0.001
-
-    def maybe_update_lr(self, epoch=None):
-        if epoch is None:
-            ep = self.epoch + 1
-        else:
-            ep = epoch
-        self.optimizer.param_groups[0]['lr'] = self.initial_lr * (0.995 ** ep)
-        self.print_to_log_file("lr:", np.round(self.optimizer.param_groups[0]['lr'], decimals=6))
-        self.wandb_logger.update({'lr': self.optimizer.param_groups[0]['lr']})
 
     def initialize_optimizer_and_scheduler(self):
         assert self.network is not None, "self.initialize_network must be called first"
@@ -168,6 +161,26 @@ class nnUNetTrainerCURL(nnUNetTrainerLoggingMultiHead):
         
         self.optimizer = torch.optim.Adam(self.network.parameters(), self.initial_lr, weight_decay=self.weight_decay)
         self.lr_scheduler = None
+
+    def on_epoch_end(self):
+        # remove the part of reinitialization!
+        self.wandb_logger.increment_step()
+        NetworkTrainer.on_epoch_end(self)        
+        if self.epoch > 100:
+            if self.all_val_eval_metrics[-1] == 0:
+                self.apply_rehearsal = False
+            else:
+                self.apply_rehearsal = True
+        #super().on_epoch_end()
+
+        continue_training = self.epoch < self.max_num_epochs
+        # -- If the current epoch can be divided without a rest by self.save_every than its time for a validation -- #
+        if self.epoch % self.save_every == self.save_every - 1:   # Same as checkpoint saving from nnU-Net (NOTE: this is because its 0 based)
+            self._perform_validation()
+            self.save_checkpoint(join(self.output_folder, "training_" + str(self.epoch) +".model"), False)
+
+        # -- Return the result from the parent class -- #
+        return continue_training
 
     def super_initialize_network(self):
         if self.threeD:
@@ -687,6 +700,24 @@ class nnUNetTrainerCURL(nnUNetTrainerLoggingMultiHead):
                             os.remove(join(path,f))
                     assert len(os.listdir(path)) == 0
 
+
+    def compute_kl_div(self, mean, log_var):
+        batch_size = mean.shape[0]
+        assert len(mean.shape) == 4, f"mean.shape: {mean.shape}"
+        current_task_idx = len(self.mh_network.heads.keys()) - 1
+
+        #expected_mean = 8*current_task_idx # 0, 8, 16, ...
+        #KL_divergence = 0.5 * torch.sum(-1 - log_var + torch.exp(log_var) + (mean-expected_mean)**2) / batch_size
+
+        #expected = torch.distributions.Normal(8*current_task_idx * torch.ones_like(mean), torch.ones_like(mean))
+        expected = torch.distributions.Normal(current_task_idx/(self.num_tasks-1) * torch.ones_like(mean), 1/(4 * (self.num_tasks-1)) * torch.ones_like(mean))
+        predicted = torch.distributions.Normal(mean, torch.exp(log_var))
+        KL_divergence = torch.distributions.kl.kl_divergence(predicted, expected)
+        KL_divergence = KL_divergence.mean(0)#mean over batch dimension
+        KL_divergence = KL_divergence.sum()
+
+        return KL_divergence
+
     def run_iteration(self, data_generator, do_backprop=True, run_online_evaluation=False, detach=True, no_loss=False):
         # -- Run iteration as usual --> copied and modified from nnUNetTrainerV2 -- #
         if not isinstance(self.network, self.UNET_CLASS):
@@ -694,7 +725,7 @@ class nnUNetTrainerCURL(nnUNetTrainerLoggingMultiHead):
         
         rehearse = False
         
-        if do_backprop and len(self.mh_network.heads.keys()) > 1: # only enable the chance of rehearsal when training (not during evaluation) and when trainind not training the first task
+        if do_backprop and len(self.mh_network.heads.keys()) > 1 and self.apply_rehearsal: # only enable the chance of rehearsal when training (not during evaluation) and when trainind not training the first task
             rehearse = self.rehearse
             self.rehearse = not self.rehearse
 
@@ -731,11 +762,12 @@ class nnUNetTrainerCURL(nnUNetTrainerLoggingMultiHead):
                         else:
                             batch_size = output.shape[0]
                         # -- Add KL Divergence loss to the loss function -- #
-                        current_task_idx = len(self.mh_network.heads.keys()) - 1
-                        expected_mean = 8*current_task_idx # 0, 8, 16, ...
-                        assert len(mean.shape) == 4, f"mean.shape: {mean.shape}"
-                        KL_divergence = 0.5 * torch.sum(-1 - log_var + torch.exp(log_var) + (mean-expected_mean)**2) / batch_size
-                        #KL_divergence_weighted = KL_divergence / (mean.shape[2:].numel() * batch_size)
+                        #current_task_idx = len(self.mh_network.heads.keys()) - 1
+                        #expected_mean = 8*current_task_idx # 0, 8, 16, ...
+                        #assert len(mean.shape) == 4, f"mean.shape: {mean.shape}"
+                        #KL_divergence = 0.5 * torch.sum(-1 - log_var + torch.exp(log_var) + (mean-expected_mean)**2) / batch_size
+                        KL_divergence = self.compute_kl_div(mean, log_var)
+
                         KL_divergence_weighted = KL_divergence / (np.prod(self.patch_size))
                         self.wandb_logger.update({
                             "UNetLoss": l.detach().cpu().numpy(),
@@ -743,6 +775,12 @@ class nnUNetTrainerCURL(nnUNetTrainerLoggingMultiHead):
                             "KL_divergence_weighted": KL_divergence_weighted.detach().cpu().numpy()
                         })
                         l += KL_divergence_weighted
+                    else:
+                        self.wandb_logger.update({
+                            "UNetLoss_rehearsed": l.detach().cpu().numpy()
+                        })
+                    
+
 
 
             if do_backprop:
@@ -766,11 +804,12 @@ class nnUNetTrainerCURL(nnUNetTrainerLoggingMultiHead):
                     else:
                         batch_size = output.shape[0]
                     # -- Add KL Divergence loss to the loss function -- #
-                    current_task_idx = len(self.mh_network.heads.keys()) - 1
-                    expected_mean = 8*current_task_idx # 0, 8, 16, ...
-                    assert len(mean.shape) == 4, f"mean.shape: {mean.shape}"
-                    KL_divergence = 0.5 * torch.sum(-1 - log_var + torch.exp(log_var) + (mean-expected_mean)**2) / batch_size
-                    #KL_divergence_weighted = KL_divergence / (mean.shape[2:].numel() * batch_size)
+                    #current_task_idx = len(self.mh_network.heads.keys()) - 1
+                    #expected_mean = 8*current_task_idx # 0, 8, 16, ...
+                    #assert len(mean.shape) == 4, f"mean.shape: {mean.shape}"
+                    #KL_divergence = 0.5 * torch.sum(-1 - log_var + torch.exp(log_var) + (mean-expected_mean)**2) / batch_size
+                    KL_divergence = self.compute_kl_div(mean, log_var)
+
                     KL_divergence_weighted = KL_divergence / (np.prod(self.patch_size))
                     self.wandb_logger.update({
                         "UNetLoss": l.detach().cpu().numpy(),
@@ -778,6 +817,10 @@ class nnUNetTrainerCURL(nnUNetTrainerLoggingMultiHead):
                         "KL_divergence_weighted": KL_divergence_weighted.detach().cpu().numpy()
                     })
                     l += KL_divergence_weighted
+                else:
+                    self.wandb_logger.update({
+                        "UNetLoss_rehearsed": l.detach().cpu().numpy()
+                    })
 
             if do_backprop:
                 l.backward()
@@ -850,7 +893,8 @@ class nnUNetTrainerCURL(nnUNetTrainerLoggingMultiHead):
 
             for sample_idx in tqdm.tqdm(range(num_samples_per_task), total=num_samples_per_task):#20000
                 # sample rand from N(8*current_task_idx, I)
-                dummy_features_and_skips[-1] = torch.normal(8*y, 1, dummy_features_and_skips[-1].shape).cuda()
+                #dummy_features_and_skips[-1] = torch.normal(8*y, 1, dummy_features_and_skips[-1].shape).cuda()
+                dummy_features_and_skips[-1] = torch.distributions.Normal(y/(self.num_tasks-1) * torch.ones_like(dummy_features_and_skips[-1]), 1/(4 * (self.num_tasks-1)) * torch.ones_like(dummy_features_and_skips[-1])).sample().cuda()
                 output = self.network.generate(dummy_features_and_skips, self.layer_name_for_feature_extraction)
                 
                 features = dummy_features_and_skips[-1]

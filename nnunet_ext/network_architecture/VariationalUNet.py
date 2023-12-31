@@ -49,7 +49,7 @@ class VariationalUNetNoSkips(nnunet_ext.network_architecture.generic_UNet.Generi
 
         super(VariationalUNetNoSkips, self).__init__(
             input_channels=input_channels, 
-            base_num_features=int(1.5*base_num_features), ##################
+            base_num_features=int(1*base_num_features), ##################
             num_classes=num_classes, 
             num_pool=num_pool, 
             patch_size=patch_size,
@@ -122,11 +122,13 @@ class VariationalUNetNoSkips(nnunet_ext.network_architecture.generic_UNet.Generi
         #print(x.shape)
         mean = self.compute_mean(x)
         log_var = self.compute_log_variance(x)
-        eps = torch.randn(mean.shape, device=mean.device)
-        if not self.training:
-            eps = 0
-        var = torch.exp(0.5 * log_var)
-        x = mean + eps * var
+        #eps = torch.randn(mean.shape, device=mean.device)
+        #if not self.training:
+        #    eps = 0
+        #var = torch.exp(0.5 * log_var)
+        #x = mean + eps * var
+        dist = torch.distributions.Normal(mean, torch.exp(log_var))
+        x = dist.rsample()
         #print(x.shape)
         #exit()
 
@@ -271,6 +273,7 @@ class VariationalUNetNoSkips(nnunet_ext.network_architecture.generic_UNet.Generi
 
         if id < len(self.conv_blocks_context)-1 and layer in ["td", "conv_blocks_context"]:
             x = self.conv_blocks_context[-1](x)
+            assert False, "reparameterization is within feature_forward not implemented yet"
         
         if layer in ["td", "conv_blocks_context"]:  #in this case there is nothing to be done
             for u in range(len(self.tu)):

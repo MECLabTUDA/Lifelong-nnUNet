@@ -3,6 +3,7 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+from plot_utils import rename_tasks
 
 ROOT = "/local/scratch/clmn1/master_thesis/tests/evaluation/nnUNet_ext/2d"
 MASK = "mask_3"
@@ -25,12 +26,13 @@ for task in all_tasks:
 
 
 
-task_names = [task.split("_")[1] for task in all_tasks]
+task_names = [rename_tasks(task) for task in all_tasks]
 df_cm = pd.DataFrame(confusion_matrix, index=task_names, columns=task_names)
 plt.figure(figsize=(10, 7))
+sns.set(font_scale=1.5)
 sns.heatmap(df_cm, annot=True, cmap="Blues")
 plt.xlabel("Evaluated Task")
 plt.ylabel("Training Task")
-plt.title(f"Metric: {METRIC}, Segmentation: {MASK}")
-plt.savefig("confusion_matrix.png")
+#plt.title(f"Metric: {METRIC}, Segmentation: {MASK}")
+plt.savefig("confusion_matrix.pdf")
 

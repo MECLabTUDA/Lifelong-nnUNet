@@ -246,7 +246,12 @@ def prostate_seeded():
                     'trainer': "nnUNetTrainerRehearsalNoSkipsFrozen",
                     'name': "upper bound"#, 2D, w/o skips, w/ freezing
     }
-    vae_rehearsal = {'eval_path_base': "/local/scratch/clmn1/master_thesis/seeded/evaluation",
+    ccvae_rehearsal = {'eval_path_base': "/local/scratch/clmn1/master_thesis/seeded/evaluation",
+                    'eval_path_middle': "nnUNet_ext/2d/Task111_Prostate-BIDMC_Task112_Prostate-I2CVB_Task113_Prostate-HK_Task115_Prostate-UCL_Task116_Prostate-RUNMC",
+                    'trainer': "nnUNetTrainerVAERehearsalNoSkipsConditionOnBoth",
+                    'name': "CCVAEr"#, 2D, w/o skips, w/ freezing
+    }
+    ccvae_rehearsal_fixed = {'eval_path_base': "/local/scratch/clmn1/master_thesis/seeded/evaluation2",
                     'eval_path_middle': "nnUNet_ext/2d/Task111_Prostate-BIDMC_Task112_Prostate-I2CVB_Task113_Prostate-HK_Task115_Prostate-UCL_Task116_Prostate-RUNMC",
                     'trainer': "nnUNetTrainerVAERehearsalNoSkipsConditionOnBoth",
                     'name': "CCVAEr"#, 2D, w/o skips, w/ freezing
@@ -272,7 +277,7 @@ def prostate_seeded():
                     'name': "Sequential"#, 2D, w/ skips, w/o freezing
     }
 
-    trainers = [rehearsal_seeded, feature_rehearsal_seeded, upper_bound, cvae_rehearsal, vae_rehearsal, mib_seeded, lwf_seeded, sequential_seeded]
+    trainers = [rehearsal_seeded, feature_rehearsal_seeded, upper_bound, cvae_rehearsal, ccvae_rehearsal_fixed, mib_seeded, lwf_seeded, sequential_seeded]
     return trainers, "Hippocampus, seeded", combinations_splitted
 
 
