@@ -55,7 +55,7 @@ for head in use_heads:
             args += [str(x) for x in trained_on]
             args += ['-f', fold, '-use_model']
             args += [str(x) for x in use_model]
-            args += ['-evaluate_on', str(evaluate_on), '-d', device, '-use_head', str(head), '--enable_tta']
+            args += ['-evaluate_on', str(evaluate_on), '-d', device, '-use_head', str(head)]
             # print(args)
             sys.argv = args
             run_inference()
