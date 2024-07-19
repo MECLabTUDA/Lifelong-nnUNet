@@ -116,6 +116,10 @@ def run_evaluation(evaluator: str):
                         default=None)
     parser.add_argument('-evaluate_initialization', required=False, default=False, action="store_true",
                         help="set this evaluate the random initialization")
+    parser.add_argument('-no_delete', required=False, default=False, action="store_true",
+                        help="set this to not delete the inference files")
+    parser.add_argument('-legacy_structure', required=False, default=False, action="store_true",
+                        help="set this ")
 
     # -------------------------------
     # Extract arguments from parser
@@ -241,7 +245,7 @@ def run_evaluation(evaluator: str):
         for f in fold:
             evaluator2.run_evaluation2(network, network_trainer, (tasks_for_folder, char_to_join_tasks), evaluate_on_tasks, model_name_joined, args.enable_tta, mixed_precision, args.chk, f,
                                     version, vit_type, plans_identifier, do_LSA, do_SPT, always_use_last_head, use_head, use_model, EXT_MAP[network_trainer], transfer_heads,
-                                    use_vit, ViT_task_specific_ln, do_pod, args.include_training_data, args.evaluate_initialization)
+                                    use_vit, ViT_task_specific_ln, do_pod, args.include_training_data, args.evaluate_initialization, args.no_delete, args.legacy_structure)
 
 # -- Main function for setup execution -- #
 def main():

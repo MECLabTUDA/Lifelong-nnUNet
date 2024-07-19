@@ -165,7 +165,10 @@ class VariationalUNetNoSkips(nnunet_ext.network_architecture.generic_UNet.Generi
         if return_mean_log_var:
             return_values.append((mean, log_var))
         
-        return tuple(return_values)
+        if len(return_values) == 1:
+            return return_values[0]
+        else:
+            return tuple(return_values)
     
     
 

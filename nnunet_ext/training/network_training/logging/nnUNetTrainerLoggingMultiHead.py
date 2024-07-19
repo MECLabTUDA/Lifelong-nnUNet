@@ -1,5 +1,5 @@
 from nnunet_ext.training.network_training.multihead.nnUNetTrainerMultiHead import nnUNetTrainerMultiHead
-from nnunet_ext.utilities.logger import WandbLogger, try_get_id
+from nnunet_ext.utilities.logger import _EmptybLogger, WandbLogger, try_get_id
 import numpy as np
 import os, copy, torch
 from itertools import tee
@@ -29,17 +29,24 @@ from nnunet_ext.paths import default_plans_identifier, evaluation_output_dir, pr
 
 
 class nnUNetTrainerLoggingMultiHead(nnUNetTrainerMultiHead):
+
+
+    ### DO NOT CALL ON __init__ ###
+    # otherwise, the logger will be initialized for inference as well
+    def _maybe_init_logger(self, init_wandb=True):
+        if not hasattr(self, 'wandb_logger'):
+            if init_wandb:
+                self.wandb_logger = WandbLogger({
+                    'wandb_entity': None,
+                    'wandb_project': "Lifelong nnUNet",
+                    'wandb_run_name': f"{join_texts_with_char(self.tasks_list_with_char[0], self.tasks_list_with_char[1])}/{self.__class__.__name__}/{try_get_id()}",
+                })
+            else:
+                self.wandb_logger = _EmptybLogger()
+
     def run_training(self, task, output_folder, build_folder=True):
 
-        if self.tasks_list_with_char[0][0] == task:
-            
-            self.wandb_logger = WandbLogger({
-                'wandb_entity': None,
-                'wandb_project': "Lifelong nnUNet",
-                'wandb_run_name': f"{join_texts_with_char(self.tasks_list_with_char[0], self.tasks_list_with_char[1])}/{self.__class__.__name__}/{try_get_id()}",
-            })
-
-
+        self._maybe_init_logger()
         return super().run_training(task, output_folder, build_folder)
     
     def run_iteration(self, data_generator, do_backprop=True, run_online_evaluation=False, detach=True, no_loss=False):

@@ -1,4 +1,4 @@
-import os, argparse, nnunet_ext
+import os, argparse, nnunet_ext, shutil
 
 import pandas as pd
 
@@ -122,10 +122,9 @@ def run_ood_detection():
                         required=True,
                         default=None)
     
-    parser.add_argument("--threshold")
-
-
-
+    parser.add_argument("--thresholds", action='store', type=float, nargs="+", default=None)
+    parser.add_argument("--handle_modality", required=False, default=False, action="store_true",
+                        help="")
 
     # -------------------------------
     # Extract arguments from parser
@@ -266,8 +265,12 @@ def run_ood_detection():
                                                 fold[0],
                                                 evaluate_on)
         
+
+        checkpoint_name = args.chk
+        if checkpoint_name is None:
+            checkpoint_name = "model_final_checkpoint"
         trainer, params, all_best_model_files = load_model_and_checkpoint_files(params_ext, trainer_path, fold, mixed_precision=mixed_precision,
-                                                checkpoint_name="model_final_checkpoint")
+                                                checkpoint_name=checkpoint_name)
 
         original_path = trainer_path
         original_path = os.path.normpath(original_path)
@@ -277,7 +280,13 @@ def run_ood_detection():
 
         expected_num_modalities = load_pickle(join(plans_path, "plans.pkl"))['num_modalities']
         input_folder = os.path.join(os.environ['nnUNet_raw_data_base'], 'nnUNet_raw_data', evaluate_on, 'imagesTr')
-        case_ids = predict.check_input_folder_and_return_caseIDs(input_folder, expected_num_modalities)
+
+        dataset_expected_num_modalities = len(load_json(join(os.path.dirname(input_folder), "dataset.json"))['modality'])
+        if args.handle_modality and dataset_expected_num_modalities != expected_num_modalities:
+            case_ids = predict.check_input_folder_and_return_caseIDs(input_folder, dataset_expected_num_modalities)
+        else:
+            case_ids = predict.check_input_folder_and_return_caseIDs(input_folder, expected_num_modalities)
+
         all_files = subfiles(input_folder, suffix=".nii.gz", join=False, sort=True)
         list_of_lists = [[join(input_folder, i) for i in all_files if i[:len(j)].startswith(j) and
                       len(i) == (len(j) + 12)] for j in case_ids]
@@ -293,17 +302,42 @@ def run_ood_detection():
                 f = f + ".nii.gz"
             cleaned_output_files.append(join(dr, f))
 
+
+        # list_of_lists: Patient x Modality
+        if args.handle_modality and dataset_expected_num_modalities != expected_num_modalities:
+            if dataset_expected_num_modalities < expected_num_modalities:
+                # replicate the data
+                list_of_lists_new = []
+                for patient in list_of_lists:
+                    patient = patient * expected_num_modalities
+                    patient = patient[:expected_num_modalities]
+                    list_of_lists_new.append(patient)
+                list_of_lists = list_of_lists_new
+            else:
+                list_of_lists_new = []
+                for patient in list_of_lists:
+                    patient = patient[:expected_num_modalities]
+                    list_of_lists_new.append(patient)
+                list_of_lists = list_of_lists_new
+
+
+        #print(list_of_lists)F
+        #print(trainer.normalization_schemes)
+        #exit()
+
         print("starting preprocessing generator")
         preprocessing = predict.preprocess_multithreaded(trainer, list_of_lists, cleaned_output_files, 1)
         print("starting prediction...")
 
         results = []
 
-        if args.method in ['vae_reconstruction', 'uncertainty_mse_temperature', 'segmentation_distortion']:
+        if args.method in ['vae_reconstruction', 'vae_mahalanobis', 'uncertainty_mse_temperature', 
+                           'segmentation_distortion','segmentation_distortion_normalized']:
             trainer.load_vae()
         
         if args.method in ['uncertainty_mse_temperature']:
-            assert args.threshold != None, 'Please provide a threshold for the ood detection.'
+            assert args.thresholds != None, 'Please provide a threshold for the ood detection.'
+
 
         for preprocessed in preprocessing:
             output_filename, (d, dct) = preprocessed
@@ -321,10 +355,14 @@ def run_ood_detection():
                 for task_id, _ in enumerate(use_model_w_tasks):
                     if args.method == 'vae_reconstruction':
                         ood_score = trainer.ood_detection_by_vae_reconstruction(d, task_id)
+                    elif args.method == 'vae_mahalanobis':
+                        ood_score = trainer.ood_detection_by_vae_mahalanobis(d, task_id)
                     elif args.method == 'uncertainty_mse_temperature':
-                        ood_score = trainer.ood_detection_by_uncertainty_mse_temperature(d, float(args.threshold), task_id)
+                        ood_score = trainer.ood_detection_by_uncertainty_mse_temperature(d, float(args.thresholds[task_id]), task_id)
                     elif args.method == 'segmentation_distortion':
-                        ood_score = trainer.ood_detection_by_segmentation_distortion(d, task_id)
+                        ood_score = trainer.ood_detection_by_segmentation_distortion(d, task_id, False)
+                    elif args.method == 'segmentation_distortion_normalized':
+                        ood_score = trainer.ood_detection_by_segmentation_distortion(d, task_id, True)
                     else:
                         assert False, f"Unknown method {args.method}"
                     
@@ -353,18 +391,22 @@ def run_ood_detection():
                 elif row['case'] in splits_final[fold[0]]['test']:
                     df.loc[index, 'split'] = 'test'
 
-        os.rmdir(output_folder)
+        if os.path.isdir(output_folder):
+            shutil.rmtree(output_folder)
         dataframes.append(df)
 
+        # get parent folder of output_folder
+        parent_folder = os.path.join(os.path.dirname(output_folder), evaluate_on)
+        maybe_mkdir_p(parent_folder)
+
+        # write dataframe to csv
+        if save_csv:
+            if args.method == 'uncertainty_mse_temperature':
+                thresholds_string = '_'.join(map(str,args.thresholds))
+                df.to_csv(os.path.join(parent_folder, f"ood_scores_{args.method}_threshold_{thresholds_string}.csv"), index=False, sep='\t')
+                print(f"save to {parent_folder} as ood_scores_{args.method}_threshold_{thresholds_string}.csv")
+            else:
+                df.to_csv(os.path.join(parent_folder, f"ood_scores_{args.method}.csv"), index=False, sep='\t')
+                print(f"save to {parent_folder} as ood_scores_{args.method}.csv")
+
     # END for evaluate_on in evaluate_on_tasks:
-    
-    # concatenate all dataframes
-    df = pd.concat(dataframes, ignore_index=True)
-
-    # get parent folder of output_folder
-    parent_folder = os.path.dirname(output_folder)
-
-    # write dataframe to csv
-    if save_csv:
-        df.to_csv(os.path.join(parent_folder, f"ood_scores_{args.method}.csv"), index=False, sep='\t')
-        print(f"safe to {parent_folder} as ood_scores_{args.method}.csv")

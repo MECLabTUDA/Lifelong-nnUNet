@@ -2,7 +2,7 @@
 #------------------This class represents the nnUNet trainer for sequential training.--------------------#
 #########################################################################################################
 
-from nnunet_ext.network_architecture.VAE import FullyConnectedVAE2, FullyConnectedVAE2Distributed
+from nnunet_ext.network_architecture.VAE import CFullyConnectedVAE4NoConditioning, CFullyConnectedVAE4NoConditioningDistributed, FullyConnectedVAE2, FullyConnectedVAE2Distributed
 from nnunet_ext.network_architecture.generic_UNet_no_skips import Generic_UNet_no_skips
 from nnunet_ext.paths import default_plans_identifier
 from batchgenerators.utilities.file_and_folder_operations import *
@@ -15,7 +15,7 @@ class nnUNetTrainerVAERehearsalNoSkipsNoConditioning(nnUNetTrainerVAERehearsalBa
     # -- Trains n tasks sequentially using transfer learning -- #
     def __init__(self, split, task, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
-                 identifier=default_plans_identifier, extension='vae_rehearsal_base', tasks_list_with_char=None, 
+                 identifier=default_plans_identifier, extension='vae_rehearsal_no_skips_no_conditioning', tasks_list_with_char=None, 
                  #custom args
                  #target_type: FeatureRehearsalTargetType = FeatureRehearsalTargetType.GROUND_TRUTH,
                  num_rehearsal_samples_in_perc: float= 1.0,
@@ -34,5 +34,7 @@ class nnUNetTrainerVAERehearsalNoSkipsNoConditioning(nnUNetTrainerVAERehearsalBa
                          save_csv, del_log, use_vit, vit_type, version, split_gpu, transfer_heads, ViT_task_specific_ln, do_LSA, do_SPT,
                          network, use_param_split)
         
-        self.VAE_CLASSES = [FullyConnectedVAE2, FullyConnectedVAE2Distributed]
+        #self.VAE_CLASSES = [FullyConnectedVAE2, FullyConnectedVAE2Distributed]
+        self.VAE_CLASSES = [CFullyConnectedVAE4NoConditioning, CFullyConnectedVAE4NoConditioningDistributed]
         self.UNET_CLASS = Generic_UNet_no_skips
+        self.log_vae_test = False

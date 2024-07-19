@@ -10,8 +10,9 @@ from nnunet_ext.training.network_training.vae_rehearsal_no_skips.nnUNetTrainerVA
 from sklearn.covariance import MinCovDet
 import matplotlib.pyplot as plt
 np.seterr('raise')
+plt.rcParams['text.usetex'] = True
 #torch.autograd.set_detect_anomaly(True)
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 trainer_path = "/local/scratch/clmn1/master_thesis/tests/larger_conditional/results/nnUNet_ext/2d/Task097_DecathHip_Task098_Dryad_Task099_HarP/Task097_DecathHip_Task098_Dryad_Task099_HarP/nnUNetTrainerVAERehearsalNoSkipsLargerVaeForceInit__nnUNetPlansv2.1/Generic_UNet/SEQ/fold_0"
 #trainer_path = "/local/scratch/clmn1/master_thesis/tests/no_skips/results/nnUNet_ext/2d/Task097_DecathHip_Task098_Dryad_Task099_HarP/Task097_DecathHip_Task098_Dryad/nnUNetTrainerVAERehearsalNoSkips__nnUNetPlansv2.1/Generic_UNet/SEQ/fold_0"
 
@@ -72,10 +73,11 @@ if False:
     #trainer.generate_features(num_samples_per_task=trainer.batch_size //3 +1)
 
 
-trainer.clean_up([GENERATED_FEATURE_PATH_TR])
+#trainer.clean_up([GENERATED_FEATURE_PATH_TR])
+#trainer.update_dataloader()
+#trainer.generate_features(num_samples_per_task=trainer.batch_size //3 +1)
 trainer.update_dataloader()
-trainer.generate_features(num_samples_per_task=trainer.batch_size //3 +1)
-trainer.update_dataloader()
+trainer.update_generated_dataloader()
 
 
 mean_task_0, cov_task_0 = get_mean_std(get_tensor_of_task(trainer.extracted_features_dataset_tr, 0))
@@ -176,7 +178,8 @@ def visualize_distances(dist_from_0_to_0, dist_from_0_to_1, dist_from_0_to_2,
     ax2 = fig.add_subplot(1,3,2, sharey=ax1)
     ax3 = fig.add_subplot(1,3,3, sharey=ax1)
     plt.subplots_adjust(wspace=0.6)
-    ax1.boxplot([dist_from_0_to_0, dist_from_1_to_0, dist_from_2_to_0], widths=0.25)
+    ax1.boxplot([dist_from_0_to_0, dist_from_1_to_0, dist_from_2_to_0], widths=0.25, showfliers=False)
+    ax1.grid(axis='y',which='both')
     #ax1.plot(
     #    np.full(len(dist_from_0_to_0), 1.26),
     #    dist_from_0_to_0,
@@ -195,13 +198,16 @@ def visualize_distances(dist_from_0_to_0, dist_from_0_to_1, dist_from_0_to_2,
     #    "+k",
     #    markeredgewidth=1,
     #)
-    ax1.axes.set_xticklabels(("0", "1", "2"), size=15)
-    #ax1.set_ylabel(type, size=16)
+    ax1.axes.set_xticklabels(("1", "2", "3"), size=15)
+    ax1.set_ylabel(type, size=16)
     ax1.set_xlabel("from task")
-    ax1.set_title("to task 0")
+    ax1.set_title("to task 1")
 
 
-    ax2.boxplot([dist_from_0_to_1, dist_from_1_to_1, dist_from_2_to_1], widths=0.25)
+    ax2.boxplot([dist_from_0_to_1, dist_from_1_to_1, dist_from_2_to_1], widths=0.25, showfliers=False)
+    ax2.grid(axis='y',which='both')
+    ax2.tick_params(left = False, right = False , labelleft = False , 
+                labelbottom = True, bottom = True, which='both')
     #ax2.plot(
     #    np.full(len(dist_from_0_to_1), 1.26),
     #    dist_from_0_to_1,
@@ -220,12 +226,15 @@ def visualize_distances(dist_from_0_to_0, dist_from_0_to_1, dist_from_0_to_2,
     #    "+k",
     #    markeredgewidth=1,
     #)
-    ax2.axes.set_xticklabels(("0", "1", "2"), size=15)
+    ax2.axes.set_xticklabels(("1", "2", "3"), size=15)
     #ax2.set_ylabel(type, size=16)
     ax2.set_xlabel("from task")
-    ax2.set_title("to task 1")
+    ax2.set_title("to task 2")
     
-    ax3.boxplot([dist_from_0_to_2, dist_from_1_to_2, dist_from_2_to_2], widths=0.25)
+    ax3.boxplot([dist_from_0_to_2, dist_from_1_to_2, dist_from_2_to_2], widths=0.25, showfliers=False)
+    ax3.grid(axis='y',which='both')
+    ax3.tick_params(left = False, right = False , labelleft = False , 
+                labelbottom = True, bottom = True, which='both')
     #ax3.plot(
     #    np.full(len(dist_from_0_to_2), 1.26),
     #    dist_from_0_to_2,
@@ -244,10 +253,10 @@ def visualize_distances(dist_from_0_to_0, dist_from_0_to_1, dist_from_0_to_2,
     #    "+k",
     #    markeredgewidth=1,
     #)
-    ax3.axes.set_xticklabels(("0", "1", "2"), size=15)
+    ax3.axes.set_xticklabels(("1", "2", "3"), size=15)
     #ax3.set_ylabel(type, size=16)
     ax3.set_xlabel("from task")
-    ax3.set_title("to task 2")
+    ax3.set_title("to task 3")
 
 visualize_distances(
 dist_from_0_to_0_mse,
@@ -271,4 +280,5 @@ dist_from_1_to_2_mahalanobis,
 dist_from_2_to_0_mahalanobis,
 dist_from_2_to_1_mahalanobis,
 dist_from_2_to_2_mahalanobis, "Mahalanobis")
-plt.savefig("feature_dist_3_Mahalanobis.png")
+plt.tight_layout()
+plt.savefig("feature_dist_3_Mahalanobis.pdf", bbox_inches='tight')

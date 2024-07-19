@@ -110,7 +110,8 @@ def compute_scores_and_build_dict(evaluate_on: str, inference_folder:str, fold: 
 
 def run_evaluation2(network, network_trainer, tasks_list_with_char: tuple[list[str], str], evaluate_on_tasks: str, model_name_joined:str, enable_tta: bool, mixed_precision: bool, chk: str,
                     fold: int, version, vit_type, plans_identifier,do_LSA, do_SPT, always_use_last_head, use_head, use_model, extension,
-                    transfer_heads, use_vit, ViT_task_specific_ln, do_pod, include_training_data, evaluate_initialization: bool):
+                    transfer_heads, use_vit, ViT_task_specific_ln, do_pod, include_training_data, evaluate_initialization: bool,
+                    no_delete: bool, legacy_structure: bool):
     #  run_inference
     ## fixed parameters from inference
     lowres_segmentations = None
@@ -181,60 +182,62 @@ def run_evaluation2(network, network_trainer, tasks_list_with_char: tuple[list[s
     for include_training_data in [True, False]:
         file_name = "val_metrics_all" if include_training_data else "val_metrics_eval"
 
-        tasks_dict = dict()
-        for i, evaluate_on in enumerate(evaluate_on_tasks):
-            cases_dict = compute_scores_and_build_dict(evaluate_on, output_folders[i], fold, include_training_data)
-            tasks_dict[evaluate_on] = cases_dict
+        if legacy_structure:
+            tasks_dict = dict()
+            for i, evaluate_on in enumerate(evaluate_on_tasks):
+                cases_dict = compute_scores_and_build_dict(evaluate_on, output_folders[i], fold, include_training_data)
+                tasks_dict[evaluate_on] = cases_dict
 
-        validation_results = {"epoch_XXX": tasks_dict}
-        output_folders[0].split('/')
-        final_output_folder = join("/",*output_folders[0].split('/')[:-1])
-        print(final_output_folder)
+            validation_results = {"epoch_XXX": tasks_dict}
+            output_folders[0].split('/')
+            final_output_folder = join("/",*output_folders[0].split('/')[:-1])
+            print(final_output_folder)
 
-        save_json(validation_results, join(final_output_folder, file_name + '.json'), sort_keys=False)
-        val_res = nestedDictToFlatTable(validation_results, ['Epoch', 'Task', 'subject_id', 'seg_mask', 'metric', 'value'])
-        dumpDataFrameToCsv(val_res, final_output_folder, file_name + '.csv')
-        
-
-
-        output_file = join(final_output_folder, 'summarized_metrics_all.txt' if include_training_data else 'summarized_metrics_val.txt')
-        with open(output_file, 'w') as out:
-            out.write('Evaluation performed after Epoch {}, trained on fold {}.\n\n'.format("XXX", fold))
-            out.write("The {} model trained on {} has been used for this evaluation with the {} head. ".format(network_trainer, ', '.join([tasks_joined_name]), use_head))
-            out.write("The used checkpoint can be found at {}.\n\n".format(join(trainer_path, "model_final_checkpoint.model")))
-
-            for evaluate_on in evaluate_on_tasks:
-                for c in tasks_dict[evaluate_on][list(tasks_dict[evaluate_on].keys())[0]].keys():
-                    for metric in ["IoU", "Dice"]:
-                        t = val_res[val_res["Epoch"] == "epoch_XXX"]
-                        t = t[t["Task"] == evaluate_on]
-                        t = t[t["seg_mask"] == c]
-                        t = t[t["metric"] == metric]
-                        mean = t['value'].mean()
-                        std = t['value'].std()
-
-                        #mean = mean_table.loc[mean_table['Task'==evaluate_on and 'seg_mask'==c and 'metric'==metric]['value']].values
-                        #std = std_table.loc[std_table['Task'==evaluate_on and 'seg_mask'==c and 'metric'==metric]['value']].values
-                        #mean = mean_table.loc[mean_table['Task'==evaluate_on]]
-                        #mean = mean.loc[mean['seg_mask'==c]]
-                        #mean = mean.loc[mean['metric'==metric]]
-                        #mean = mean.values
-                        #std = [0]
-                        #assert len(mean) == 1
-                        #assert len(std) == 1
-                        #mean = mean[0]
-                        #std = std[0]
-                        out.write("Evaluation performed for fold {}, task {} using segmentation mask {} and {} as metric:\n".format(fold, evaluate_on, c, metric))
-                        out.write("mean (+/- std):\t {} +/- {}\n\n".format(mean, std))
+            save_json(validation_results, join(final_output_folder, file_name + '.json'), sort_keys=False)
+            val_res = nestedDictToFlatTable(validation_results, ['Epoch', 'Task', 'subject_id', 'seg_mask', 'metric', 'value'])
+            dumpDataFrameToCsv(val_res, final_output_folder, file_name + '.csv')
             
 
 
-            #for combi in itertools.product(eval_tasks, eval_metrics, eval_masks): # --> There will never be duplicate combinations
-            #    mean = np.mean(data.loc[(data['Task'] == combi[0]) & (data['metric'] == combi[1]) & (data['seg_mask'] == combi[2])]['value'])
-            #    std = np.std(data.loc[(data['Task'] == combi[0]) & (data['metric'] == combi[1]) & (data['seg_mask'] == combi[2])]['value'])
-            #    # -- Write the results into the file -- #
-            #    out.write("Evaluation performed for fold {}, task {} using segmentation mask {} and {} as metric:\n".format(t_fold, combi[0], combi[2].split('_')[-1], combi[1]))
-            #    out.write("mean (+/- std):\t {} +/- {}\n\n".format(mean, std))
+            output_file = join(final_output_folder, 'summarized_metrics_all.txt' if include_training_data else 'summarized_metrics_val.txt')
+            with open(output_file, 'w') as out:
+                out.write('Evaluation performed after Epoch {}, trained on fold {}.\n\n'.format("XXX", fold))
+                out.write("The {} model trained on {} has been used for this evaluation with the {} head. ".format(network_trainer, ', '.join([tasks_joined_name]), use_head))
+                out.write("The used checkpoint can be found at {}.\n\n".format(join(trainer_path, "model_final_checkpoint.model")))
+
+                for evaluate_on in evaluate_on_tasks:
+                    for c in tasks_dict[evaluate_on][list(tasks_dict[evaluate_on].keys())[0]].keys():
+                        for metric in ["IoU", "Dice"]:
+                            t = val_res[val_res["Epoch"] == "epoch_XXX"]
+                            t = t[t["Task"] == evaluate_on]
+                            t = t[t["seg_mask"] == c]
+                            t = t[t["metric"] == metric]
+                            mean = t['value'].mean()
+                            std = t['value'].std()
+
+
+                            out.write("Evaluation performed for fold {}, task {} using segmentation mask {} and {} as metric:\n".format(fold, evaluate_on, c, metric))
+                            out.write("mean (+/- std):\t {} +/- {}\n\n".format(mean, std))
+        else: #no legacy structure
+            for i, evaluate_on in enumerate(evaluate_on_tasks):
+                tasks_dict = dict()
+                cases_dict = compute_scores_and_build_dict(evaluate_on, output_folders[i], fold, include_training_data)
+                tasks_dict[evaluate_on] = cases_dict
+
+                validation_results = {"epoch_XXX": tasks_dict}
+                output_folders[0].split('/')
+                final_output_folder = join("/",*output_folders[0].split('/')[:-1])
+                os.makedirs(join(final_output_folder, evaluate_on), exist_ok=True)
+                save_json(validation_results, join(final_output_folder, evaluate_on, file_name + '.json'), sort_keys=False)
+                val_res = nestedDictToFlatTable(validation_results, ['Epoch', 'Task', 'subject_id', 'seg_mask', 'metric', 'value'])
+                dumpDataFrameToCsv(val_res, os.path.join(final_output_folder, evaluate_on), file_name + '.csv')
+
+
+
+                        
+    if not no_delete:
+        for f in output_folders:
+            shutil.rmtree(f)
         
 
 if __name__ == '__main__':

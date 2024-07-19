@@ -13,10 +13,10 @@ def delete_files_recursively(root):
                 os.remove(os.path.join(root, file))
                 print("deleted file: " + os.path.join(root, file))
                 deleted_files += 1
-            elif file.endswith(".txt") and os.path.getsize(os.path.join(root, file)) <= 1000 :
-                os.remove(os.path.join(root, file))
-                print("deleted file: " + os.path.join(root, file))
-                deleted_files += 1
+            #elif file.endswith(".txt") and os.path.getsize(os.path.join(root, file)) <= 1000 :
+            #    os.remove(os.path.join(root, file))
+            #    print("deleted file: " + os.path.join(root, file))
+            #    deleted_files += 1
 
     print("deleted " + str(deleted_files) + " files")
             

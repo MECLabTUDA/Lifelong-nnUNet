@@ -96,5 +96,5 @@ def do(TASK: int, NUM_TEST_DATA):
 if __name__ == '__main__':
     
     NUM_TEST_DATA = 0.3
-    for TASK in [10,11,12,13,14,15,16,17]:
+    for TASK in [2,7]:
         do(TASK, NUM_TEST_DATA)

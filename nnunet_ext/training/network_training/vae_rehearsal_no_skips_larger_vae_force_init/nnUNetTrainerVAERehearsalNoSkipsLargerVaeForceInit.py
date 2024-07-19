@@ -34,7 +34,7 @@ class nnUNetTrainerVAERehearsalNoSkipsLargerVaeForceInit(nnUNetTrainerVAERehears
                          save_csv, del_log, use_vit, vit_type, version, split_gpu, transfer_heads, ViT_task_specific_ln, do_LSA, do_SPT,
                          network, use_param_split)
         
-        self.VAE_CLASSES = [CFullyConnectedVAE4ConditionOnBoth, None]#CFullyConnectedVAE4ConditionOnSlice, CFullyConnectedVAE4
+        self.VAE_CLASSES = [None, None]#CFullyConnectedVAE4ConditionOnBoth, CFullyConnectedVAE4ConditionOnSlice, CFullyConnectedVAE4
         self.UNET_CLASS = Generic_UNet_no_skips
         self.force_new_vae_init = True
         self.vae_max_num_epochs = 5000

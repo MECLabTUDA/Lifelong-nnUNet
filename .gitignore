@@ -141,3 +141,5 @@ dmypy.json
 
 *.png
 *.pdf
+*.csv
+wandb/

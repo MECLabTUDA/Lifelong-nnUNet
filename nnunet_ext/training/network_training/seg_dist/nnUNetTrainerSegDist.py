@@ -11,6 +11,7 @@ from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet_ext.training.EarlyStop import EarlyStop
 from nnunet_ext.training.FeatureRehearsalDataset2 import FeatureRehearsalDataset2
 from nnunet_ext.training.FeatureRehearsalDataset2Analyzer import FeatureRehearsalDataset2Analyzer
+from nnunet_ext.training.network_training.logging.nnUNetTrainerLoggingMultiHead import nnUNetTrainerLoggingMultiHead
 from nnunet_ext.training.network_training.multihead.nnUNetTrainerMultiHead import nnUNetTrainerMultiHead
 import calendar
 import time
@@ -75,7 +76,7 @@ GENERATED_FEATURE_PATH_TR = "generated_features_tr"
 EXTRACTED_FEATURE_PATH_TR = "extracted_features_tr"
 EXTRACTED_FEATURE_PATH_VAL = "extracted_features_val"
 
-class nnUNetTrainerSegDist(nnUNetTrainerMultiHead):
+class nnUNetTrainerSegDist(nnUNetTrainerLoggingMultiHead):
     # -- Trains n tasks sequentially using transfer learning -- #
     def __init__(self, split, task, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
@@ -114,7 +115,11 @@ class nnUNetTrainerSegDist(nnUNetTrainerMultiHead):
                           tasks_list_with_char, num_rehearsal_samples_in_perc, layer_name_for_feature_extraction, 
                           mixed_precision, save_csv, del_log, use_vit, self.vit_type,
                           version, split_gpu, transfer_heads, ViT_task_specific_ln, do_LSA, do_SPT)
-        
+        self.BATCH_SIZES={
+            "hippocampus": 512,
+            "BraTs": 512,
+            "prostate": 32
+        }
         #self.VAE_CLASSES = [CFullyConnectedVAE2, CFullyConnectedVAE2Distributed]
         self.UNET_CLASS = Generic_UNet
         self.vae_max_num_epochs = 2000
@@ -289,7 +294,27 @@ class nnUNetTrainerSegDist(nnUNetTrainerMultiHead):
                 self.network.do_ds = ds
                 self.network.train(current_mode)
             # END: for preprocessed
+                
 
+    def get_anatomy(self, shape=None):
+        if shape is None:
+            shape = self.extracted_features_dataset_tr[0]['features_and_skips'][-1].shape[1:]
+        if np.prod(shape) < 10000:
+            anatomy = "hippocampus"
+        elif np.prod(shape) < 15000:
+            anatomy = "BraTs"
+        else:
+            anatomy = "prostate"
+        return anatomy
+    
+    def initialize_vae(self, anatomy: str, shape, num_tasks, conditional_dim):
+        self.vae = fully_connected_ae.FullyConnectedAE(shape)
+        return
+        if anatomy in ["BraTs"]:
+            assert torch.cuda.device_count() >= 2
+            self.vae = fully_connected_ae.FullyConnectedAEDistributed(shape)
+        else:
+            self.vae = fully_connected_ae.FullyConnectedAE(shape)
 
     def update_dataloader(self):
         ## update dataloader
@@ -477,7 +502,6 @@ class nnUNetTrainerSegDist(nnUNetTrainerMultiHead):
             data = to_cuda(data)
             target = to_cuda(target)
 
-
         self.optimizer.zero_grad()
         if self.fp16:
             with autocast():
@@ -540,8 +564,7 @@ class nnUNetTrainerSegDist(nnUNetTrainerMultiHead):
 
     def train_both_vaes(self):
 
-        prostate = np.prod(self.extracted_features_dataset_tr[0]['features_and_skips'][-1].shape[1:]) > 10000 # true for prostate, false otherwise
-
+        anatomy = self.get_anatomy()
 
         #self.netwok = self.network.cpu()
         torch.cuda.empty_cache()
@@ -550,13 +573,10 @@ class nnUNetTrainerSegDist(nnUNetTrainerMultiHead):
         self.network.do_ds = False
         self.fp16 = False
 
-        if prostate:
-            max_batch_size = 32
-        else:
-            max_batch_size = 512
+        max_batch_size = self.BATCH_SIZES[anatomy]
 
         self.print_to_log_file(f"using batch size {min(len(self.extracted_features_dataset_tr), max_batch_size)} for feature reahearsal training")
-        self.print_to_log_file(f"using batch size {min(len(self.extracted_features_dataset_val), max_batch_size // 2)} for feature reahearsal validation")
+        self.print_to_log_file(f"using batch size {min(len(self.extracted_features_dataset_val), max_batch_size)} for feature reahearsal validation")
 
         extracted_features_train_loader = FeatureRehearsalDataLoader(self.extracted_features_dataset_tr, batch_size=min(len(self.extracted_features_dataset_tr), max_batch_size),
                                                                      num_workers=8, pin_memory=True, 
@@ -591,12 +611,7 @@ class nnUNetTrainerSegDist(nnUNetTrainerMultiHead):
             self.print_to_log_file("initialize new VAE model")
             #self.vae = FullyConnectedVAE2(shape)
             #self.vae = autoencoders.AE(shape[0], np.prod(shape))
-            self.vae = fully_connected_ae.FullyConnectedAE(shape)
-            #if prostate:
-            #    assert torch.cuda.device_count() >= 2
-            #    self.vae = self.VAE_CLASSES[1](shape, num_tasks, conditional_dim=conditional_dim)
-            #else:
-            #    self.vae = self.VAE_CLASSES[0](shape, num_tasks, conditional_dim=conditional_dim)
+            self.initialize_vae(anatomy, shape, num_tasks, conditional_dim)
 
         self.print_to_log_file("num parameters vae:", sum(p.numel() for p in self.vae.parameters() if p.requires_grad))
         self.print_to_log_file("Start training of the first stage VAE")
@@ -616,7 +631,7 @@ class nnUNetTrainerSegDist(nnUNetTrainerMultiHead):
             torch.save(vae_save_this, join(self.output_folder, "vae.model"))
             self.print_to_log_file("done saving the VAE model.")
 
-        self.train_vae(save_callback, self.vae_max_num_epochs, prostate)
+        self.train_vae(save_callback, self.vae_max_num_epochs, anatomy)
         #if self.fp16:
         #    with autocast():
         #        visualize_latent_space(self.vae, self.feature_rehearsal_dataloader_tr, join(self.output_folder, "vae_visualization.png"))
@@ -627,7 +642,7 @@ class nnUNetTrainerSegDist(nnUNetTrainerMultiHead):
         self.fp16 = before_fp16
         self.network.do_ds = before_ds
 
-    def train_vae(self, save_callback, max_num_epochs: int, prostate: bool):
+    def train_vae(self, save_callback, max_num_epochs: int, anatomy: str):
         self.vae.train()
         self.network.cuda()
         self.network.eval()
@@ -666,15 +681,14 @@ class nnUNetTrainerSegDist(nnUNetTrainerMultiHead):
         self.vae_loss = lossMSEMean
         self.print_to_log_file(f"using loss {self.vae_loss.__name__}")
 
-        early_stop = EarlyStop(patience=1000 if prostate else 200, save_callback=save_callback, trainer=self, verbose=True)
+        early_stop = EarlyStop(patience=1000 if anatomy in ["prostate"] else 200, save_callback=save_callback, trainer=self, verbose=True)
         self.print_to_log_file("train using early stopping with patience=200")
 
         train_using_rehearsal = hasattr(self, 'generated_feature_rehearsal_dataset')
         assert not train_using_rehearsal, "we should not try to train this thing using rehearsal."
         self.print_to_log_file(f"train using rehearsal: {train_using_rehearsal}")
         if train_using_rehearsal:
-
-            max_batch_size = 32 if prostate else 512
+            max_batch_size = self.BATCH_SIZES[anatomy]
             self.print_to_log_file("extracted dataset:", self.extracted_features_dataset_tr.data_patches)
             self.print_to_log_file("generated dataset:", self.generated_feature_rehearsal_dataset.data_patches)
             dataset = FeatureRehearsalConcatDataset(self.extracted_features_dataset_tr, [self.extracted_features_dataset_tr, self.generated_feature_rehearsal_dataset])
@@ -727,6 +741,7 @@ class nnUNetTrainerSegDist(nnUNetTrainerMultiHead):
                         if 'out of memory' in str(e):
                             #https://github.com/facebookresearch/fairseq/blob/50a671f78d0c8de0392f924180db72ac9b41b801/fairseq/trainer.py#L283
                             self.print_to_log_file('WARNING: ran out of memory')
+                            input("wait for input")
                             self.vae_optimizer.zero_grad(set_to_none=True)
                             torch.cuda.empty_cache()
                             l, reconstruction_loss, kl_div = self.vae_run_iteration(data_iter_tr, epoch=epoch+1)
@@ -742,13 +757,19 @@ class nnUNetTrainerSegDist(nnUNetTrainerMultiHead):
                     kl_divergences_tr.append(kl_div)
 
 
-            self.vae.eval()
-            for _ in range(len(self.feature_rehearsal_dataloader_test)):
-                with torch.no_grad():
-                    l, reconstruction_loss, kl_div = self.vae_run_iteration(data_iter_test, do_backprop=False, epoch=epoch+1)
-                losses_val.append(l)
-                reconstruction_losses_val.append(reconstruction_loss)
-                kl_divergences_val.append(kl_div)
+            if False:
+                self.vae.eval()
+                for _ in range(len(self.feature_rehearsal_dataloader_test)):
+                    with torch.no_grad():
+                        l, reconstruction_loss, kl_div = self.vae_run_iteration(data_iter_test, do_backprop=False, epoch=epoch+1)
+                    losses_val.append(l)
+                    reconstruction_losses_val.append(reconstruction_loss)
+                    kl_divergences_val.append(kl_div)
+            else:
+                losses_val.append(0)
+                reconstruction_losses_val.append(0)
+                kl_divergences_val.append(0)
+
 
             adjust_lr(self.vae_optimizer, epoch)
             self.print_to_log_file(f"finish epoch {epoch+1} with average loss: {np.mean(losses_tr)}")
@@ -772,8 +793,6 @@ class nnUNetTrainerSegDist(nnUNetTrainerMultiHead):
             
             if not np.isfinite(np.mean(losses_tr)):
                 self.print_to_log_file("Loss diverged! Reinitialize...")
-                prostate = np.prod(self.extracted_features_dataset_tr[0]['features_and_skips'][-1].shape[1:]) > 10000 # true for prostate, false otherwise
-                
                 
                 shape = self.extracted_features_dataset_tr[0]['features_and_skips'][-1].shape[1:]
                 num_tasks = len(self.tasks_list_with_char[0])
@@ -781,10 +800,7 @@ class nnUNetTrainerSegDist(nnUNetTrainerMultiHead):
 
                 del self.vae
                 torch.cuda.empty_cache()
-                if prostate:
-                    self.vae = self.VAE_CLASSES[1](shape, num_tasks, conditional_dim=conditional_dim)
-                else:
-                    self.vae = self.VAE_CLASSES[0](shape, num_tasks, conditional_dim=conditional_dim)
+                self.initialize_vae(anatomy, shape, num_tasks, conditional_dim)
                 for param_group in self.vae_optimizer.param_groups:
                     learning_rate = param_group['lr']
                 self.vae.to_gpus()
@@ -807,6 +823,7 @@ class nnUNetTrainerSegDist(nnUNetTrainerMultiHead):
         self.vae_optimizer.zero_grad()
         if self.fp16:
             with autocast():
+                assert False, "not implemented"
                 x_hat = self.vae(data[-1])#last layer features
                 with torch.no_grad():
                     true_logits = self.network(data)
@@ -964,9 +981,7 @@ class nnUNetTrainerSegDist(nnUNetTrainerMultiHead):
         self.print_to_log_file(f"loading vae from {path}")
 
         vae_dict = torch.load(path)
-        prostate = np.prod(vae_dict['shape']) > 10000 # true for prostate, false otherwise
-        self.vae = fully_connected_ae.FullyConnectedAE(vae_dict['shape'])
-        #self.vae = self.VAE_CLASSES[1 if prostate else 0](vae_dict['shape'], vae_dict['num_classes'], conditional_dim=vae_dict['conditional_dim'])
+        self.initialize_vae(self.get_anatomy(vae_dict['shape']), vae_dict['shape'], vae_dict['num_classes'], vae_dict['conditional_dim'])
         self.vae.load_state_dict(vae_dict['state_dict'])
 
 
@@ -1284,7 +1299,7 @@ class nnUNetTrainerSegDist(nnUNetTrainerMultiHead):
         return df
     
     @torch.no_grad()
-    def ood_detection_by_segmentation_distortion(self, d: np.ndarray, task_id: int):
+    def ood_detection_by_segmentation_distortion(self, d: np.ndarray, task_id: int, softmax_normalize: bool):
         assert hasattr(self, 'vae'), "vae must be loaded before calling this function"
         assert self.network.conv_op == nn.Conv2d
 
@@ -1381,6 +1396,12 @@ class nnUNetTrainerSegDist(nnUNetTrainerMultiHead):
             # computing the class_probabilities by dividing the aggregated result with result_numsamples
             class_probabilities_original = aggregated_results_original / aggregated_nb_of_predictions
             class_probabilities_distorted = aggregated_results_distorted / aggregated_nb_of_predictions
+
+            
+            if softmax_normalize:
+                class_probabilities_original = F.softmax(torch.from_numpy(class_probabilities_original), 0).numpy()
+                class_probabilities_distorted = F.softmax(torch.from_numpy(class_probabilities_distorted), 0).numpy()
+
             uncertainty_map = ((class_probabilities_original - class_probabilities_distorted)**2).mean(axis=0)
             uncertainty_maps.append(uncertainty_map)
 

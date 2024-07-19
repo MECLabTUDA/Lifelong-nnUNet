@@ -7,6 +7,7 @@ import plot_colors
 END = "__nnUNetPlansv2.1/Generic_UNet/SEQ/head_None/fold_0/val_metrics_eval.csv"
 END_TRAIN = "__nnUNetPlansv2.1/Generic_UNet/SEQ/fold_0/val_metrics.csv"
 from plot_utils import rename_tasks
+plt.rcParams['text.usetex'] = True
 
 #combinations = ["Task011_Prostate-BIDMC",
 #                    "Task011_Prostate-BIDMC_Task012_Prostate-I2CVB",
@@ -90,27 +91,32 @@ def brats_seeded():
     rehearsal_seeded = {'eval_path_base': "/local/scratch/clmn1/master_thesis/seeded/evaluation",
                     'eval_path_middle': "nnUNet_ext/2d/Task306_BraTS6_Task313_BraTS13_Task316_BraTS16_Task320_BraTS20_Task321_BraTS21",
                     'trainer': "nnUNetTrainerRehearsal",
-                    'name': "Rehearsal"#, 2D, w/ skips, w/o freezing
+                    'name': "Rehearsal",#, 2D, w/ skips, w/o freezing
+                    'line_style': (3, 3)
     }
     feature_rehearsal_seeded = {'eval_path_base': "/local/scratch/clmn1/master_thesis/seeded/evaluation",
                     'eval_path_middle': "nnUNet_ext/2d/Task306_BraTS6_Task313_BraTS13_Task316_BraTS16_Task320_BraTS20_Task321_BraTS21",
                     'trainer': "nnUNetTrainerFeatureRehearsal2",
-                    'name': "Feature Rehearsal"#, 2D, w/ skips, w/o freezing
+                    'name': "Feature Rehearsal",#, 2D, w/ skips, w/o freezing
+                    'line_style': (3, 3)
     }
     upper_bound = {'eval_path_base': "/local/scratch/clmn1/master_thesis/seeded/evaluation",
                     'eval_path_middle': "nnUNet_ext/2d/Task306_BraTS6_Task313_BraTS13_Task316_BraTS16_Task320_BraTS20_Task321_BraTS21",
                     'trainer': "nnUNetTrainerRehearsalNoSkipsFrozen",
-                    'name': "upper bound"#, 2D, w/o skips, w/ freezing
+                    'name': "Rehearsal--",
+                    'code': "upper bound",#, 2D, w/o skips, w/ freezing
+                    'line_style': (3, 3)
     }
     vae_rehearsal = {'eval_path_base': "/local/scratch/clmn1/master_thesis/seeded/evaluation",
                     'eval_path_middle': "nnUNet_ext/2d/Task306_BraTS6_Task313_BraTS13_Task316_BraTS16_Task320_BraTS20_Task321_BraTS21",
                     'trainer': "nnUNetTrainerVAERehearsalNoSkipsConditionOnBoth",
-                    'name': "CCVAEr"#, 2D, w/o skips, w/ freezing
+                    'name': r"\textbf{ccVAEr}",#, 2D, w/o skips, w/ freezing
+                    'code': "ccVAEr"#, 2D, w/o skips, w/ freezing
     }
     cvae_rehearsal = {'eval_path_base': "/local/scratch/clmn1/master_thesis/seeded/evaluation",
                     'eval_path_middle': "nnUNet_ext/2d/Task306_BraTS6_Task313_BraTS13_Task316_BraTS16_Task320_BraTS20_Task321_BraTS21",
-                    'trainer': "nnUNetTrainerVAERehearsalNoSkips",
-                    'name': "CVAEr"#, 2D, w/o skips, w/ freezing
+                    'trainer': "nnUNetTrainerVAERehearsalNoSkipsLarge",
+                    'name': "cVAEr"#, 2D, w/o skips, w/ freezing
     }
     lwf_seeded = {'eval_path_base': "/local/scratch/clmn1/master_thesis/seeded/evaluation",
                     'eval_path_middle': "nnUNet_ext/2d/Task306_BraTS6_Task313_BraTS13_Task316_BraTS16_Task320_BraTS20_Task321_BraTS21",
@@ -127,14 +133,19 @@ def brats_seeded():
                     'trainer': "nnUNetTrainerMiB",
                     'name': "MiB"#, 2D, w/ skips, w/o freezing
     }
+    curl = {'eval_path_base': "/local/scratch/clmn1/master_thesis/seeded/evaluation",
+                    'eval_path_middle': "nnUNet_ext/2d/Task306_BraTS6_Task313_BraTS13_Task316_BraTS16_Task320_BraTS20_Task321_BraTS21",
+                    'trainer': "nnUNetTrainerCURL",
+                    'name': "cURL"#, 2D, w/ skips, w/o freezing
+    }
     sequential_seeded = {'eval_path_base': "/local/scratch/clmn1/master_thesis/seeded/evaluation",
                     'eval_path_middle': "nnUNet_ext/2d/Task306_BraTS6_Task313_BraTS13_Task316_BraTS16_Task320_BraTS20_Task321_BraTS21",
                     'trainer': "nnUNetTrainerSequential",
                     'name': "Sequential"#, 2D, w/ skips, w/o freezing
     }
 
-    trainers = [rehearsal_seeded, feature_rehearsal_seeded,upper_bound, cvae_rehearsal, ewc_seeded, mib_seeded,lwf_seeded, sequential_seeded]
-    #trainers = [sequential_seeded]
+    trainers = [rehearsal_seeded, feature_rehearsal_seeded,upper_bound, vae_rehearsal, cvae_rehearsal, curl, ewc_seeded, mib_seeded,lwf_seeded, sequential_seeded]
+    trainers = [feature_rehearsal_seeded, vae_rehearsal, ewc_seeded, mib_seeded, sequential_seeded]
     return trainers, "Hippocampus, seeded", combinations_splitted
 
 
@@ -144,8 +155,8 @@ def brats_seeded():
 
 
 
-
-t = brats_seeded()
+configuration = brats_seeded
+t = configuration()
 if len(t) == 3:
     trainers, title, combinations = t
 else:
@@ -157,6 +168,7 @@ mask = "mask_3"
 metric = 'Dice'
 
 palette = [] #TODO: add palette
+ONLY_ON_TRAINED = True
 
 for trainer in trainers:
     frame = pd.read_csv(os.path.join(trainer['eval_path_base'], "trained_final", trainer['eval_path_middle'], "initialization", trainer['trainer'] + END), sep="\t")
@@ -165,7 +177,8 @@ for trainer in trainers:
     frame['Epoch'] = 0
     frame['Trainer'] = trainer['name']
     frame['Task'] = frame['Task'].apply(rename_tasks)
-    data.append(frame)
+    if not ONLY_ON_TRAINED:
+        data.append(frame)
 
     if 'code' in trainer.keys() and trainer['code'] in plot_colors.colors.keys():
         palette.append(plot_colors.colors[trainer['code']])
@@ -182,7 +195,7 @@ for trainer in trainers:
             frame = frame.drop(frame[frame['metric'] != metric].index)
             frame = frame.drop(frame[frame['seg_mask'] != mask].index)
 
-            if False:                   #-> start after training on that repspective task
+            if ONLY_ON_TRAINED:                   #-> start after training on that repspective task
                 b = [x in task for x in frame['Task']]
                 assert(len(b) == len(frame))
                 frame= frame[b]
@@ -213,7 +226,12 @@ ax = sns.relplot(
     palette=palette,
     height=4, aspect=1, facet_kws=dict(sharex=True),
     errorbar=None, 
-    col_wrap=3
+    col_wrap=3,
+    linewidth=3,
+    marker="X",
+
+    style="Trainer",
+    dashes=[trainer['line_style'] if 'line_style' in trainer.keys() else (1, 0) for trainer in trainers],
 )
 
 for i, t in enumerate(ax.axes):
@@ -238,4 +256,5 @@ plt.gca().set_yticklabels([90, 80, 60, 40, 20, 0])
 plt.gca().invert_yaxis()
 #ax.fig.suptitle(title, fontsize=16)
 #ax.fig.subplots_adjust(top=0.9)
-plt.savefig("plot_brats.png", bbox_inches='tight')
+plt.savefig(f"plots/continual_learning/brats/{configuration.__name__}_{mask}.pdf", bbox_inches='tight')
+print(f"plots/continual_learning/brats/{configuration.__name__}_{mask}.pdf")

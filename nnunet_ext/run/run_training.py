@@ -4,7 +4,7 @@
 #########################################################################################################
 
 import numpy as np
-import os, argparse, copy, warnings, nnunet_ext, torch
+import os, argparse, copy, warnings, nnunet_ext
 from nnunet.network_architecture.generic_UNet import Generic_UNet
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet.training.model_restore import recursive_find_python_class
@@ -239,7 +239,8 @@ def run_training(extension='multihead'):
         
     if extension in ['feature_rehearsal2', 'feature_rehearsal_no_freeze', 'feature_rehearsal_no_replay', 'vae_rehearsal_no_skips', 
                      'feature_rehearsal_no_skips', 'vae_rehearsal_no_skips_no_conditioning', 'vae_rehearsal_no_skips_larger_vae_force_init', 
-                     'vae_rehearsal_no_skips_condition_on_both', 'rehearsal_no_skips_frozen', 'curl', 'seg_dist']:
+                     'vae_rehearsal_no_skips_condition_on_both', 'rehearsal_no_skips_frozen', 'curl', 'seg_dist', 'vae_rehearsal_no_skips_large',
+                     'vae_rehearsal_base2_pipe', 'vae_rehearsal_base2_deepspeed', 'vae_rehearsal_with_skips']:
         # num_rehearsal_samples_in_perc
         parser.add_argument('-num_samples_in_perc', action='store', type=float, required=False, default=0.25,
                             help='Specify how much of the previous tasks should be considered during training.'
@@ -500,7 +501,8 @@ def run_training(extension='multihead'):
                      'feature_rehearsal_no_replay', 'vae_rehearsal_no_skips', 
                      'feature_rehearsal_no_skips', 'vae_rehearsal_no_skips_no_conditioning', 
                      'vae_rehearsal_no_skips_larger_vae_force_init', 'vae_rehearsal_no_skips_condition_on_both',
-                     'rehearsal_no_skips_frozen', 'curl', 'seg_dist']:
+                     'rehearsal_no_skips_frozen', 'curl', 'seg_dist', 'vae_rehearsal_no_skips_large','vae_rehearsal_base2_pipe',
+                     'vae_rehearsal_base2_deepspeed', 'vae_rehearsal_with_skips']:
         num_rehearsal_samples_in_perc = args.num_samples_in_perc
         layer_name_for_feature_extraction = args.layer_name
     
@@ -583,6 +585,10 @@ def run_training(extension='multihead'):
               'nnUNetTrainerVAERehearsalNoSkipsNoConditioning': vae_rehearsal_args,
               'nnUNetTrainerVAERehearsalNoSkipsLargerVaeForceInit': vae_rehearsal_args,
               'nnUNetTrainerVAERehearsalNoSkipsConditionOnBoth': vae_rehearsal_args,
+              'nnUNetTrainerVAERehearsalNoSkipsLarge': vae_rehearsal_args,
+              'nnUNetTrainerVAERehearsalBase2Pipe': vae_rehearsal_args,
+              'nnUNetTrainerVAERehearsalBase2DeepSpeed': vae_rehearsal_args,
+              'nnUNetTrainerVAERehearsalWithSkips': vae_rehearsal_args,
 
               'nnUNetTrainerCURL': vae_rehearsal_args,
               'nnUNetTrainerSegDist': vae_rehearsal_args,
@@ -1106,3 +1112,15 @@ def main_curl():
 
 def main_seg_dist():
     run_training(extension="seg_dist")
+
+def main_vae_rehearsal_no_skips_large():
+    run_training(extension="vae_rehearsal_no_skips_large")
+
+def main_vae_rehearsal_no_skips_pipe():
+    run_training(extension="vae_rehearsal_base2_pipe")
+
+def main_vae_rehearsal_no_skips_deepspeed():
+    run_training(extension="vae_rehearsal_base2_deepspeed")
+
+def main_vae_rehearsal_with_skips():
+    run_training(extension="vae_rehearsal_with_skips")

@@ -1,4 +1,4 @@
-from nnunet_ext.network_architecture.VAE import CFullyConnectedVAE, CFullyConnectedVAE2, FullyConnectedVAE, FullyConnectedVAE2
+from nnunet_ext.network_architecture.VAE import CFullyConnectedVAE, CFullyConnectedVAE2, CFullyConnectedVAE4ConditionOnBoth, CFullyConnectedVAE4ConditionOnSlice, FullyConnectedVAE, FullyConnectedVAE2
 from nnunet_ext.network_architecture.generic_UNet_no_skips import Generic_UNet_no_skips
 from nnunet_ext.training.FeatureRehearsalDataset import FeatureRehearsalDataLoader, FeatureRehearsalConcatDataset
 from nnunet_ext.training.model_restore import restore_model
@@ -9,16 +9,18 @@ from nnunet_ext.training.network_training.vae_rehearsal_base2.nnUNetTrainerVAERe
 from nnunet_ext.training.network_training.vae_rehearsal_no_skips.nnUNetTrainerVAERehearsalNoSkips import nnUNetTrainerVAERehearsalNoSkips
 from sklearn.covariance import MinCovDet
 import matplotlib.pyplot as plt
+
+from nnunet_ext.training.network_training.vae_rehearsal_no_skips_larger_vae_force_init.nnUNetTrainerVAERehearsalNoSkipsLargerVaeForceInit import nnUNetTrainerVAERehearsalNoSkipsLargerVaeForceInit
 np.seterr('raise')
 #torch.autograd.set_detect_anomaly(True)
-os.environ["CUDA_VISIBLE_DEVICES"] = ""
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 trainer_path = "/local/scratch/clmn1/master_thesis/tests/larger_conditional/results/nnUNet_ext/2d/Task097_DecathHip_Task098_Dryad_Task099_HarP/Task097_DecathHip_Task098_Dryad_Task099_HarP/nnUNetTrainerVAERehearsalNoSkipsLargerVaeForceInit__nnUNetPlansv2.1/Generic_UNet/SEQ/fold_0"
 #trainer_path = "/local/scratch/clmn1/master_thesis/tests/no_skips/results/nnUNet_ext/2d/Task097_DecathHip_Task098_Dryad_Task099_HarP/Task097_DecathHip_Task098_Dryad/nnUNetTrainerVAERehearsalNoSkips__nnUNetPlansv2.1/Generic_UNet/SEQ/fold_0"
 
 
 checkpoint = os.path.join(trainer_path, "model_final_checkpoint.model")
 pkl_file = checkpoint + ".pkl"
-trainer: nnUNetTrainerVAERehearsalNoSkips = restore_model(pkl_file, checkpoint, train=False, fp16=True,\
+trainer: nnUNetTrainerVAERehearsalNoSkipsLargerVaeForceInit = restore_model(pkl_file, checkpoint, train=False, fp16=True,\
                         use_extension=True, extension_type="vae_rehearsal_no_skips_larger_vae_force_init", del_log=True,\
                         param_search=False, network="2d")
 
@@ -26,18 +28,19 @@ assert trainer.was_initialized
 trainer.network.__class__ = Generic_UNet_no_skips
 trainer.num_rehearsal_samples_in_perc = 1.0
 trainer.freeze_network()
-#trainer.load_vae("/local/scratch/clmn1/master_thesis/tests/larger_conditional/results/nnUNet_ext/2d/Task097_DecathHip_Task098_Dryad_Task099_HarP/Task097_DecathHip_Task098_Dryad_Task099_HarP/nnUNetTrainerVAERehearsalNoSkipsLargerVaeForceInit__nnUNetPlansv2.1/Generic_UNet/SEQ/fold_0/vae_on_both.model")
+
+trainer.VAE_CLASSES[0] = CFullyConnectedVAE4ConditionOnBoth
+trainer.load_vae("/local/scratch/clmn1/master_thesis/tests/larger_conditional/results/nnUNet_ext/2d/Task097_DecathHip_Task098_Dryad_Task099_HarP/Task097_DecathHip_Task098_Dryad_Task099_HarP/nnUNetTrainerVAERehearsalNoSkipsLargerVaeForceInit__nnUNetPlansv2.1/Generic_UNet/SEQ/fold_0/vae_on_both.model")
+
+#trainer.VAE_CLASSES[0] = CFullyConnectedVAE4ConditionOnSlice
 #trainer.load_vae("/local/scratch/clmn1/master_thesis/tests/larger_conditional/results/nnUNet_ext/2d/Task097_DecathHip_Task098_Dryad_Task099_HarP/Task097_DecathHip_Task098_Dryad_Task099_HarP/nnUNetTrainerVAERehearsalNoSkipsLargerVaeForceInit__nnUNetPlansv2.1/Generic_UNet/SEQ/fold_0/vae_on_slice_on_97_only.model")
 #trainer.load_vae("/local/scratch/clmn1/master_thesis/tests/larger_conditional/results/nnUNet_ext/2d/Task097_DecathHip_Task098_Dryad_Task099_HarP/Task097_DecathHip_Task098_Dryad_Task099_HarP/nnUNetTrainerVAERehearsalNoSkipsLargerVaeForceInit__nnUNetPlansv2.1/Generic_UNet/SEQ/fold_0/vae_on_slice.model")
-
-trainer.clean_up()
-exit()
 
 # find distances from source to target
 
 target_slices = [0,1,2,3,4,5,6,7,8,9]
 source_slices = [0,1,2,3,4,5,6,7,8,9]
-target_task = source_task = [0,1,2]
+target_task = source_task = [0,1,2]# 0,1,2
 
 cut_early = False
 _from = 1200#800
@@ -119,10 +122,9 @@ if False:
     trainer.generate_features(num_samples_per_task=trainer.batch_size //3 +1)
 
 
+trainer.update_dataloader()
 trainer.clean_up([GENERATED_FEATURE_PATH_TR])
-trainer.update_dataloader()
-trainer.generate_features(num_samples_per_task=trainer.batch_size //3 +1)
-trainer.update_dataloader()
+trainer.generate_features(num_samples_per_task=(trainer.batch_size //3 +1) * 10)
 pool = multiprocessing.Pool(processes=10)
 
 def my_map(f, l):
@@ -211,7 +213,7 @@ def visualize_distances(distances, type: str):
         for _from in source_slices:
             distances_to_to.append(distances[f"{_from}->{to}"])
 
-        axes[i_to].boxplot(distances_to_to, widths=0.25)
+        axes[i_to].boxplot(distances_to_to, widths=0.25, showfliers=False)
 
         #for i_from, _from in enumerate(source_slices):
         #    axes[i_to].plot(
@@ -220,12 +222,14 @@ def visualize_distances(distances, type: str):
         #        "+k",
         #        markeredgewidth=1,
         #    )
-        axes[i_to].axes.set_xticklabels(map(str, source_slices))
+        axes[i_to].axes.set_xticklabels(map(str, map(lambda x: x+1, source_slices)))
         axes[i_to].set_xlabel("from slice")
-        axes[i_to].set_title(f"to slice {to}")
+        axes[i_to].set_title(f"to slice {to+1}")
         if i_to % 5 != 0:
-            axes[i_to].tick_params(left = True, right = True , labelleft = False , 
+            axes[i_to].tick_params(left = False, right = False , labelleft = False , 
                 labelbottom = True, bottom = True, which='both')
+        else:
+            axes[i_to].set_ylabel(type, size=16)
         axes[i_to].grid(axis='y',which='both')
 
 
@@ -236,4 +240,5 @@ visualize_distances(distances_mse, "MSE")
 plt.savefig("feature_dist_3_slice_mse.png", bbox_inches='tight')
 
 visualize_distances(distances_mahalanobis, "Mahalanobis")
-plt.savefig("feature_dist_3_slice_Mahalanobis.svg", bbox_inches='tight')
+plt.tight_layout()
+plt.savefig("feature_dist_3_slice_Mahalanobis.pdf", bbox_inches='tight')

@@ -53,7 +53,7 @@ class _WandbLogger(object):
         pass
 
 class _EmptybLogger(object):
-    def __init__(self, args):
+    def __init__(self, args=None):
         pass
 
     def set_step(self, step=None):
@@ -62,7 +62,7 @@ class _EmptybLogger(object):
     def increment_step(self):
         pass
 
-    def update(self, metrics):
+    def update(self, metrics=None):
         pass
 
     def flush(self):
