@@ -172,7 +172,6 @@ class nnUNetTrainerVAERehearsalBase2(nnUNetTrainerLoggingMultiHead):
         self.store_features(task)
         self.store_features(task, False)
         self.update_dataloader()
-        exit()
         self.train_both_vaes()
 
         analyzer = FeatureRehearsalDataset2Analyzer(self.extracted_features_dataset_tr)
