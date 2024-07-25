@@ -34,155 +34,7 @@ TASKS = ["Task111_Prostate-BIDMC",
 
 
 
-############### baselines ###############
-rehearsal_3d = {'eval_path_base': "/local/scratch/clmn1/master_thesis/evaluation_folder/baselines_retrained",
-                'eval_path_middle': "nnUNet_ext/3d_fullres/Task011_Prostate-BIDMC_Task012_Prostate-I2CVB_Task013_Prostate-HK_Task015_Prostate-UCL_Task016_Prostate-RUNMC",
-                'trainer': "nnUNetTrainerRehearsal",
-                'name': "Rehearsal"
-}
-sequential_3d = {'eval_path_base': "/local/scratch/clmn1/master_thesis/evaluation_folder/baselines_retrained",
-                'eval_path_middle': "nnUNet_ext/3d_fullres/Task011_Prostate-BIDMC_Task012_Prostate-I2CVB_Task013_Prostate-HK_Task015_Prostate-UCL_Task016_Prostate-RUNMC",
-                'trainer': "nnUNetTrainerSequential",
-                'name': "Sequential"
-}
-rehearsal_2d = {'eval_path_base': "/local/scratch/clmn1/master_thesis/evaluation_folder/baselines_retrained",
-                'eval_path_middle': "nnUNet_ext/2d/Task011_Prostate-BIDMC_Task012_Prostate-I2CVB_Task013_Prostate-HK_Task015_Prostate-UCL_Task016_Prostate-RUNMC",
-                'trainer': "nnUNetTrainerRehearsal",
-                'name': "Rehearsal"
-}
-sequential_2d = {'eval_path_base': "/local/scratch/clmn1/master_thesis/evaluation_folder/baselines_retrained",
-                'eval_path_middle': "nnUNet_ext/2d/Task011_Prostate-BIDMC_Task012_Prostate-I2CVB_Task013_Prostate-HK_Task015_Prostate-UCL_Task016_Prostate-RUNMC",
-                'trainer': "nnUNetTrainerSequential",
-                'name': "Sequential"
-}
-lwf_2d = None
-
-rehearsal_2d_no_skips_freeze = {'eval_path_base': "/local/scratch/clmn1/master_thesis/tests/evaluation/",
-                'eval_path_middle': "nnUNet_ext/2d/Task011_Prostate-BIDMC_Task012_Prostate-I2CVB_Task013_Prostate-HK_Task015_Prostate-UCL_Task016_Prostate-RUNMC",
-                'trainer': "nnUNetTrainerRehearsalNoSkipsFrozen",
-                'name': "Rehearsal, 2D, w/o skips, w/ freezing"
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-############### ablation on extraction layer ###############
-def prostate_gt_1():
-    feature_rehearsal2 = {'eval_path_base': "/local/scratch/clmn1/master_thesis/evaluation_folder/retrained/ground_truth/1.0/between_encoder_decoder",
-                  'eval_path_middle': "nnUNet_ext/3d_fullres/Task011_Prostate-BIDMC_Task012_Prostate-I2CVB_Task013_Prostate-HK_Task015_Prostate-UCL_Task016_Prostate-RUNMC",
-                  'trainer': "nnUNetTrainerFeatureRehearsal2",
-                  'name': r"Feature rehearsal middle",
-                  'code': "between encoder and decoder"
-    }
-    feature_rehearsal3 = {'eval_path_base': "/local/scratch/clmn1/master_thesis/evaluation_folder/retrained/ground_truth/1.0/middle_encoder",
-                  'eval_path_middle': "nnUNet_ext/3d_fullres/Task011_Prostate-BIDMC_Task012_Prostate-I2CVB_Task013_Prostate-HK_Task015_Prostate-UCL_Task016_Prostate-RUNMC",
-                  'trainer': "nnUNetTrainerFeatureRehearsal2",
-                  'name': r"Feature rehearsal shallow",#early
-                  'code': "middle encoder"
-    }
-    feature_rehearsal4 = {'eval_path_base': "/local/scratch/clmn1/master_thesis/evaluation_folder/retrained/ground_truth/1.0/beginning_decoder",
-                  'eval_path_middle': "nnUNet_ext/3d_fullres/Task011_Prostate-BIDMC_Task012_Prostate-I2CVB_Task013_Prostate-HK_Task015_Prostate-UCL_Task016_Prostate-RUNMC",
-                  'trainer': "nnUNetTrainerFeatureRehearsal2",
-                  'name': r"Feature rehearsal deep",#late
-                  'code': "beginning decoder"
-    }
-    trainers = [rehearsal_3d, feature_rehearsal3, feature_rehearsal2, feature_rehearsal4, sequential_3d]
-    return trainers, "Prostate, ground truth, 1.0"
-
-
-############### ablation on location of feature extraction and amount of samples stored ###############
-def prostate_gt():
-    feature_rehearsal1 = {'eval_path_base': "/local/scratch/clmn1/master_thesis/evaluation_folder/retrained/ground_truth/0.1/between_encoder_decoder",
-                  'eval_path_middle': "nnUNet_ext/3d_fullres/Task011_Prostate-BIDMC_Task012_Prostate-I2CVB_Task013_Prostate-HK_Task015_Prostate-UCL_Task016_Prostate-RUNMC",
-                  'trainer': "nnUNetTrainerFeatureRehearsal2",
-                  'name': r"Feature rehearsal middle 10\%",
-                  'code': "between encoder and decoder, 0.1"
-    }
-    feature_rehearsal2 = {'eval_path_base': "/local/scratch/clmn1/master_thesis/evaluation_folder/retrained/ground_truth/0.25/between_encoder_decoder",
-                  'eval_path_middle': "nnUNet_ext/3d_fullres/Task011_Prostate-BIDMC_Task012_Prostate-I2CVB_Task013_Prostate-HK_Task015_Prostate-UCL_Task016_Prostate-RUNMC",
-                  'trainer': "nnUNetTrainerFeatureRehearsal2",
-                  'name': r"Feature rehearsal middle 25\%",
-                  'code': "between encoder and decoder, 0.25"
-    }
-    feature_rehearsal3 = {'eval_path_base': "/local/scratch/clmn1/master_thesis/evaluation_folder/retrained/ground_truth/0.5/between_encoder_decoder",
-                  'eval_path_middle': "nnUNet_ext/3d_fullres/Task011_Prostate-BIDMC_Task012_Prostate-I2CVB_Task013_Prostate-HK_Task015_Prostate-UCL_Task016_Prostate-RUNMC",
-                  'trainer': "nnUNetTrainerFeatureRehearsal2",
-                  'name': r"Feature rehearsal middle 50\%",
-                  'code': "between encoder and decoder, 0.5"
-    }
-    feature_rehearsal4 = {'eval_path_base': "/local/scratch/clmn1/master_thesis/evaluation_folder/retrained/ground_truth/0.1/middle_encoder",
-                  'eval_path_middle': "nnUNet_ext/3d_fullres/Task011_Prostate-BIDMC_Task012_Prostate-I2CVB_Task013_Prostate-HK_Task015_Prostate-UCL_Task016_Prostate-RUNMC",
-                  'trainer': "nnUNetTrainerFeatureRehearsal2",
-                  'name': r"Feature rehearsal shallow 10\%",
-                  'code': "middle encoder, 0.1"
-    }    
-    feature_rehearsal5 = {'eval_path_base': "/local/scratch/clmn1/master_thesis/evaluation_folder/retrained/ground_truth/0.25/middle_encoder",
-                  'eval_path_middle': "nnUNet_ext/3d_fullres/Task011_Prostate-BIDMC_Task012_Prostate-I2CVB_Task013_Prostate-HK_Task015_Prostate-UCL_Task016_Prostate-RUNMC",
-                  'trainer': "nnUNetTrainerFeatureRehearsal2",
-                  'name': r"Feature rehearsal shallow 25\%",
-                  'code': "middle encoder, 0.25"
-    }
-    feature_rehearsal6 = {'eval_path_base': "/local/scratch/clmn1/master_thesis/evaluation_folder/retrained/ground_truth/0.5/middle_encoder",
-                  'eval_path_middle': "nnUNet_ext/3d_fullres/Task011_Prostate-BIDMC_Task012_Prostate-I2CVB_Task013_Prostate-HK_Task015_Prostate-UCL_Task016_Prostate-RUNMC",
-                  'trainer': "nnUNetTrainerFeatureRehearsal2",
-                  'name': r"Feature rehearsal shallow 50\%",
-                  'code': "middle encoder, 0.5"
-    }
-    trainers = [rehearsal_3d, feature_rehearsal1, feature_rehearsal2, feature_rehearsal3, feature_rehearsal4, feature_rehearsal5, feature_rehearsal6, sequential_3d]
-    return trainers, "Prostate, ground truth"
-
-
-
-
-
-
-
-
 def prostate_seeded():
-    rehearsal_seeded_ood = {'eval_path_base': "/local/scratch/clmn1/master_thesis/seeded/evaluation",
-                    'eval_path_middle': "nnUNet_ext/2d/Task111_Prostate-BIDMC_Task112_Prostate-I2CVB_Task113_Prostate-HK_Task115_Prostate-UCL_Task116_Prostate-RUNMC",
-                    'trainer': "nnUNetTrainerRehearsal",
-                    'name': "Rehearsal, Softmax",#, 2D, w/ skips, w/o freezing
-                    'line_style': (3, 3),
-                    'ood':{
-                        'evaluator': ood_eval_helper.eval_softmax,
-                        'segmentation_trainer': "nnUNetTrainerRehearsal",
-                        'trained_on': TASKS,
-                        'eval_path_base_seg': "/local/scratch/clmn1/master_thesis/seeded/evaluation",
-                        'eval_path_base_ood': "/local/scratch/clmn1/master_thesis/seeded/evaluation3",
-                        'eval_path_middle': "nnUNet_ext/2d/Task111_Prostate-BIDMC_Task112_Prostate-I2CVB_Task113_Prostate-HK_Task115_Prostate-UCL_Task116_Prostate-RUNMC",
-                        'trainer': "nnUNetTrainerRehearsal",
-                        'method': "uncertainty"
-                    }
-    }
-    rehearsal_seeded = {'eval_path_base': "/local/scratch/clmn1/master_thesis/seeded/evaluation",
-                    'eval_path_middle': "nnUNet_ext/2d/Task111_Prostate-BIDMC_Task112_Prostate-I2CVB_Task113_Prostate-HK_Task115_Prostate-UCL_Task116_Prostate-RUNMC",
-                    'trainer': "nnUNetTrainerRehearsal",
-                    'name': "Rehearsal",#, 2D, w/ skips, w/o freezing
-                    'line_style': (3, 3)
-    }
-    feature_rehearsal_seeded = {'eval_path_base': "/local/scratch/clmn1/master_thesis/seeded/evaluation",
-                    'eval_path_middle': "nnUNet_ext/2d/Task111_Prostate-BIDMC_Task112_Prostate-I2CVB_Task113_Prostate-HK_Task115_Prostate-UCL_Task116_Prostate-RUNMC",
-                    'trainer': "nnUNetTrainerFeatureRehearsal2",
-                    'name': "Feature Rehearsal",#, 2D, w/ skips, w/o freezing
-                    'line_style': (3, 3)
-    }
-    upper_bound = {'eval_path_base': "/local/scratch/clmn1/master_thesis/seeded/evaluation",
-                    'eval_path_middle': "nnUNet_ext/2d/Task111_Prostate-BIDMC_Task112_Prostate-I2CVB_Task113_Prostate-HK_Task115_Prostate-UCL_Task116_Prostate-RUNMC",
-                    'trainer': "nnUNetTrainerRehearsalNoSkipsFrozen",
-                    'name': "Rehearsal--",
-                    'code': "upper bound",#, 2D, w/o skips, w/ freezing
-                    'line_style': (3, 3)
-    }
     ccvae_rehearsal_ood = {'eval_path_base': "/local/scratch/clmn1/master_thesis/seeded/evaluation2",
                     'eval_path_middle': "nnUNet_ext/2d/Task111_Prostate-BIDMC_Task112_Prostate-I2CVB_Task113_Prostate-HK_Task115_Prostate-UCL_Task116_Prostate-RUNMC",
                     'trainer': "nnUNetTrainerVAERehearsalNoSkipsConditionOnBoth",
@@ -198,27 +50,6 @@ def prostate_seeded():
                         'trainer': "nnUNetTrainerVAERehearsalNoSkipsConditionOnBoth",
                         'method': "vae_reconstruction"
                     }
-    }
-    ccvae_rehearsal = {'eval_path_base': "/local/scratch/clmn1/master_thesis/seeded/evaluation",
-                    'eval_path_middle': "nnUNet_ext/2d/Task111_Prostate-BIDMC_Task112_Prostate-I2CVB_Task113_Prostate-HK_Task115_Prostate-UCL_Task116_Prostate-RUNMC",
-                    'trainer': "nnUNetTrainerVAERehearsalNoSkipsConditionOnBoth",
-                    'name': "CCVAEr"#, 2D, w/o skips, w/ freezing
-    }
-    ccvae_rehearsal_fixed = {'eval_path_base': "/local/scratch/clmn1/master_thesis/seeded/evaluation2",
-                    'eval_path_middle': "nnUNet_ext/2d/Task111_Prostate-BIDMC_Task112_Prostate-I2CVB_Task113_Prostate-HK_Task115_Prostate-UCL_Task116_Prostate-RUNMC",
-                    'trainer': "nnUNetTrainerVAERehearsalNoSkipsConditionOnBoth",
-                    'name': r"\textbf{ccVAEr}",#, 2D, w/o skips, w/ freezing
-                    'code': "ccVAEr"#, 2D, w/o skips, w/ freezing
-    }
-    cvae_rehearsal = {'eval_path_base': "/local/scratch/clmn1/master_thesis/seeded/evaluation",
-                    'eval_path_middle': "nnUNet_ext/2d/Task111_Prostate-BIDMC_Task112_Prostate-I2CVB_Task113_Prostate-HK_Task115_Prostate-UCL_Task116_Prostate-RUNMC",
-                    'trainer': "nnUNetTrainerVAERehearsalNoSkipsLarge",
-                    'name': "cVAEr"#, 2D, w/o skips, w/ freezing
-    }
-    ewc_seeded = {'eval_path_base': "/local/scratch/clmn1/master_thesis/seeded/evaluation",
-                    'eval_path_middle': "nnUNet_ext/2d/Task111_Prostate-BIDMC_Task112_Prostate-I2CVB_Task113_Prostate-HK_Task115_Prostate-UCL_Task116_Prostate-RUNMC",
-                    'trainer': "nnUNetTrainerEWC",
-                    'name': "EWC"#, 2D, w/ skips, w/o freezing
     }
     ewc_seeded_softmax = {'eval_path_base': "/local/scratch/clmn1/master_thesis/seeded/evaluation",
                     'eval_path_middle': "nnUNet_ext/2d/Task111_Prostate-BIDMC_Task112_Prostate-I2CVB_Task113_Prostate-HK_Task115_Prostate-UCL_Task116_Prostate-RUNMC",
@@ -236,11 +67,6 @@ def prostate_seeded():
                         'method': "uncertainty"
                     }
     }
-    mib_seeded = {'eval_path_base': "/local/scratch/clmn1/master_thesis/seeded/evaluation",
-                    'eval_path_middle': "nnUNet_ext/2d/Task111_Prostate-BIDMC_Task112_Prostate-I2CVB_Task113_Prostate-HK_Task115_Prostate-UCL_Task116_Prostate-RUNMC",
-                    'trainer': "nnUNetTrainerMiB",
-                    'name': "MiB"#, 2D, w/ skips, w/o freezing
-    }
     mib_seeded_softmax = {'eval_path_base': "/local/scratch/clmn1/master_thesis/seeded/evaluation",
                     'eval_path_middle': "nnUNet_ext/2d/Task111_Prostate-BIDMC_Task112_Prostate-I2CVB_Task113_Prostate-HK_Task115_Prostate-UCL_Task116_Prostate-RUNMC",
                     'trainer': "nnUNetTrainerMiB",
@@ -256,18 +82,6 @@ def prostate_seeded():
                         'trainer': "nnUNetTrainerMiB",
                         'method': "uncertainty"
                     }
-    }
-
-
-    lwf_seeded = {'eval_path_base': "/local/scratch/clmn1/master_thesis/seeded/evaluation",
-                    'eval_path_middle': "nnUNet_ext/2d/Task111_Prostate-BIDMC_Task112_Prostate-I2CVB_Task113_Prostate-HK_Task115_Prostate-UCL_Task116_Prostate-RUNMC",
-                    'trainer': "nnUNetTrainerLWF",
-                    'name': "LwF"#, 2D, w/ skips, w/o freezing
-    }
-    curl = {'eval_path_base': "/local/scratch/clmn1/master_thesis/seeded/evaluation2",
-                    'eval_path_middle': "nnUNet_ext/2d/Task111_Prostate-BIDMC_Task112_Prostate-I2CVB_Task113_Prostate-HK_Task115_Prostate-UCL_Task116_Prostate-RUNMC",
-                    'trainer': "nnUNetTrainerCURL",
-                    'name': "cURL"#, 2D, w/ skips, w/o freezing
     }
     sequential_seeded_softmax = {'eval_path_base': "/local/scratch/clmn1/master_thesis/seeded/evaluation",
                     'eval_path_middle': "nnUNet_ext/2d/Task111_Prostate-BIDMC_Task112_Prostate-I2CVB_Task113_Prostate-HK_Task115_Prostate-UCL_Task116_Prostate-RUNMC",
@@ -306,28 +120,8 @@ def prostate_seeded():
     seg_dist_pool_seeded_softmax['name'] = "Model Pool + Seg. Dist."
     seg_dist_pool_seeded_softmax['ood']['evaluator'] = ood_eval_helper.eval_segmentation_distortion_pool
 
-    vae_rehearsal_no_conditioning_ood = {'eval_path_base': "/local/scratch/clmn1/master_thesis/seeded/evaluation2",
-                    'eval_path_middle': "nnUNet_ext/2d/Task111_Prostate-BIDMC_Task112_Prostate-I2CVB_Task113_Prostate-HK_Task115_Prostate-UCL_Task116_Prostate-RUNMC",
-                    'trainer': "nnUNetTrainerVAERehearsalNoSkipsNoConditioning",
-                    'name': r"VAE",#, 2D
-                    'code': "VAE",
-                    'ood':{
-                        'evaluator': ood_eval_helper.eval_reconstruction,
-                        'segmentation_trainer': "nnUNetTrainerVAERehearsalNoSkipsNoConditioning",
-                        'trained_on': TASKS,
-                        'eval_path_base_seg': "/local/scratch/clmn1/master_thesis/seeded/evaluation2",
-                        'eval_path_base_ood': "/local/scratch/clmn1/master_thesis/seeded/evaluation3",
-                        'eval_path_middle': "nnUNet_ext/2d/Task111_Prostate-BIDMC_Task112_Prostate-I2CVB_Task113_Prostate-HK_Task115_Prostate-UCL_Task116_Prostate-RUNMC",
-                        'trainer': "nnUNetTrainerVAERehearsalNoSkipsNoConditioning",
-                        'method': "vae_reconstruction"
-                    }
-    }
-
-    trainers = [ccvae_rehearsal_ood, sequential_seeded_softmax, mib_seeded_softmax, ewc_seeded_softmax, seg_dist_pool_seeded_softmax, seg_dist_seeded_softmax]
-    #trainers = [sequential_seeded_softmax, ewc_seeded_softmax, mib_seeded_softmax, seg_dist_pool_seeded_softmax, ccvae_rehearsal_ood]
-    #trainers = [ewc_seeded_softmax, mib_seeded_softmax, seg_dist_pool_seeded_softmax, ccvae_rehearsal_ood]
-    #trainers = [vae_rehearsal_no_conditioning_ood]
-    return trainers, "Hippocampus, seeded", combinations_splitted
+    trainers = [ccvae_rehearsal_ood, sequential_seeded_softmax, mib_seeded_softmax, ewc_seeded_softmax, seg_dist_pool_seeded_softmax]
+    return trainers, "Prostate, seeded", combinations_splitted
 
 
 
@@ -352,16 +146,9 @@ data = []
 mask = MASK
 metric = METRIC
 
-palette = [] #TODO: add palette
+palette = []
 
 for trainer in trainers:
-    #frame = pd.read_csv(os.path.join(trainer['eval_path_base'], "trained_final", trainer['eval_path_middle'], "initialization", trainer['trainer'] + END), sep="\t")
-    #frame = frame.drop(frame[frame['metric'] != metric].index)
-    #frame = frame.drop(frame[frame['seg_mask'] != mask].index)
-    #frame['Epoch'] = 0
-    #frame['Trainer'] = trainer['name']
-    #frame['Task'] = frame['Task'].apply(rename_tasks)
-    #data.append(frame)
 
     if 'code' in trainer.keys() and trainer['code'] in plot_colors.colors.keys():
         palette.append(plot_colors.colors[trainer['code']])
@@ -377,9 +164,6 @@ for trainer in trainers:
     thresholds = []
 
     for i, task in enumerate(combinations[:-1]):
-        #if INTERPOLATE:
-        #    if i == 0:
-        #        continue
 
         if INTERPOLATE:
             array = zip([49,99,149,199,250], ["trained_49", "trained_99", "trained_149", "trained_199", "trained_final"])
@@ -387,10 +171,6 @@ for trainer in trainers:
             array = zip([250], ["trained_final"])
 
         for intermediate_train_step, path in array:
-
-            #frame = pd.read_csv(os.path.join(trainer['eval_path_base'], path, trainer['eval_path_middle'], task, trainer['trainer'] + END), sep="\t")
-            #frame = frame.drop(frame[frame['metric'] != metric].index)
-            #frame = frame.drop(frame[frame['seg_mask'] != mask].index)
 
             trainer_copy = copy.deepcopy(trainer)
             if trainer['ood']['evaluator'] is not ood_eval_helper.eval_reconstruction:
@@ -410,8 +190,6 @@ for trainer in trainers:
             print("\n")
             if INTERPOLATE:
                 temp = temp.rename(columns={"case": "subject_id"})
-                #temp = temp.drop("value", axis=1)
-                #temp = temp.merge(frame, on=["Task", "seg_mask", "metric", "subject_id"])
 
             if len(thresholds) > 0:
                 threshold = max(*thresholds, latest_threshold)
@@ -421,14 +199,8 @@ for trainer in trainers:
             if intermediate_train_step == 250:
                 thresholds.append(latest_threshold)
 
-            #temp = temp[temp["Task"] != "Task116_Prostate-RUNMC"]
-
             frame = temp[temp['ood_score'] < threshold]
-            #frame = temp[~temp['is_ood']]
-            #frame = temp
             num_cases_segmented = len(frame)
-            #print(frame)
-            #frame =frame.groupby(['Epoch']).mean().reset_index()
             rel_num_ood = (num_total_cases - num_cases_segmented) / num_total_cases
 
             if VISUALIZE_PER_TASK:
@@ -436,14 +208,8 @@ for trainer in trainers:
                     num_cases_segmented_in_task = len(frame[frame['Task'] == task])
                     frame[frame['Task'] == task]['value'] = .7 *frame[frame['Task'] == task]['value'] + .3 * num_cases_segmented_in_task / num_total_cases_per_task[task]  
             else:
-                frame['value'] = 100 * frame['value'] #+ .3 * num_cases_segmented / num_total_cases
+                frame['value'] = 100 * frame['value']
 
-            #print(frame)
-
-            if False:                   #-> start after training on that repspective task
-                b = [x in task for x in frame['Task']]
-                assert(len(b) == len(frame))
-                frame= frame[b]
 
             frame['Epoch'] = i * 250 + intermediate_train_step
             frame['Trainer'] = trainer['name']
@@ -454,7 +220,6 @@ for trainer in trainers:
     
 
 data = pd.concat(data)
-#data['value'] = data["value"].apply(lambda x: 1-x)
 data = data.rename(columns={"value": metric})
 print(data)
 
@@ -523,20 +288,6 @@ else:
     x = ax.axes[0].get_position().x1
     sns.move_legend(ax, loc="upper left", bbox_to_anchor=(last_pos2.x0, last_pos.y1), frameon=True)
 
-#ax.get_xgridlines()[i].set_color('black')
-#ax.get_xgridlines()[i].set_linewidth(2)
-#t.get_lines()[0].set_linestyle("--")
 
-
-#sns.move_legend(ax, loc="upper left", frameon=True)
-
-#plt.yscale("log")
-#plt.subplots_adjust(hspace=0.22)
-#plt.yticks([0.1, 0.2,0.4,0.6,0.8, 1])
-#plt.gca().set_yticklabels([90, 80, 60, 40, 20, 0])
-#plt.gca().invert_yaxis()
-
-
-plt.savefig(f"plot_prostate_with_ood.pdf", bbox_inches='tight')
-#plt.savefig(f"plots/continual_learning/prostate/{configuration.__name__}.pdf", bbox_inches='tight')
-#print(f"plots/continual_learning/prostate/{configuration.__name__}.pdf")
+plt.savefig(f"plot_prostate_with_ood.png", bbox_inches='tight')
+print("plot_prostate_with_ood.png")

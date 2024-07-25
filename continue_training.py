@@ -4,15 +4,15 @@ import os, torch
 from nnunet_ext.training.network_training.vae_rehearsal_no_skips.nnUNetTrainerVAERehearsalNoSkips import nnUNetTrainerVAERehearsalNoSkips
 from nnunet_ext.training.network_training.vae_rehearsal_base.nnUNetTrainerVAERehearsalBase import GENERATED_FEATURE_PATH_TR, EXTRACTED_FEATURE_PATH_TR
 
-all_tasks = ["Task097_DecathHip", "Task098_Dryad", "Task099_HarP"]
+all_tasks = ["Task197_DecathHip", "Task198_Dryad", "Task199_HarP"]
 extension_type = "vae_rehearsal_no_skips_large"
 assert extension_type in ["vae_rehearsal_no_skips", 
                           "vae_rehearsal_no_skips_no_conditioning",
                           "vae_rehearsal_no_skips_condition_on_both",
                           "seg_dist",
                           "vae_rehearsal_no_skips_large"]
-unet_trained_on = ["Task097_DecathHip", "Task098_Dryad"]
-vae_trained_on = ["Task097_DecathHip", "Task098_Dryad"]
+unet_trained_on = ["Task197_DecathHip", "Task198_Dryad"]
+vae_trained_on = ["Task197_DecathHip", "Task198_Dryad"]
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
 results_folder = os.environ['RESULTS_FOLDER']   #alternatively, specify the path here
 

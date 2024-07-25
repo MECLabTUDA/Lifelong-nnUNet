@@ -46,7 +46,7 @@ def get_df_model_pool(trainer: str, resolution: str, trained_on: list[int], use_
     seg_dfs = []
     for i, _ in enumerate(use_model):
         eval_path = os.path.join(evaluation_folder, "nnUNet_ext", resolution, join_texts_with_char(trained_on, "_"), join_texts_with_char(use_model[:i+1], "_"),
-                    f"{trainer}__nnUNetPlansv2.1", "Generic_UNet", "SEQ", "head_None", "fold_0")
+                    "nnUNetTrainerSequential__nnUNetPlansv2.1", "Generic_UNet", "SEQ", "head_None", "fold_0")
         for eval_task in evaluate_on:
             if eval_only:
                 seg_df = pd.read_csv(os.path.join(eval_path, eval_task, "val_metrics_eval.csv"), sep="\t")
@@ -64,11 +64,19 @@ def get_df_model_pool(trainer: str, resolution: str, trained_on: list[int], use_
                 ood_df = pd.read_csv(os.path.join(eval_path, eval_task, f"ood_scores_{ood_method}.csv"), sep="\t")
                 #rename case -> subject_id
                 ood_df = ood_df.rename(columns={"case": "subject_id"})
+                if eval_only:
+                    ood_df = ood_df[ood_df["split"] == "val"]
+                ood_df = ood_df[ood_df['assumed task_idx'] == i]
             ood_dfs.append(ood_df)
     
     seg_dfs = pd.concat(seg_dfs)
     ood_dfs = pd.concat(ood_dfs)
 
+    #print(len(seg_dfs))
+    #print(len(ood_dfs))
+    
+    #print(seg_dfs)
+    #print(ood_dfs.to_string())
 
     #join dataframes on subject_id, Task and assumed task_idx
     seg_dfs = seg_dfs.merge(ood_dfs, on=["subject_id", "Task", "assumed task_idx"])
