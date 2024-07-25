@@ -176,7 +176,7 @@ class nnUNetTrainerVAERehearsalBase2Pipe(nnUNetTrainerLoggingMultiHead):
         self.store_features(task)
         self.store_features(task, False)
         self.update_dataloader()
-        self.train_both_vaes()
+        self.train_vae_main()
 
         analyzer = FeatureRehearsalDataset2Analyzer(self.extracted_features_dataset_tr)
         analyzer.compute_statistics()
@@ -622,7 +622,7 @@ class nnUNetTrainerVAERehearsalBase2Pipe(nnUNetTrainerLoggingMultiHead):
     
 
 
-    def train_both_vaes(self):
+    def train_vae_main(self):
 
         #prostate = np.prod(self.extracted_features_dataset_tr[0]['features_and_skips'][-1].shape[1:]) > 10000 # true for prostate, false otherwise
         anatomy = self.get_anatomy()

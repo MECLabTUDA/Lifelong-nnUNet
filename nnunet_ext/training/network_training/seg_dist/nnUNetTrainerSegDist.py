@@ -153,7 +153,7 @@ class nnUNetTrainerSegDist(nnUNetTrainerLoggingMultiHead):
         self.store_features(task)
         self.store_features(task, False)
         self.update_dataloader()
-        self.train_both_vaes()
+        self.train_vae_main()
 
         analyzer = FeatureRehearsalDataset2Analyzer(self.extracted_features_dataset_tr)
         analyzer.compute_statistics()
@@ -562,7 +562,7 @@ class nnUNetTrainerSegDist(nnUNetTrainerLoggingMultiHead):
     
 
 
-    def train_both_vaes(self):
+    def train_vae_main(self):
 
         anatomy = self.get_anatomy()
 

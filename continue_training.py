@@ -94,7 +94,7 @@ else:
     trainer.update_dataloader(unet_trained_on[-1])
 
     trainer.generate_features()
-    trainer.train_both_vaes()
+    trainer.train_vae_main()
 
 
     for i, task in enumerate(all_tasks):
