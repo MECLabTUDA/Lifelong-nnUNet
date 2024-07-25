@@ -52,6 +52,10 @@ setup(name='nnunet_ext',
               'nnUNet_train_frozen_nonln = nnunet_ext.run.run_training:main_frozen_nonln',     # Use for freezing all layers except LN
               'nnUNet_train_frozen_unet = nnunet_ext.run.run_training:main_frozen_unet',       # Use for freezing all nnUNet layers
               'nnUNet_train_frozen_vit = nnunet_ext.run.run_training:main_frozen_vit',         # Use for freezing all ViT layers
+
+
+              
+              'nnUNet_inference = nnunet_ext.run.run_inference:main'
           ],
       },
       keywords=['deep learning', 'image segmentation', 'medical image analysis',
