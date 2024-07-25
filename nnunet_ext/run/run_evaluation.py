@@ -10,11 +10,15 @@ from nnunet_ext.utilities.helpful_functions import join_texts_with_char
 from nnunet_ext.paths import evaluation_output_dir, default_plans_identifier
 from nnunet.utilities.task_name_id_conversion import convert_id_to_task_name
 
+from nnunet_ext.evaluation import evaluator2
+
 EXT_MAP = dict()
 # -- Extract all extensional trainers in a more generic way -- #
 extension_keys = [x for x in os.listdir(os.path.join(nnunet_ext.__path__[0], "training", "network_training")) if 'py' not in x]
 for ext in extension_keys:
-    trainer_name = [x[:-3] for x in os.listdir(os.path.join(nnunet_ext.__path__[0], "training", "network_training", ext)) if '.py' in x][0]
+    trainer_name = [x[:-3] for x in os.listdir(os.path.join(nnunet_ext.__path__[0], "training", "network_training", ext)) if '.py' in x]
+    assert len(trainer_name) == 1, f"There should be only one trainer in the extension folder {ext}"
+    trainer_name = trainer_name[0]
     # trainer_keys.extend(trainer_name)
     EXT_MAP[trainer_name] = ext
 # -- Add standard trainers as well -- #
@@ -23,7 +27,7 @@ EXT_MAP['nnUNetTrainerV2'] = 'standard'
 EXT_MAP['nnViTUNetTrainerCascadeFullRes'] = None
 
 
-def run_evaluation():
+def run_evaluation(evaluator: str):
     # -- First of all check that evaluation_output_dir is set otherwise we do not perform an evaluation -- #
     assert evaluation_output_dir is not None, "Before running any evaluation, please specify the Evaluation folder (EVALUATION_FOLDER) as described in the paths.md."
 
@@ -103,6 +107,20 @@ def run_evaluation():
     parser.add_argument('--include_training_data', action='store_true', default=False,
                         help='Set this flag if the evaluation should also be done on the training data.')
 
+
+    #extra parameters used by evaluator2
+    parser.add_argument("--enable_tta", required=False, default=False, action="store_true",
+                        help="Set this flag to activate test time augmentations, which might result in slightly better segmentation quality with the downside of reduced inference speed.")
+    parser.add_argument('-chk',
+                        help='checkpoint name, model_final_checkpoint' or 'model_best',
+                        required=False,
+                        default=None)
+    parser.add_argument('-evaluate_initialization', required=False, default=False, action="store_true",
+                        help="This is mutually exclusive with `-chk` and will evaluate a checkpoint named `before_training`.")
+    parser.add_argument('-no_delete', required=False, default=False, action="store_true",
+                        help="This will prevent the evaluator to delete the inference output after computing the evaluation metrics.")
+    parser.add_argument('-legacy_structure', required=False, default=False, action="store_true",
+                        help="Set this to export segmentation results in the structure of the `nnUNet_evaluate` command")
 
     # -------------------------------
     # Extract arguments from parser
@@ -214,14 +232,29 @@ def run_evaluation():
     # ---------------------------------------------
     # Evaluate for each task and all provided folds
     # ---------------------------------------------
-    evaluator = Evaluator(network, network_trainer, (tasks_for_folder, char_to_join_tasks), (use_model_w_tasks, char_to_join_tasks), 
-                          version, vit_type, plans_identifier, mixed_precision, EXT_MAP[network_trainer], save_csv, transfer_heads,
-                          use_vit, False, ViT_task_specific_ln, do_LSA, do_SPT)
-    evaluator.evaluate_on(fold, evaluate_on_tasks, use_head, always_use_last_head, do_pod=do_pod, adaptive=adaptive, use_all_data=use_all_data)
+    if evaluator == 'Evaluator':
+        evaluator = Evaluator(network, network_trainer, (tasks_for_folder, char_to_join_tasks), (use_model_w_tasks, char_to_join_tasks), 
+                            version, vit_type, plans_identifier, mixed_precision, EXT_MAP[network_trainer], save_csv, transfer_heads,
+                            use_vit, False, ViT_task_specific_ln, do_LSA, do_SPT)
+        evaluator.evaluate_on(fold, evaluate_on_tasks, use_head, always_use_last_head, do_pod=do_pod, adaptive=adaptive, use_all_data=use_all_data)
+    else:
+        model_name_joined = join_texts_with_char(use_model_w_tasks, char_to_join_tasks)
+
+        if args.evaluate_initialization:
+            assert len(use_model_w_tasks)==1, "need to speficy first task to do evaluate the random init"
+
+        for f in fold:
+            evaluator2.run_evaluation2(network, network_trainer, (tasks_for_folder, char_to_join_tasks), evaluate_on_tasks, model_name_joined, args.enable_tta, mixed_precision, args.chk, f,
+                                    version, vit_type, plans_identifier, do_LSA, do_SPT, always_use_last_head, use_head, use_model, EXT_MAP[network_trainer], transfer_heads,
+                                    use_vit, ViT_task_specific_ln, do_pod, args.include_training_data, args.evaluate_initialization, args.no_delete, args.legacy_structure)
 
 # -- Main function for setup execution -- #
 def main():
-    run_evaluation()
+    run_evaluation('Evaluator')
+
+def run_evaluation2():
+    run_evaluation('evaluator2')
+    
 
 if __name__ == "__main__":
     run_evaluation()

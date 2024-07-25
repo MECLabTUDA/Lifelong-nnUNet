@@ -8,6 +8,8 @@ This is a general description on how to perform evaluation on trained networks u
 
 3. The results of the evaluation can be found in the specified `EVALUATION_FOLDER`. This folder has the same structure as the `RESULTS_FOLDER`.
 
+Additionally, you can use the `nnUNet_evaluate2` command which accepts a few more parameters and evaluates the model in a more realistic setting by performing the inference pipeline and computing the evaluation metrics on the inference output. Also `nnUNet_evaluate2` will output results in a different structure (if `-legacy_structure` is not specified) which allows you evaluate the model on a new dataset without having to redo the evaluation on all the other datasets as well. 
+
 In the following, the command line arguments are presented and further discussed providing some exemplary use cases.
 
 ### Command Line Arguments
@@ -37,6 +39,14 @@ The following Command Line Arguments can be set.
 | `--include_training_data` | Set this flag if the evaluation should also be done on the training data. | no | -- | `False` |
 | `-h` or `--help` | Simply shows help on which arguments can and should be used. | -- | -- | -- |
 
+Additional parameters for `nnUNet_evaluate2` are as follows:
+| tag_name | description | required | choices | default | 
+|:-:|-|:-:|:-:|:-:|
+| `--enable_tta` | Set this flag to activate test time augmentations, which might result in slightly better segmentation quality with the downside of reduced inference speed. | no | -- | `False` |
+| `-chk` | Set the checkpoint name to be evaluated. Specifying this probably only makes sense if you store some additional checkpoints. | no | e.g. `model_final_checkpoint` or `model_best` | `model_final_checkpoint` |
+| `-evaluate_initialization` | This is mutually exclusive with `-chk` and will evaluate a checkpoint named `before_training`. | no | -- | `False` |
+| `-no_delete` | This will prevent the evaluator to delete the inference output after computing the evaluation metrics. | no | -- | `False` |
+| `-legacy_structure` | Set this to export segmentation results in the structure of the `nnUNet_evaluate` command | no | -- | `False` |
 
 ### Exemplary use cases
 In the following, a few examples are shown representing possible use cases on how to use the Evaluator.

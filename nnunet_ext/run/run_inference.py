@@ -2,7 +2,7 @@
 #----------------------------This class allows the user to make predictions-----------------------------#
 #########################################################################################################
 
-import os, argparse
+import os, argparse, nnunet_ext
 from nnunet_ext.evaluation.evaluator import Evaluator
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet_ext.utilities.helpful_functions import join_texts_with_char
@@ -100,15 +100,19 @@ def run_inference():
                         help='Set this flag if Shifted Patch Tokenization should be used for the ViT.')
 
     # -- Build mapping for network_trainer to corresponding extension name -- #
-    ext_map = {'nnViTUNetTrainer': None, 'nnViTUNetTrainerCascadeFullRes': None,
-               'nnUNetTrainerFreezedViT': 'freezed_vit', 'nnUNetTrainerEWCViT': 'ewc_vit',
-               'nnUNetTrainerFreezedNonLN': 'freezed_nonln', 'nnUNetTrainerEWCLN': 'ewc_ln',
-               'nnUNetTrainerMultiHead': 'multihead', 'nnUNetTrainerSequential': 'sequential',
-               'nnUNetTrainerFreezedUNet': 'freezed_unet', 'nnUNetTrainerEWCUNet': 'ewc_unet',
-               'nnUNetTrainerMiB': 'mib', 'nnUNetTrainerPLOP': 'plop', 'nnUNetTrainerV2': 'standard',
-               'nnUNetTrainerOwnM1': 'ownm1', 'nnUNetTrainerOwnM2': 'ownm2', 'nnUNetTrainerPOD': 'pod',
-               'nnUNetTrainerOwnM3': 'ownm3', 'nnUNetTrainerOwnM4': 'ownm4', 'nnUNetTrainerRW': 'rw',
-               'nnUNetTrainerRehearsal': 'rehearsal', 'nnUNetTrainerEWC': 'ewc', 'nnUNetTrainerLWF': 'lwf'}
+    ext_map = dict()
+    # -- Extract all extensional trainers in a more generic way -- #
+    extension_keys = [x for x in os.listdir(os.path.join(nnunet_ext.__path__[0], "training", "network_training")) if 'py' not in x]
+    for ext in extension_keys:
+        trainer_name = [x[:-3] for x in os.listdir(os.path.join(nnunet_ext.__path__[0], "training", "network_training", ext)) if '.py' in x]
+        assert len(trainer_name) == 1, f"There should be only one trainer in the extension folder {ext}"
+        trainer_name = trainer_name[0]
+        # trainer_keys.extend(trainer_name)
+        ext_map[trainer_name] = ext
+    # -- Add standard trainers as well -- #
+    ext_map['nnViTUNetTrainer'] = None
+    ext_map['nnUNetTrainerV2'] = 'standard'
+    ext_map['nnViTUNetTrainerCascadeFullRes'] = None
 
 
     # -------------------------------
