@@ -6,25 +6,14 @@
 import os, argparse, nnunet_ext
 from nnunet_ext.evaluation.evaluator import Evaluator
 from batchgenerators.utilities.file_and_folder_operations import *
+from nnunet_ext.utilities.ext_map import get_ext_map
 from nnunet_ext.utilities.helpful_functions import join_texts_with_char
 from nnunet_ext.paths import evaluation_output_dir, default_plans_identifier
 from nnunet.utilities.task_name_id_conversion import convert_id_to_task_name
 
 from nnunet_ext.evaluation import evaluator2
 
-EXT_MAP = dict()
-# -- Extract all extensional trainers in a more generic way -- #
-extension_keys = [x for x in os.listdir(os.path.join(nnunet_ext.__path__[0], "training", "network_training")) if 'py' not in x]
-for ext in extension_keys:
-    trainer_name = [x[:-3] for x in os.listdir(os.path.join(nnunet_ext.__path__[0], "training", "network_training", ext)) if '.py' in x]
-    assert len(trainer_name) == 1, f"There should be only one trainer in the extension folder {ext}"
-    trainer_name = trainer_name[0]
-    # trainer_keys.extend(trainer_name)
-    EXT_MAP[trainer_name] = ext
-# -- Add standard trainers as well -- #
-EXT_MAP['nnViTUNetTrainer'] = None
-EXT_MAP['nnUNetTrainerV2'] = 'standard'
-EXT_MAP['nnViTUNetTrainerCascadeFullRes'] = None
+EXT_MAP = get_ext_map()
 
 
 def run_evaluation(evaluator: str):

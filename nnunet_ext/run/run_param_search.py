@@ -4,17 +4,14 @@
 #########################################################################################################
 
 import os, argparse, nnunet_ext
+from nnunet_ext.utilities.ext_map import get_ext_map
 from nnunet_ext.utilities.helpful_functions import *
 from nnunet_ext.parameter_search.param_searcher import ParamSearcher
 from nnunet.utilities.task_name_id_conversion import convert_id_to_task_name
 from nnunet_ext.paths import param_search_output_dir, default_plans_identifier
 
-EXT_MAP = dict()
-# -- Extract all extensional trainers in a more generic way -- #
-extension_keys = [x for x in os.listdir(os.path.join(nnunet_ext.__path__[0], "training", "network_training")) if 'py' not in x]
-for ext in extension_keys:
-    trainer_name = [x[:-3] for x in os.listdir(os.path.join(nnunet_ext.__path__[0], "training", "network_training", ext)) if '.py' in x][0]
-    EXT_MAP[trainer_name] = ext
+EXT_MAP = get_ext_map()
+EXT_MAP.remove('nnViTUNetTrainer')
 # NOTE: Does not include the nnViTUNetTrainer!
 
 
