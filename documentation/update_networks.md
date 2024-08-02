@@ -94,3 +94,6 @@ Last but not least, this method also works with the traditional nnUNetTrainerV2,
                                                   -f 0 -rw /home/user/admin/ /home/test_env/user/user_xyz/
 ```
 Obviously, additional flags like `--use_vit` make no sense in this case and would lead to an error because the built path would not exist using the traditional trainer, so be aware of that.
+
+## `nnUNet_update_checkpoints_all`
+This functionality takes the `-rw` argument only with the same meaning as above. All other arguments are not needed, as this command will update **_all_** models in your `RESULTS_FOLDER`. I highly recommend applying this command on a copy of your `RESULTS_FOLDER` as this could damage all your models at once.
