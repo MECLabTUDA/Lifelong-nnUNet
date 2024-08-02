@@ -6,7 +6,7 @@ import os
 #os.system("nnUNet_evaluate 3d_fullres nnUNetTrainerSequential -trained_on 11 12 13 15 16 -f 0 -use_model 11 12 13 15 16 -evaluate_on 11 12 13 15 16 -d X --store_csv --always_use_last_head")
 
 
-EVALUATION_PATH = "/local/scratch/clmn1/what_is_wrong/evaluation"
+EVALUATION_PATH = "/local/scratch/clmn1/what_is_wrong/evaluation_test"
 GPU = "4"
 
 
@@ -299,19 +299,19 @@ if __name__ == '__main__':
     #joint_task = "Task031_Cardiac_joined"
     #mask = "mask_3"
 
-    #list_of_tasks = ["Task011_Prostate-BIDMC", "Task012_Prostate-I2CVB", "Task013_Prostate-HK", "Task015_Prostate-UCL", "Task016_Prostate-RUNMC"]
-    #joint_task = "Task032_Prostate_joined"
-    #mask = "mask_1"
-
-
-    list_of_tasks = ["Task097_DecathHip", "Task098_Dryad", "Task099_HarP"]
-    joint_task = "Task033_Hippocampus_joined"
+    list_of_tasks = ["Task011_Prostate-BIDMC", "Task012_Prostate-I2CVB", "Task013_Prostate-HK", "Task015_Prostate-UCL", "Task016_Prostate-RUNMC"]
+    joint_task = "Task032_Prostate_joined"
     mask = "mask_1"
+
+
+    #list_of_tasks = ["Task097_DecathHip", "Task098_Dryad", "Task099_HarP"]
+    #joint_task = "Task033_Hippocampus_joined"
+    #mask = "mask_1"
 
     print(list_of_tasks)
 
     #run_all_evaluations(list_of_tasks)
-    #create_and_save_all_matrices(list_of_tasks, mask)
+    create_and_save_all_matrices(list_of_tasks, mask)
     create_and_save_table_base(list_of_tasks, joint_task, mask)
     create_and_save_table_base_compare_last_corresponding(list_of_tasks, joint_task, mask)
 

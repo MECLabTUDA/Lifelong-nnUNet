@@ -20,14 +20,14 @@ def join_texts_with_char(texts, combine_with):
 
 BEST_EXPERT_METHOD = "nnUNetTrainerExpertGateUNet"
 
-#list_of_tasks = ["Task011_Prostate-BIDMC", "Task012_Prostate-I2CVB", "Task013_Prostate-HK", "Task015_Prostate-UCL", "Task016_Prostate-RUNMC"]
-#JOINED_TASK = "Task032_Prostate_joined"
-#USE_MASK = "mask_1"
+list_of_tasks = ["Task011_Prostate-BIDMC", "Task012_Prostate-I2CVB", "Task013_Prostate-HK", "Task015_Prostate-UCL", "Task016_Prostate-RUNMC"]
+JOINED_TASK = "Task032_Prostate_joined"
+USE_MASK = "mask_1"
 
 
-list_of_tasks = ["Task008_mHeartA", "Task009_mHeartB"]
-JOINED_TASK = "Task031_Cardiac_joined"
-USE_MASK = "mask_3"
+#list_of_tasks = ["Task008_mHeartA", "Task009_mHeartB"]
+#JOINED_TASK = "Task031_Cardiac_joined"
+#USE_MASK = "mask_3"
 
 #list_of_tasks = ["Task097_DecathHip", "Task098_Dryad", "Task099_HarP"]
 #JOINED_TASK = "Task033_Hippocampus_joined"
@@ -36,7 +36,7 @@ USE_MASK = "mask_3"
 
 
 
-EVAL_PATH = "/local/scratch/clmn1/what_is_wrong/evaluation/nnUNet_ext/3d_fullres"
+EVAL_PATH = "/local/scratch/clmn1/what_is_wrong/evaluation_test/nnUNet_ext/3d_fullres"
 
 input_path = os.path.join(EVAL_PATH, 
     join_texts_with_char(list_of_tasks, '_'), 
@@ -124,3 +124,4 @@ ax.set(ylabel="")
 ax.set(xlabel="Dice")
 sns.despine(trim=True, left=True)
 plt.savefig(os.path.join(EVAL_PATH, join_texts_with_char(list_of_tasks, '_'), "boxplot_Dice_last.svg"), bbox_inches='tight')
+print(os.path.join(EVAL_PATH, join_texts_with_char(list_of_tasks, '_'), "boxplot_Dice_last.svg"))

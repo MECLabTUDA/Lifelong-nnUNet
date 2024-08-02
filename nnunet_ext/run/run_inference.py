@@ -5,6 +5,7 @@
 import os, argparse
 from nnunet_ext.evaluation.evaluator import Evaluator
 from batchgenerators.utilities.file_and_folder_operations import *
+from nnunet_ext.utilities.ext_map import get_ext_map
 from nnunet_ext.utilities.helpful_functions import join_texts_with_char
 from nnunet_ext.paths import evaluation_output_dir, default_plans_identifier
 from nnunet_ext.inference.predict import predict_from_folder
@@ -100,19 +101,7 @@ def run_inference():
                         help='Set this flag if Shifted Patch Tokenization should be used for the ViT.')
 
     # -- Build mapping for network_trainer to corresponding extension name -- #
-    ext_map = {'nnViTUNetTrainer': None, 'nnViTUNetTrainerCascadeFullRes': None,
-               'nnUNetTrainerFreezedViT': 'freezed_vit', 'nnUNetTrainerEWCViT': 'ewc_vit',
-               'nnUNetTrainerFreezedNonLN': 'freezed_nonln', 'nnUNetTrainerEWCLN': 'ewc_ln',
-               'nnUNetTrainerMultiHead': 'multihead', 'nnUNetTrainerSequential': 'sequential',
-               'nnUNetTrainerFreezedUNet': 'freezed_unet', 'nnUNetTrainerEWCUNet': 'ewc_unet',
-               'nnUNetTrainerMiB': 'mib', 'nnUNetTrainerPLOP': 'plop', 'nnUNetTrainerV2': 'standard',
-               'nnUNetTrainerOwnM1': 'ownm1', 'nnUNetTrainerOwnM2': 'ownm2', 'nnUNetTrainerPOD': 'pod',
-               'nnUNetTrainerOwnM3': 'ownm3', 'nnUNetTrainerOwnM4': 'ownm4', 'nnUNetTrainerRW': 'rw',
-               'nnUNetTrainerRehearsal': 'rehearsal', 'nnUNetTrainerEWC': 'ewc', 'nnUNetTrainerLWF': 'lwf',
-               'nnUNetTrainerExpertGate2': 'expert_gate2',
-               'nnUNetTrainerExpertGateUNet': 'expert_gate_UNet',
-               'nnUNetTrainerExpertGateMonai': 'expert_gate_monai',
-               'nnUNetTrainerExpertGateSimple': 'expert_gate_simple_ae'}
+    ext_map = get_ext_map()
 
 
     # -------------------------------

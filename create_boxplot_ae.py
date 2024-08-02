@@ -6,7 +6,8 @@ import pandas as pd
 from create_confusion import rename_model
 from create_confusion_ae import AE_METHODS_SORTED
 
-EVAL_PATH = "/local/scratch/clmn1/what_is_wrong/evaluation/nnUNet_ext/expert_gate/"
+#EVAL_PATH = "/local/scratch/clmn1/what_is_wrong/evaluation/nnUNet_ext/expert_gate/"
+EVAL_PATH = "/local/scratch/clmn1/what_is_wrong/evaluation_test/nnUNet_ext/expert_gate/"
 MIN_VALUE = 0
 
 ALL_TASKS = "Task011_Prostate-BIDMC_Task012_Prostate-I2CVB_Task013_Prostate-HK_Task015_Prostate-UCL_Task016_Prostate-RUNMC"
@@ -83,3 +84,4 @@ ax.set(ylabel="")
 ax.set(xlabel="Dice")
 sns.despine(trim=True, left=True)
 plt.savefig(os.path.join(EVAL_PATH, ALL_TASKS, "boxplot.svg"), bbox_inches='tight')
+print(os.path.join(EVAL_PATH, ALL_TASKS, "boxplot.svg"))
