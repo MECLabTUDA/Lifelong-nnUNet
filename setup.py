@@ -56,6 +56,7 @@ setup(name='nnunet_ext',
 
 
               
+              'nnUNet_join_datasets = nnunet_ext.scripts.join_datasets:main',
               'nnUNet_inference = nnunet_ext.run.run_inference:main',
               'nnUNet_evaluate2 = nnunet_ext.run.run_evaluation:run_evaluation2',
           ],
