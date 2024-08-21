@@ -144,6 +144,7 @@ def modify_checkpoints():
         chkpts = [y for x in os.walk(model_base_folder) for y in glob(os.path.join(x[0], '*.model.pkl')) if trainer in y]
         plans = [y for x in os.walk(model_base_folder) for y in glob(os.path.join(x[0], 'plans.pkl'))]
         chkpts.extend(plans)
+        assert False, "I think this has a bug! Please check it.."
 
     else:   # --> User wants a very specific folder, so we obey and do not modify the plans file..
         # -- Transform fold to list if it is set to 'all'
@@ -255,5 +256,23 @@ def __list_replace_value(l, old, new):
 def main():
     modify_checkpoints()
 
+def main_all():
+    parser = argparse.ArgumentParser()    
+    parser.add_argument("-rw", "--replace_with", action='store', type=str, nargs=2,
+                        help="First specify the part to replace and the path it will be replaced with.", required=True)
+    args = parser.parse_args()
+    old_part, new_part = args.replace_with
+    all_checkpoints_and_plans = []
+    for base_path in [network_training_output_dir_orig, network_training_output_dir]:
+        ckpts = glob(os.path.join(base_path, "**/*.model.pkl"), recursive=True)
+        plans = glob(os.path.join(base_path, "**/plans.pkl"), recursive=True)
+        all_checkpoints_and_plans.extend(ckpts)
+        all_checkpoints_and_plans.extend(plans)
+
+    for cp in all_checkpoints_and_plans:
+        content = load_pickle(cp)
+        content = _do_replacement(content, old_part, new_part)
+        write_pickle(content, cp)
+
 if __name__ == '__main__':
-    modify_checkpoints()
+    main_all()
