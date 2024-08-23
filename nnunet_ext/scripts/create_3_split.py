@@ -2,13 +2,13 @@
 from nnunet_ext.paths import network_training_output_dir, preprocessing_output_dir, default_plans_identifier, nnUNet_raw_data
 from distutils.dir_util import copy_tree
 from batchgenerators.utilities.file_and_folder_operations import maybe_mkdir_p, join, load_pickle, write_pickle
-import os, random
+import os, random, shutil
 
 
 def do_split(old_task_name: str, new_task_name:str, NUM_TEST_DATA: float): 
 
     
-    os.symlink(join(nnUNet_raw_data, old_task_name), join(nnUNet_raw_data, new_task_name))    
+    shutil.copytree(join(nnUNet_raw_data, old_task_name), join(nnUNet_raw_data, new_task_name))    
 
     random.seed(123454321)
     maybe_mkdir_p(join(preprocessing_output_dir, new_task_name))
@@ -33,7 +33,10 @@ def do_split(old_task_name: str, new_task_name:str, NUM_TEST_DATA: float):
                 new_splits.append(d)
             write_pickle(new_splits, join(preprocessing_output_dir, new_task_name, "splits_final.pkl"))
         else:
-            os.symlink(join(preprocessing_output_dir, old_task_name, file), join(preprocessing_output_dir, new_task_name, os.path.basename(file)))
+            try:
+                shutil.copytree(join(preprocessing_output_dir, old_task_name, file), join(preprocessing_output_dir, new_task_name, os.path.basename(file)))
+            except OSError:
+                shutil.copy(join(preprocessing_output_dir, old_task_name, file), join(preprocessing_output_dir, new_task_name, os.path.basename(file)))
 
 
 
