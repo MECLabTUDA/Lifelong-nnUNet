@@ -108,10 +108,13 @@ def _perform_transformation_on_mask_using_mapping(mask, mapping, join_labels):
     img_array = np.absolute(img_array)
 
     # -- Convert the transformed numpy array back to a SimpleITK image and save the new mask by overwriting the old one -- #
-    mask = sitk.GetImageFromArray(img_array)
+    new_mask = sitk.GetImageFromArray(img_array)
+
+    # -- Preserve the metadata (origin, spacing, and direction) from the original mask -- #
+    new_mask.CopyInformation(mask)
     
     # -- Return the new mask image -- #
-    return mask
+    return new_mask
             
 
 def main(use_parser=True, **kwargs):
