@@ -181,8 +181,7 @@ def mahalanobis_uncertainty(features_path, base_name, feature_name,
         lb_x, lb_y, lb_z = ub_x-patch_size[0], ub_y-patch_size[1], ub_z-patch_size[2]
         distance = feature_distances[patch_key_str][feature_name]
         print(distance.shape, patch_size)
-        float2 = np.vectorize(float)
-        distance_patch = np.full(patch_size, float2(distance))
+        distance_patch = np.full(patch_size,distance[0].astype(float))
         if use_gaussian:
             distance_patch *= gaussian_importance_map
         aggregated_results[lb_x:ub_x, lb_y:ub_y, lb_z:ub_z] += distance_patch
