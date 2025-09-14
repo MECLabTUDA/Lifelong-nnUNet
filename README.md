@@ -1,5 +1,40 @@
-# Lifelong-nnUNet
+# Lifelong-nnUNet supports Neural Cellular Automata
 
+![](assets/model_comparison.png)
+This branch supports training of NCA models in the nnUNet autoML framework. Our NCA model achieves segmentation performance similar to the nnUNet, which is considered the state-of-the-art segmentation model, while requiring $4000\times$ fewer parameters. Configuration and training of the nnNCA models can be done using the commands
+```bash
+nnUNet_plan_and_preprocess_ext -t XXX
+nnUNet_train_nca 3d_fullres -t XXX -f 0 -num_epoch 250 -d 0 -save_interval 25 -s seg_outputs --store_csv --nca
+```
+where `XXX` is the task index to train on (see [setting_up_paths.md](documentation/setting_up_paths.md) for an explanation on how to set up). Note the `--nca` argument, which is mandatory for this command.
+After training, you can evaluate your model using the command
+```bash
+nnUNet_evaluate2 3d_fullres nnUNetTrainerNCA -trained_on XXX -f 0 -use_model XXX -evaluate_on XXX --store_csv -d 0 --fp32
+```
+The NCA backbone is also supported with all other models in this repository, so you can train an NCA using a continual learning algorithm. For example, you can train an elastic weight consolidation (EWC) NCA via 
+```bash
+nnUNet_train_ewc 3d_fullres -t 507 -f 0 -num_epoch 250 -d 0 -save_interval 25 -s seg_outputs --store_csv --nca
+```
+
+Make sure to check out our other NCA-related publications, e.g.
+* [Med-NCA: Robust and Lightweight Segmentation with Neural Cellular Automata](https://arxiv.org/abs/2302.03473), Kalkhof et al.
+* [M3D-NCA: Robust 3D Segmentation with Built-in Quality Control](https://arxiv.org/abs/2309.02954), Kalkhof et al.
+* [MED-NCA: Bio-inspired medical image segmentation](https://www.sciencedirect.com/science/article/pii/S1361841525001483), Kalkhof et al.
+* [OctreeNCA: Single-Pass 184 MP Segmentation on Consumer Hardware](https://arxiv.org/abs/2508.06993), Lemke et al.
+* [Equitable Federated Learning with NCA](https://arxiv.org/abs/2506.21735), Lemke et al.
+
+
+## Table Of Contents
+
+1. [Lifelong-nnUNet](#lifelong-nnunet)
+1. [Introduction](#introduction)
+2. [Installation](#installation)
+3. [Required Paths](#required-paths)
+4. [Mapping Datasets to Other Labels](#mapping-datasets-to-other-labels)
+5. [License](#license)
+
+
+## Lifelong-nnUNet
 This repository extends the popular [nnUNet](https://github.com/MIC-DKFZ/nnUNet) framework with methods that allow for **safer on-the-wild use**. This includes functionality for **continual learning** and **out-of-distribution detection**. With only one line of code, you can now train a model sequentially with different datasets.
 
 <img src="https://user-images.githubusercontent.com/34241665/167388880-f496a195-2018-4a1c-84c6-4badad6cb6c2.png" width="700" />
@@ -11,13 +46,6 @@ You can monitor the performance throughout the training process, as illustrated 
 The supported nnUNet version is specified in the [requirements.txt](requirements.txt) file. Please note that, at times, files are replicated from this version and adapted as needed. If you wish to use a newer nnUNet version, please make sure that all adapted files are consistent with that version. For the current `continual_learning` branch, this does not apply, ie. no files are replicated.
 
 
-## Table Of Contents
-
-1. [Introduction](#introduction)
-2. [Installation](#installation)
-3. [Required Paths](#required-paths)
-4. [Mapping Datasets to Other Labels](#mapping-datasets-to-other-labels)
-5. [License](#license)
 
 
 ## Introduction
