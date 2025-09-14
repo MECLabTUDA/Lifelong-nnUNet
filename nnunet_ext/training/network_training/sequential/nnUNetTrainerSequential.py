@@ -22,20 +22,23 @@ class nnUNetTrainerSequential(nnUNetTrainerMultiHead):
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
                  identifier=default_plans_identifier, extension='sequential', tasks_list_with_char=None, mixed_precision=True,
                  save_csv=True, del_log=False, use_vit=False, vit_type='base', version=1, split_gpu=False, transfer_heads=True,
-                 ViT_task_specific_ln=False, do_LSA=False, do_SPT=False, network=None, use_param_split=False):
+                 ViT_task_specific_ln=False, do_LSA=False, do_SPT=False, nca=False, network=None, use_param_split=False):
         r"""Constructor of Sequential trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets. --> Note that the only
             difference to the Multi-Head Trainer is the transfer_heads flag which should always be True for this Trainer!
         """
         # -- Initialize using parent class -- #
         super().__init__(split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic,
                          fp16, save_interval, already_trained_on, use_progress, identifier, extension, tasks_list_with_char, mixed_precision,
-                         save_csv, del_log, use_vit, vit_type, version, split_gpu, True, ViT_task_specific_ln, do_LSA, do_SPT,
+                         save_csv, del_log, use_vit, vit_type, version, split_gpu, True, ViT_task_specific_ln, do_LSA, do_SPT, nca,
                          network, use_param_split)
         
     def initialize_network(self):
         r"""Extend Initialization of Network --> Load pre-trained model (specified to setup the network).
             Optimizer and lr initialization is still the same, since only the network is different.
         """
+        if self.nca:
+            return super().initialize_network()
+        
         if self.trainer_path is None:
             # -- Specify if 2d or 3d plans is necessary -- #
             _2d_plans = "_plans_2D.pkl" in self.plans_file

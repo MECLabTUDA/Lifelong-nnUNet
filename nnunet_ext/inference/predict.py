@@ -359,6 +359,7 @@ def predict_from_folder(params_ext, model: str, input_folder: str, output_folder
         original_path = os.path.normpath(original_path)
         splitted_path = original_path.split(os.sep)
         first_task = splitted_path[-4].split("Task")
+        first_task = [i.rstrip("_") for i in first_task]
         first_task = first_task[1]
         splitted_path[-4] = f"Task{first_task}"
         plans_path = '/'+os.path.join(*splitted_path)

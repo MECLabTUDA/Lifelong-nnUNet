@@ -5,15 +5,17 @@ import torch.nn.functional as F
 from nnunet_ext.network_architecture.nca.NCA2D import NCA2D
 import matplotlib.pyplot as plt 
 import matplotlib
+from nnunet.network_architecture.neural_network import SegmentationNetwork
 #matplotlib.use('TkAgg')
 
-class OctreeNCA2D(nn.Module):
+class OctreeNCA2D(SegmentationNetwork):
     def __init__(self, num_channels: int, num_input_channels: int, num_classes: int,
                  hidden_size: int, fire_rate: float, num_steps: list[int], num_levels: int):
         super(OctreeNCA2D, self).__init__()
-        self.do_ds = False
+        self.do_ds = True
         self.num_input_channels = num_input_channels
         self.num_classes = num_classes
+        self.conv_op = nn.Conv2d
         
         self.backbone_ncas = nn.ModuleList([NCA2D(num_channels, 
                                                   num_input_channels, 

@@ -63,15 +63,19 @@ def compute_scores_and_build_dict(evaluate_on: str, inference_folder:str, fold: 
     
     dataset_directory = join(preprocessing_output_dir, evaluate_on)
     splits_final = load_pickle(join(dataset_directory, "splits_final.pkl"))
-    splits_final[fold]['val']
 
     ground_truth_folder: str = os.path.join(os.environ['nnUNet_raw_data_base'], 'nnUNet_raw_data', evaluate_on, 'labelsTr')
 
 
     if include_training_data:
-        cases_to_perform_evaluation_on = np.concatenate((splits_final[fold]['val'],(splits_final[fold]['train'])))
+        cases_to_perform_evaluation_on = []
+        for s in splits_final[fold].keys():
+            cases_to_perform_evaluation_on.extend(splits_final[fold][s])
     else:
-        cases_to_perform_evaluation_on = splits_final[fold]['val']
+        cases_to_perform_evaluation_on = []
+        for s in splits_final[fold].keys():
+            if s != 'train':
+                cases_to_perform_evaluation_on.extend(splits_final[fold][s])
 
     print("original training cases:", splits_final[fold]['train'])
     print("performing validation on:", cases_to_perform_evaluation_on)
@@ -230,6 +234,16 @@ def run_evaluation2(network, network_trainer, tasks_list_with_char: tuple[list[s
                 os.makedirs(join(final_output_folder, evaluate_on), exist_ok=True)
                 save_json(validation_results, join(final_output_folder, evaluate_on, file_name + '.json'), sort_keys=False)
                 val_res = nestedDictToFlatTable(validation_results, ['Epoch', 'Task', 'subject_id', 'seg_mask', 'metric', 'value'])
+
+
+                dataset_directory = join(preprocessing_output_dir, evaluate_on)
+                splits_final = load_pickle(join(dataset_directory, "splits_final.pkl"))
+                id_to_split = {}
+                for s in splits_final[fold].keys():
+                    for id in splits_final[fold][s]:
+                        id_to_split[id] = s
+                val_res['split'] = val_res['subject_id'].map(id_to_split)
+
                 dumpDataFrameToCsv(val_res, os.path.join(final_output_folder, evaluate_on), file_name + '.csv')
 
 

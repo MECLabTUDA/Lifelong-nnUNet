@@ -159,6 +159,9 @@ def run_training(extension='multihead'):
                             ' during training, ie. the very first head from the initialization of the class is used.'
                             ' Default: The previously trained head is used as initialization of the new head.')
     
+    parser.add_argument('--nca', action='store_true', default=False,
+                        help='Train an NCA instead of UNet.')
+
     # -- Add arguments for rehearsal method -- #
     if extension == 'rehearsal':
         parser.add_argument('-seed', action='store', type=int, nargs=1, required=False, default=3299,
@@ -509,7 +512,7 @@ def run_training(extension='multihead'):
                   'tasks_list_with_char': copy.deepcopy(tasks_list_with_char), 'save_csv': save_csv, 'use_param_split': False,
                   'mixed_precision': run_mixed_precision, 'use_vit': use_vit, 'vit_type': vit_type, 'version': version,
                   'split_gpu': split_gpu, 'transfer_heads': transfer_heads, 'ViT_task_specific_ln': ViT_task_specific_ln,
-                  'do_LSA': do_LSA, 'do_SPT': do_SPT, **basic_args}
+                  'do_LSA': do_LSA, 'do_SPT': do_SPT, 'nca': args.nca, **basic_args}
     ewc_args = {'ewc_lambda': ewc_lambda, **basic_exts}
     mib_args = {'mib_lkd': mib_lkd, 'mib_alpha': mib_alpha, **basic_exts}
     lwf_args = {'lwf_temperature': lwf_temperature, **basic_exts}

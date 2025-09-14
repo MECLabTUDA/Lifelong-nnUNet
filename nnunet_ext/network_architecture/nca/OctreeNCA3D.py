@@ -10,7 +10,7 @@ class OctreeNCA3D(SegmentationNetwork):
                  hidden_size: int, fire_rate: float, num_steps: list[int], num_levels: int,
                  pool_op_kernel_sizes: list[list[int]]):
         super(OctreeNCA3D, self).__init__()
-        self.do_ds = False
+        self.do_ds = True
         self.num_input_channels = num_input_channels
         self.num_classes = num_classes
         self.conv_op = nn.Conv3d
@@ -36,7 +36,7 @@ class OctreeNCA3D(SegmentationNetwork):
     def __downscale(self, x, level: int):
         if level==0:
             return x
-        return F.interpolate(x, scale_factor=tuple(1/self.scale_factors[level]))
+        return F.interpolate(x, scale_factor=tuple(1/self.scale_factors[level]), mode="trilinear")
 
     def forward(self, x):
         x_downscaled = self.__downscale(x, len(self.backbone_ncas)-1)
@@ -57,7 +57,6 @@ class OctreeNCA3D(SegmentationNetwork):
                 state = F.interpolate(state, scale_factor=tuple(self.upscale_factors[level-1]), mode='nearest')
                 #print(state.shape)
                 state = torch.cat([x_downscaled, state], dim=1)
-
 
         if self.do_ds:
             return seg_outputs[::-1]

@@ -6,7 +6,7 @@
 import numpy as np
 import os, copy, torch
 from itertools import tee
-from torch.cuda.amp import autocast
+from torch.amp import autocast
 from collections import OrderedDict
 from sklearn.model_selection import KFold
 from sklearn.model_selection import train_test_split
@@ -28,6 +28,9 @@ from nnunet.training.data_augmentation.data_augmentation_noDA import get_no_augm
 from nnunet.training.data_augmentation.data_augmentation_moreDA import get_moreDA_augmentation
 from nnunet.training.dataloading.dataset_loading import load_dataset, DataLoader3D, DataLoader2D, unpack_dataset
 from nnunet_ext.paths import default_plans_identifier, evaluation_output_dir, preprocessing_output_dir, default_plans_identifier
+from nnunet_ext.network_architecture.Dummy_MultiHead_Module import Dummy_MultiHead_Module
+from nnunet_ext.network_architecture.nca.OctreeNCA3D import OctreeNCA3D
+from nnunet_ext.network_architecture.nca.OctreeNCA2D import OctreeNCA2D
 
 # -- Add this since default option file_descriptor has a limitation on the number of open files. -- #
 # -- Default config might cause the runtime error: RuntimeError: received 0 items of ancdata -- #
@@ -41,7 +44,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
                  identifier=default_plans_identifier, extension='multihead', tasks_list_with_char=None, mixed_precision=True,
                  save_csv=True, del_log=False, use_vit=False, vit_type='base', version=1, split_gpu=False, transfer_heads=False,
-                 ViT_task_specific_ln=False, do_LSA=False, do_SPT=False, network=None, use_param_split=False):
+                 ViT_task_specific_ln=False, do_LSA=False, do_SPT=False, nca=False, network=None, use_param_split=False):
         r"""Constructor of Multi Head Trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
             The transfer_heads flag is used when adding a new head, if True, the state_dict from the last head will be used
             instead of the one from the initialization. This is the basic transfer learning (difference between MH and SEQ folder structure).
@@ -184,11 +187,15 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # -- Only set this to True if the parameter search method is used -- #
         self.param_split = use_param_split
 
+        self.nca = nca
+        if nca:
+            self.initial_lr = 1e-3
+
         # -- Update self.init_tasks so the storing works properly -- #
         self.init_args = (split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
                           deterministic, fp16, save_interval, self.already_trained_on, use_progress, identifier, extension,
                           tasks_list_with_char, mixed_precision, save_csv, del_log, use_vit, self.vit_type, version, split_gpu,
-                          transfer_heads, ViT_task_specific_ln, do_LSA, do_SPT)
+                          transfer_heads, ViT_task_specific_ln, do_LSA, do_SPT, nca)
 
     def do_split(self):
         r"""Modify the original function. This enables the loading of the split
@@ -291,11 +298,27 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         if self.use_vit:
             self.batch_size = self.batch_size // 2
 
+        if self.nca and self.threeD:
+            self.batch_size = 2
+
+    
+    def maybe_update_lr(self, epoch=None):
+        if not self.nca:
+            return super().maybe_update_lr(epoch)
+        self.lr_scheduler.step(epoch)
+        self.print_to_log_file("lr:", np.round(self.optimizer.param_groups[0]['lr'], decimals=6))
+
     def initialize_optimizer_and_scheduler(self):
         r"""Update this so params without gradients are never updated during training --> Don't forget to recall
             if the gradients are changed during training..
         """
         assert self.network is not None, "self.initialize_network must be called first"
+
+        if self.nca:
+            self.optimizer = torch.optim.AdamW(self.network.parameters(), self.initial_lr, weight_decay=0)
+            self.lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, self.max_num_epochs, eta_min=1e-6)
+            return
+
         self.optimizer = torch.optim.SGD(filter(lambda p: p.requires_grad==True, self.network.parameters()), self.initial_lr, weight_decay=self.weight_decay,
                                          momentum=0.99, nesterov=True)
         self.lr_scheduler = None
@@ -338,6 +361,43 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         r"""Extend Initialization of Network --> Load pre-trained model (specified to setup the network).
             Optimizer and lr initialization is still the same, since only the network is different.
         """
+        if self.nca:
+            num_levels = len(self.net_num_pool_op_kernel_sizes)
+            #base_num_steps = int(3 * max(self.patch_size / 2**num_levels))
+
+            num_steps = [5] * (num_levels-1) + [20]
+
+            if self.threeD:
+                num_steps = [6,7,8,9,10,20]
+                assert len(num_steps) == num_levels
+                self.mh_network = Dummy_MultiHead_Module(OctreeNCA3D, self.split, self.tasks_list_with_char[0][0], prev_trainer=self.network,
+                                                    num_channels=16, 
+                                    num_input_channels=self.num_input_channels,
+                                    num_classes=self.num_classes,
+                                    hidden_size=64,
+                                    fire_rate=0.5,
+                                    num_steps=num_steps,
+                                    num_levels=num_levels,
+                                    pool_op_kernel_sizes=self.net_num_pool_op_kernel_sizes)
+            else:
+                self.mh_network = Dummy_MultiHead_Module(OctreeNCA2D, self.split, self.tasks_list_with_char[0][0], prev_trainer=self.network,
+                                                    num_channels=16, 
+                                    num_input_channels=self.num_input_channels,
+                                    num_classes=self.num_classes,
+                                    hidden_size=64,
+                                    fire_rate=0.5,
+                                    num_steps=num_steps,
+                                    num_levels=num_levels)
+
+            self.network = self.mh_network.model
+
+            if torch.cuda.is_available():
+                self.network.cuda()
+            self.network.inference_apply_nonlin = softmax_helper
+            return
+            ####################################
+
+
         if self.trainer_path is None:
             # -- Specify if 2d or 3d plans is necessary -- #
             _2d_plans = "_plans_2D.pkl" in self.plans_file
@@ -671,6 +731,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # -- If the current epoch can be divided without a rest by self.save_every than its time for a validation -- #
         if self.epoch % self.save_every == self.save_every - 1:   # Same as checkpoint saving from nnU-Net (NOTE: this is because its 0 based)
             self._perform_validation()
+            self.save_checkpoint(join(self.output_folder, "training_" + str(self.epoch) +".model"), False)
 
         # -- Return the result from the parent class -- #
         return res

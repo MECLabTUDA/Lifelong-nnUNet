@@ -11,6 +11,7 @@ import copy, torch, time, sys, os, shutil, importlib
 from nnunet.utilities.to_torch import maybe_to_torch, to_cuda
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet_ext.paths import nnUNet_raw_data, nnUNet_cropped_data, preprocessing_output_dir
+import tqdm
 
 def delete_dir_con(path):
     r"""This function deletes the whole content in the folder specified by the path and then deletes the empty folder
@@ -204,6 +205,7 @@ def dumpDataFrameToCsv(data, path, name, sep='\t'):
     # -- Dump the DataFrame using the path and seperator without using the index from the frame -- #
     data.to_csv(path, index=False, sep=sep)
 
+@torch.no_grad()
 def calculate_target_logits(mh_network, gen, num_batches_per_epoch, fp16, gpu_id=0):
     r"""This function is used to calculate the target_logits based on a transmitted generator.
         The function returns a dictionary representing the target_logits based on the mh_network.
@@ -236,7 +238,7 @@ def calculate_target_logits(mh_network, gen, num_batches_per_epoch, fp16, gpu_id
         target_logits[task] = list()
 
         # -- Make the predictions and store them in a dictionary to use during the LwF loss -- #
-        for _ in range(num_batches_per_epoch):
+        for _ in tqdm.trange(num_batches_per_epoch):
             # -- Extract the current batch from data transform to tensor and push to GPU -- #
             data_dict = next(gen)
             x = maybe_to_torch(data_dict['data'])
