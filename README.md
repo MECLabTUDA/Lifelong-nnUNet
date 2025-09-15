@@ -1,4 +1,4 @@
-# Lifelong-nnUNet supports Neural Cellular Automata
+# nnUNet meets Neural Cellular Automata for equitable segmentation
 
 ![](assets/model_comparison.png)
 This branch supports training of NCA models in the nnUNet autoML framework. Our NCA model achieves segmentation performance similar to the nnUNet, which is considered the state-of-the-art segmentation model, while requiring $4000\times$ fewer parameters. Configuration and training of the nnNCA models can be done using the commands
