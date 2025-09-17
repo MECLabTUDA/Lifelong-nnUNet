@@ -23,6 +23,16 @@ Make sure to check out our other NCA-related publications, e.g.
 * [OctreeNCA: Single-Pass 184 MP Segmentation on Consumer Hardware](https://arxiv.org/abs/2508.06993), Lemke et al.
 * [Equitable Federated Learning with NCA](https://arxiv.org/abs/2506.21735), Lemke et al.
 
+If you are using nnNCA, please cite the following paper:
+```
+@article{lemke2025octreenca,
+  title={OctreeNCA: Single-Pass 184 MP Segmentation on Consumer Hardware},
+  author={Lemke, Nick and Kalkhof, John and Babendererde, Niklas and Mukhopadhyay, Anirban},
+  journal={arXiv preprint arXiv:2508.06993},
+  year={2025}
+}
+```
+
 
 ## Table Of Contents
 
