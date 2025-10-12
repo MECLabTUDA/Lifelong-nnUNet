@@ -1,0 +1,11 @@
+source /gris/gris-f/homestud/nlemke/.bashrc
+conda activate CLenv3
+
+
+#export nnUNet_raw_data_base="/local/scratch/clmn1/cardiacProstate/nnUnet_raw_data_base"
+
+#export nnUNet_preprocessed="/local/scratch/clmn1/cardiacProstate/nnUnet_preprocessed"
+export nnUNet_preprocessed="/home/nlemke/data/nnUNetData/nnUNet_preprocessed"
+
+export RESULTS_FOLDER="/local/scratch/clmn1/incremental-nca/amos/results"
+export EVALUATION_FOLDER="/local/scratch/clmn1/incremental-nca/amos/evaluation"

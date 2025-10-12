@@ -1,16 +1,14 @@
 import torch, einops
 import torch.nn as nn
 import torch.nn.functional as F
-
+import numpy as np
 from nnunet_ext.network_architecture.nca.NCA2D import NCA2D
-import matplotlib.pyplot as plt 
-import matplotlib
 from nnunet.network_architecture.neural_network import SegmentationNetwork
-#matplotlib.use('TkAgg')
 
 class OctreeNCA2D(SegmentationNetwork):
     def __init__(self, num_channels: int, num_input_channels: int, num_classes: int,
-                 hidden_size: int, fire_rate: float, num_steps: list[int], num_levels: int):
+                 hidden_size: int, fire_rate: float, num_steps: list[int], num_levels: int,
+                 pool_op_kernel_sizes: list[list[int]]):
         super(OctreeNCA2D, self).__init__()
         self.do_ds = True
         self.num_input_channels = num_input_channels
@@ -24,34 +22,28 @@ class OctreeNCA2D(SegmentationNetwork):
                                                   fire_rate, 
                                                   num_steps[l]) for l in range(num_levels)])
 
+        current_pool_size = np.array([1,1])
+        self.scale_factors = [current_pool_size.copy()]
+        for pool_op in pool_op_kernel_sizes:
+            current_pool_size *= np.array(pool_op)
+            self.scale_factors.append(current_pool_size.copy())
+
+        self.upscale_factors = pool_op_kernel_sizes
 
     def __downscale(self, x, level: int):
         if level==0:
             return x
-        return F.avg_pool2d(x, 2**level)
+        return F.interpolate(x, scale_factor=tuple(1/self.scale_factors[level]), mode="bilinear")
 
     def forward(self, x):
-        
-        #show = input("Show? (y/n): ") == 'y'
-        show=False
-
         x_downscaled = self.__downscale(x, len(self.backbone_ncas)-1)
         state = self.backbone_ncas[-1].make_state(x_downscaled)
-
-        if show:
-            plt.imshow(state.detach().cpu().numpy()[0,1])
-            plt.show()
 
         seg_outputs = []
 
         for level in list(range(len(self.backbone_ncas)))[::-1]: #micro to macro (low res to high res)
 
             state = self.backbone_ncas[level].forward_internal(state, show=False)
-
-            if show:
-                print(level)
-                plt.imshow(state.detach().cpu().numpy()[0,1])
-                plt.show()
 
             state = state[:,self.num_input_channels:]
             seg_outputs.append(state[:, :self.num_classes])
@@ -60,16 +52,6 @@ class OctreeNCA2D(SegmentationNetwork):
                 x_downscaled = self.__downscale(x, level-1)
                 state = F.interpolate(state, scale_factor=2, mode='nearest')
                 state = torch.cat([x_downscaled, state], dim=1)
-
-        if show:
-            print(x.shape)
-            print(seg_outputs[-1].shape)
-            plt.subplot(1,2,1)
-            plt.imshow(x.cpu().numpy()[0,0])
-            plt.subplot(1,2,2)
-            plt.imshow(seg_outputs[-1].detach().cpu().numpy()[0,0])
-            plt.show()
-            input("Press Enter to continue...")
 
 
         if self.do_ds:

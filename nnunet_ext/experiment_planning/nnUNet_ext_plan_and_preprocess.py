@@ -9,6 +9,8 @@ from nnunet.utilities.task_name_id_conversion import convert_id_to_task_name
 from nnunet.preprocessing.sanity_checks import verify_dataset_integrity
 from nnunet.training.model_restore import recursive_find_python_class
 
+from nnunet_ext.experiment_planning.DatasetAnalyzerExt import DatasetAnalyzerExt
+
 
 def main():
     import argparse
@@ -59,6 +61,8 @@ def main():
                              "IDENTIFIER, the correct training command would be:\n"
                              "'nnUNet_train CONFIG TRAINER TASKID FOLD -p nnUNetPlans_pretrained_IDENTIFIER "
                              "-pretrained_weights FILENAME'")
+    parser.add_argument("-copy_intensity_props_from", type=int, default=None, required=False,
+                        help="If this is specified then the intensityproperties.pkl file from the given task will be copied.")
 
     args = parser.parse_args()
     task_ids = args.task_ids
@@ -132,7 +136,8 @@ def main():
         dataset_json = load_json(join(cropped_out_dir, 'dataset.json'))
         modalities = list(dataset_json["modality"].values())
         collect_intensityproperties = True if (("CT" in modalities) or ("ct" in modalities)) else False
-        dataset_analyzer = DatasetAnalyzer(cropped_out_dir, overwrite=False, num_processes=tf)  # this class creates the fingerprint
+        dataset_analyzer = DatasetAnalyzerExt(cropped_out_dir, overwrite=False, num_processes=tf, 
+                                              copy_intensity_props_from=join(nnUNet_cropped_data, convert_id_to_task_name(args.copy_intensity_props_from)) if args.copy_intensity_props_from is not None else None)  # this class creates the fingerprint
         _ = dataset_analyzer.analyze_dataset(collect_intensityproperties)  # this will write output files that will be used by the ExperimentPlanner
 
 

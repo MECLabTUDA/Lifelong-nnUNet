@@ -387,7 +387,8 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                                     hidden_size=64,
                                     fire_rate=0.5,
                                     num_steps=num_steps,
-                                    num_levels=num_levels)
+                                    num_levels=num_levels,
+                                    pool_op_kernel_sizes=self.net_num_pool_op_kernel_sizes)
 
             self.network = self.mh_network.model
 
