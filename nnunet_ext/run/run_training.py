@@ -158,6 +158,8 @@ def run_training(extension='multihead'):
                         help='Set this flag if a new head should not be initialized using the last head'
                             ' during training, ie. the very first head from the initialization of the class is used.'
                             ' Default: The previously trained head is used as initialization of the new head.')
+    parser.add_argument('--train_nca_w_sigmoid', required=False, default=False, action="store_true",
+                        help='Only has an effect if --nca is set. This will train the NCA with sigmoid and BCE instead of softmax and CE.')
     
     parser.add_argument('--nca', action='store_true', default=False,
                         help='Train an NCA instead of UNet.')
@@ -512,7 +514,8 @@ def run_training(extension='multihead'):
                   'tasks_list_with_char': copy.deepcopy(tasks_list_with_char), 'save_csv': save_csv, 'use_param_split': False,
                   'mixed_precision': run_mixed_precision, 'use_vit': use_vit, 'vit_type': vit_type, 'version': version,
                   'split_gpu': split_gpu, 'transfer_heads': transfer_heads, 'ViT_task_specific_ln': ViT_task_specific_ln,
-                  'do_LSA': do_LSA, 'do_SPT': do_SPT, 'nca': args.nca, **basic_args}
+                  'do_LSA': do_LSA, 'do_SPT': do_SPT, 'nca': args.nca, 'train_nca_w_sigmoid': args.train_nca_w_sigmoid,
+                  **basic_args}
     ewc_args = {'ewc_lambda': ewc_lambda, **basic_exts}
     mib_args = {'mib_lkd': mib_lkd, 'mib_alpha': mib_alpha, **basic_exts}
     lwf_args = {'lwf_temperature': lwf_temperature, **basic_exts}

@@ -80,7 +80,7 @@ def compute_scores_and_build_dict(evaluate_on: str, inference_folder:str, fold: 
     print("original training cases:", splits_final[fold]['train'])
     print("performing validation on:", cases_to_perform_evaluation_on)
     cases_dict = dict()
-    for case in cases_to_perform_evaluation_on:
+    for case in tqdm.tqdm(cases_to_perform_evaluation_on, desc="Evaluating cases"):
         file_name = case + ".nii.gz"
         #there must be a corresponding entry in inference_folder
         assert isfile(join(inference_folder, file_name))
@@ -123,7 +123,7 @@ def run_evaluation2(network, network_trainer, tasks_list_with_char: tuple[list[s
     num_threads_preprocessing = 1
     num_parts = 1
     part_id = 0
-    num_threads_nifti_save = 2
+    num_threads_nifti_save = 1#2
     step_size = 0.5
 
     params_ext = {

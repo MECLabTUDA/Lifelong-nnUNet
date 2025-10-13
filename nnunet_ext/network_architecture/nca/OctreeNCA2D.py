@@ -60,3 +60,7 @@ class OctreeNCA2D(SegmentationNetwork):
         else:
             return seg_outputs[-1]
 
+
+    def predict_3D(self, x, do_mirroring, mirror_axes = ..., use_sliding_window = False, step_size = 0.5, patch_size = None, regions_class_order = None, use_gaussian = False, pad_border_mode = "constant", pad_kwargs = None, all_in_gpu = False, verbose = True, mixed_precision = True):
+        # for now leave it like this, but pseudo-ensembling might help here!
+        return super().predict_3D(x, do_mirroring, mirror_axes, use_sliding_window, step_size, patch_size, regions_class_order, use_gaussian, pad_border_mode, pad_kwargs, all_in_gpu, verbose, mixed_precision)

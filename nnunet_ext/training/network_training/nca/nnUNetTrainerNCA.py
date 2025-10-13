@@ -35,7 +35,7 @@ class nnUNetTrainerNCA(nnUNetTrainerMultiHead):
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
                  identifier=default_plans_identifier, extension='nca', tasks_list_with_char=None,
                  mixed_precision=True, save_csv=True, del_log=False, use_vit=False, vit_type='base', version=1, split_gpu=False,
-                 transfer_heads=False, ViT_task_specific_ln=False, do_LSA=False, do_SPT=False, nca=False, network=None, use_param_split=False):
+                 transfer_heads=False, ViT_task_specific_ln=False, do_LSA=False, do_SPT=False, nca=False, train_nca_w_sigmoid=False, network=None, use_param_split=False):
         r"""Constructor of LwF trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
         """
         assert nca, "This trainer only works with NCA networks!"
@@ -43,7 +43,7 @@ class nnUNetTrainerNCA(nnUNetTrainerMultiHead):
         super().__init__(split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic,
                          fp16, save_interval, already_trained_on, use_progress, identifier, extension, tasks_list_with_char,
                          mixed_precision, save_csv, del_log, use_vit, vit_type, version, split_gpu, transfer_heads,
-                         ViT_task_specific_ln, do_LSA, do_SPT, nca, network, use_param_split)
+                         ViT_task_specific_ln, do_LSA, do_SPT, nca, train_nca_w_sigmoid, network, use_param_split)
 
         self.initial_lr = 1e-3
 

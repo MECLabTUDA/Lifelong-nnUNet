@@ -47,7 +47,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
                  identifier=default_plans_identifier, extension='multihead', tasks_list_with_char=None, mixed_precision=True,
                  save_csv=True, del_log=False, use_vit=False, vit_type='base', version=1, split_gpu=False, transfer_heads=False,
-                 ViT_task_specific_ln=False, do_LSA=False, do_SPT=False, nca=False, network=None, use_param_split=False):
+                 ViT_task_specific_ln=False, do_LSA=False, do_SPT=False, nca=False, train_nca_w_sigmoid=False, network=None, use_param_split=False):
         r"""Constructor of Multi Head Trainer for 2D, 3D low resolution and 3D full resolution nnU-Nets.
             The transfer_heads flag is used when adding a new head, if True, the state_dict from the last head will be used
             instead of the one from the initialization. This is the basic transfer learning (difference between MH and SEQ folder structure).
@@ -190,7 +190,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # -- Only set this to True if the parameter search method is used -- #
         self.param_split = use_param_split
 
-        self.train_nca_with_sigmoid = False
+        self.train_nca_with_sigmoid = train_nca_w_sigmoid
         self.nca = nca
         if nca:
             self.initial_lr = 1e-3
@@ -199,7 +199,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         self.init_args = (split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
                           deterministic, fp16, save_interval, self.already_trained_on, use_progress, identifier, extension,
                           tasks_list_with_char, mixed_precision, save_csv, del_log, use_vit, self.vit_type, version, split_gpu,
-                          transfer_heads, ViT_task_specific_ln, do_LSA, do_SPT, nca)
+                          transfer_heads, ViT_task_specific_ln, do_LSA, do_SPT, nca, train_nca_w_sigmoid)
 
     def do_split(self):
         r"""Modify the original function. This enables the loading of the split
@@ -408,7 +408,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                 self.network.cuda()
 
             if self.nca and self.train_nca_with_sigmoid:
-                nd_softmax.softmax_helper = lambda x: F.sigmoid(x)
+                nd_softmax.softmax_helper = torch.nn.Sigmoid()
             self.network.inference_apply_nonlin = nd_softmax.softmax_helper
             return
             ####################################

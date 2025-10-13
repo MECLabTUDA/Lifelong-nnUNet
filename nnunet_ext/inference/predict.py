@@ -192,16 +192,17 @@ def predict_cases(params_ext, model, list_of_lists, output_filenames, folds, sav
     preprocessing = preprocess_multithreaded(trainer, list_of_lists, cleaned_output_files, num_threads_preprocessing,
                                              segs_from_prev_stage)
     print("starting prediction...")
-    all_output_files = []
+    
     for preprocessed in preprocessing:
         output_filename, (d, dct) = preprocessed
-        all_output_files.append(all_output_files)
         if isinstance(d, str):
             data = np.load(d)
             os.remove(d)
             d = data
 
         print("predicting", output_filename)
+
+        assert (len(params)) == 1, "I (Nick) do not think this is implemented"
 
         #trainer.load_checkpoint(all_best_model_files[0], train=False)
         #trainer.load_checkpoint_ram(params[0], False)
@@ -225,6 +226,11 @@ def predict_cases(params_ext, model, list_of_lists, output_filenames, folds, sav
         if transpose_forward is not None:
             transpose_backward = trainer.plans.get('transpose_backward')
             softmax = softmax.transpose([0] + [i + 1 for i in transpose_backward])
+
+        if trainer.nca and trainer.train_nca_with_sigmoid:
+            bg = 1 - np.clip(np.max(softmax, axis=0, keepdims=True), 0, 1)
+            softmax = np.concatenate([bg, softmax], axis=0)
+
 
         if save_npz:
             npz_file = output_filename[:-7] + ".npz"
