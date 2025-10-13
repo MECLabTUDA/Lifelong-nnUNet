@@ -4,7 +4,7 @@ import torch.nn.functional as F
 
 class NCA3D(nn.Module):
     def __init__(self, num_channels: int, num_input_channels: int, num_classes: int,
-                 hidden_size: int, fire_rate: float, num_steps: int):
+                 hidden_size: int, fire_rate: float, num_steps: int, use_norm: bool):
         super(NCA3D, self).__init__()
 
         self.fc0 = nn.Conv3d(2 * num_channels, hidden_size, kernel_size=1)
@@ -13,8 +13,10 @@ class NCA3D(nn.Module):
         self.conv = nn.Conv3d(num_channels, num_channels, kernel_size=3, padding='same', 
                               padding_mode="reflect", groups=num_channels)
         
-
-        self.batch_norm = nn.BatchNorm3d(hidden_size, track_running_stats=False)
+        if use_norm:
+            self.batch_norm = nn.BatchNorm3d(hidden_size, track_running_stats=False)
+        else:
+            self.batch_norm = nn.Identity()
         #self.batch_norm = nn.GroupNorm(1, hidden_size)
 
         #with torch.no_grad():

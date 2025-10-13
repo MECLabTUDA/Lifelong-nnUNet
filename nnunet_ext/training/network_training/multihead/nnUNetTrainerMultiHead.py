@@ -11,13 +11,13 @@ from collections import OrderedDict
 from sklearn.model_selection import KFold
 from sklearn.model_selection import train_test_split
 from nnunet_ext.utilities.helpful_functions import *
-from nnunet.utilities.nd_softmax import softmax_helper
+from nnunet.utilities import nd_softmax
 from nnunet.utilities.tensor_utilities import sum_tensor
 from nnunet_ext.training.model_restore import restore_model
 from nnunet.utilities.to_torch import maybe_to_torch, to_cuda
 from nnunet.network_architecture.generic_UNet import Generic_UNet
 from batchgenerators.utilities.file_and_folder_operations import *
-from nnunet.training.loss_functions.dice_loss import DC_and_CE_loss
+from nnunet.training.loss_functions.dice_loss import DC_and_CE_loss, DC_and_BCE_loss
 from nnunet_ext.run.default_configuration import get_default_configuration
 from nnunet.training.network_training.nnUNetTrainerV2 import nnUNetTrainerV2
 from nnunet_ext.network_architecture.MultiHead_Module import MultiHead_Module
@@ -31,6 +31,9 @@ from nnunet_ext.paths import default_plans_identifier, evaluation_output_dir, pr
 from nnunet_ext.network_architecture.Dummy_MultiHead_Module import Dummy_MultiHead_Module
 from nnunet_ext.network_architecture.nca.OctreeNCA3D import OctreeNCA3D
 from nnunet_ext.network_architecture.nca.OctreeNCA2D import OctreeNCA2D
+
+import torch.nn.functional as F
+import einops
 
 # -- Add this since default option file_descriptor has a limitation on the number of open files. -- #
 # -- Default config might cause the runtime error: RuntimeError: received 0 items of ancdata -- #
@@ -187,6 +190,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # -- Only set this to True if the parameter search method is used -- #
         self.param_split = use_param_split
 
+        self.train_nca_with_sigmoid = False
         self.nca = nca
         if nca:
             self.initial_lr = 1e-3
@@ -357,6 +361,8 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         else:
             self.new_trainer = True
 
+        self.create_segmentation_loss(net_num_pool=len(self.net_num_pool_op_kernel_sizes))
+
     def initialize_network(self):
         r"""Extend Initialization of Network --> Load pre-trained model (specified to setup the network).
             Optimizer and lr initialization is still the same, since only the network is different.
@@ -365,7 +371,10 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             num_levels = len(self.net_num_pool_op_kernel_sizes)
             #base_num_steps = int(3 * max(self.patch_size / 2**num_levels))
 
-            num_steps = [5] * (num_levels-1) + [20]
+            num_classes = self.num_classes
+            if self.train_nca_with_sigmoid:
+                num_classes -= 1 # Background is not predicted
+                assert num_classes > 0, "If you want to train the NCA with sigmoid, then please ensure that there is at least one class to predict (without background)"
 
             if self.threeD:
                 num_steps = [6,7,8,9,10,20]
@@ -373,28 +382,34 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                 self.mh_network = Dummy_MultiHead_Module(OctreeNCA3D, self.split, self.tasks_list_with_char[0][0], prev_trainer=self.network,
                                                     num_channels=16, 
                                     num_input_channels=self.num_input_channels,
-                                    num_classes=self.num_classes,
+                                    num_classes=num_classes,
                                     hidden_size=64,
                                     fire_rate=0.5,
                                     num_steps=num_steps,
                                     num_levels=num_levels,
-                                    pool_op_kernel_sizes=self.net_num_pool_op_kernel_sizes)
+                                    pool_op_kernel_sizes=self.net_num_pool_op_kernel_sizes,
+                                    use_norm=False)
             else:
+                num_steps = [10] * (num_levels-1) + [20]
                 self.mh_network = Dummy_MultiHead_Module(OctreeNCA2D, self.split, self.tasks_list_with_char[0][0], prev_trainer=self.network,
                                                     num_channels=16, 
                                     num_input_channels=self.num_input_channels,
-                                    num_classes=self.num_classes,
+                                    num_classes=num_classes,
                                     hidden_size=64,
                                     fire_rate=0.5,
                                     num_steps=num_steps,
                                     num_levels=num_levels,
-                                    pool_op_kernel_sizes=self.net_num_pool_op_kernel_sizes)
+                                    pool_op_kernel_sizes=self.net_num_pool_op_kernel_sizes,
+                                    use_norm=False)
 
             self.network = self.mh_network.model
 
             if torch.cuda.is_available():
                 self.network.cuda()
-            self.network.inference_apply_nonlin = softmax_helper
+
+            if self.nca and self.train_nca_with_sigmoid:
+                nd_softmax.softmax_helper = lambda x: F.sigmoid(x)
+            self.network.inference_apply_nonlin = nd_softmax.softmax_helper
             return
             ####################################
 
@@ -627,6 +642,10 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # -- Delete the trainer_model (used for restoring) -- #
         self.trainer_model = None
         
+        if self.nca and self.train_nca_with_sigmoid:
+            assert isinstance(self.loss, MultipleOutputLoss2)
+            assert isinstance(self.loss.loss, DC_and_BCE_loss), f"Expected DC_and_BCE_loss, got {type(self.loss.loss)}"
+
         # -- Run the training from parent class -- #
         ret = super().run_training()
 
@@ -656,6 +675,14 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
 
         return ret  # Finished with training for the specific task
     
+    def maybe_transform_target(self, target):
+        if not self.nca or not self.train_nca_with_sigmoid:
+            return target
+
+        target = [einops.rearrange(F.one_hot(t.long(), num_classes=self.num_classes)[..., 1:], 'b 1 h w c -> b c h w').float() for t in target]
+
+        return  target # all classes except background
+
     def run_iteration(self, data_generator, do_backprop=True, run_online_evaluation=False, detach=True, no_loss=False):
         r"""This function runs an iteration based on the underlying model. It returns the detached or undetached loss.
             The undetached loss might be important for methods that have to extract gradients without always copying
@@ -674,6 +701,8 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         if torch.cuda.is_available():
             data = to_cuda(data)
             target = to_cuda(target)
+
+        target = self.maybe_transform_target(target)
 
         self.optimizer.zero_grad()
 
@@ -983,45 +1012,59 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                                   pad_mode="constant", pad_sides=self.pad_all_sides, memmap_mode='r')
         return dl_tr, dl_val
         
+    @torch.no_grad()
     def run_online_evaluation(self, output, target):
-        r"""Overwrite the existing one, since for evaluation at every nth epoch we want the tp, fp, fn
-            per subject and not per batch over every subject.
-            NOTE: Due to deep supervision the return value and the reference are now lists of tensors. We only need the full
-                  resolution output because this is what we are interested in in the end.
-        """
-        # -- If calculation per batch is desired, change nothing -- #
-        if self.eval_batch:
-            super().run_online_evaluation(output, target)
-        else:   # --> Do evaluation per subject not per batch
-            # -- Look at the Note in the function description -- #
-            output = output[0]
-            target = target[0]
-            #------------------------------------------ Copied from original implementation ------------------------------------------#
-            with torch.no_grad():
-                # -- Calculate tp, fp and fn as usual, for every element in the batch -- #
-                num_classes = output.shape[1]
-                output_softmax = softmax_helper(output)
-                output_seg = output_softmax.argmax(1)
-                target = target[:, 0]
-                axes = tuple(range(1, len(target.shape)))
-                tp_hard = torch.zeros((target.shape[0], num_classes - 1)).to(output_seg.device.index)
-                fp_hard = torch.zeros((target.shape[0], num_classes - 1)).to(output_seg.device.index)
-                fn_hard = torch.zeros((target.shape[0], num_classes - 1)).to(output_seg.device.index)
-                for c in range(1, num_classes):
-                    tp_hard[:, c - 1] = sum_tensor((output_seg == c).float() * (target == c).float(), axes=axes)
-                    fp_hard[:, c - 1] = sum_tensor((output_seg == c).float() * (target != c).float(), axes=axes)
-                    fn_hard[:, c - 1] = sum_tensor((output_seg != c).float() * (target == c).float(), axes=axes)
-            #------------------------------------------ Copied from original implementation ------------------------------------------#
+        assert isinstance(output, (list, tuple)) and isinstance(target, (list, tuple)), "Due to deep supervision the output and target are lists of tensors. Please adapt your code accordingly."
+        output = output[0]
+        target = target[0]
+        num_classes = output.shape[1]
 
-                # -- Add the calculate tp, fp and fn to the lists --> If we sum them, then we get one value per batch -- #
-                # -- Now we have one value per subject as in self.subject_names_raw -- #
-                # -- NOTE: self.online_eval_XX are lists and conventionally the values are stored in lists. -- #
-                # --       Here we store the values as numpys and transform self.online_eval_XX to a numpy later on -- #
-                # --       for the calculation per subject, thus we need numpy since this makes it more sufficient. -- #
-                self.online_eval_tp.append(tp_hard.detach().cpu().numpy())
-                self.online_eval_fp.append(fp_hard.detach().cpu().numpy())
-                self.online_eval_fn.append(fn_hard.detach().cpu().numpy())
-    
+        if self.nca and self.train_nca_with_sigmoid:
+            # output and target are onehot encoded without background
+            output_seg = (output > 0).long()  # [B, C_no_bg, H, W]
+            target = target.long()            # [B, C_no_bg, H, W]
+
+            output_seg_idx = output_seg.argmax(dim=1) + 1  # [B, H, W]
+            target_seg_idx = target.argmax(dim=1) + 1      # [B, H, W]
+
+            bg_mask_out = (output_seg.sum(dim=1) == 0)
+            bg_mask_tgt = (target.sum(dim=1) == 0)
+            output_seg_idx[bg_mask_out] = 0
+            target_seg_idx[bg_mask_tgt] = 0
+            
+            output_seg = output_seg_idx
+            target = target_seg_idx
+        else:
+            output_softmax = nd_softmax.softmax_helper(output)
+            output_seg = output_softmax.argmax(1) #index segmentation
+            target = target[:, 0]
+
+        #print(target.shape)     # B H W
+        #print(output_seg.shape) # B H W
+
+        axes = tuple(range(1, len(target.shape)))
+        tp_hard = torch.zeros((target.shape[0], num_classes - 1)).to(output_seg.device)
+        fp_hard = torch.zeros((target.shape[0], num_classes - 1)).to(output_seg.device)
+        fn_hard = torch.zeros((target.shape[0], num_classes - 1)).to(output_seg.device)
+        for c in range(1, num_classes):
+            tp_hard[:, c - 1] = sum_tensor((output_seg == c).float() * (target == c).float(), axes=axes)
+            fp_hard[:, c - 1] = sum_tensor((output_seg == c).float() * (target != c).float(), axes=axes)
+            fn_hard[:, c - 1] = sum_tensor((output_seg != c).float() * (target == c).float(), axes=axes)
+
+        if self.eval_batch:
+            tp_hard = tp_hard.sum(0, keepdim=False).detach().cpu().numpy()
+            fp_hard = fp_hard.sum(0, keepdim=False).detach().cpu().numpy()
+            fn_hard = fn_hard.sum(0, keepdim=False).detach().cpu().numpy()
+
+            self.online_eval_foreground_dc.append(list((2 * tp_hard) / (2 * tp_hard + fp_hard + fn_hard + 1e-8)))
+            self.online_eval_tp.append(list(tp_hard))
+            self.online_eval_fp.append(list(fp_hard))
+            self.online_eval_fn.append(list(fn_hard))
+        else:
+            self.online_eval_tp.append(tp_hard.detach().cpu().numpy())
+            self.online_eval_fp.append(fp_hard.detach().cpu().numpy())
+            self.online_eval_fn.append(fn_hard.detach().cpu().numpy())
+
     def finish_online_evaluation_extended(self, task, unique_subject_names=None):
         r"""Calculate the Dice Score and IoU (Intersection over Union) on the validation dataset during training.
             The metrics are calculated for every subject and for every label in the masks, except for background.
@@ -1433,23 +1476,28 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         ################# Here we wrap the loss for deep supervision ############
         # we need to know the number of outputs of the network
         net_numpool = len(self.net_num_pool_op_kernel_sizes)
+        self.create_segmentation_loss(net_numpool)
+        ################# END ###################
+        #------------------------------------------ Partially copied from original implementation ------------------------------------------#
 
+    def create_segmentation_loss(self, net_num_pool):
         # we give each output a weight which decreases exponentially (division by 2) as the resolution decreases
         # this gives higher resolution outputs more weight in the loss
-        weights = np.array([1 / (2 ** i) for i in range(net_numpool)])
+        weights = np.array([1 / (2 ** i) for i in range(net_num_pool)])
 
         # we don't use the lowest 2 outputs. Normalize weights so that they sum to 1
-        mask = np.array([True] + [True if i < net_numpool - 1 else False for i in range(1, net_numpool)])
+        mask = np.array([True] + [True if i < net_num_pool - 1 else False for i in range(1, net_num_pool)])
         weights[~mask] = 0
         weights = weights / weights.sum()
         self.ds_loss_weights = weights
         # now wrap the loss
-        self.loss = DC_and_CE_loss({'batch_dice': self.batch_dice, 'smooth': 1e-5, 'do_bg': False}, {}) # Redefine this since at this stage self.loss is a MultipleOutputLoss2
+        if self.nca and self.train_nca_with_sigmoid:
+            # do_bg skips the first class (usually background), but we do not have a background class in NCA
+            self.loss = DC_and_BCE_loss({'batch_dice': self.batch_dice, 'smooth': 1e-5, 'do_bg': True}, {})
+        else:
+            self.loss = DC_and_CE_loss({'batch_dice': self.batch_dice, 'smooth': 1e-5, 'do_bg': False}, {})
         self.loss = MultipleOutputLoss2(self.loss, self.ds_loss_weights)
-        ################# END ###################
-        #------------------------------------------ Partially copied from original implementation ------------------------------------------#
-        
-        
+
     def reorder_UNet_components(self):
         r"""Use this to reorder the networks components.
         """

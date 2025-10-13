@@ -5,7 +5,7 @@ import torch.nn.functional as F
 
 class NCA2D(nn.Module):
     def __init__(self, num_channels: int, num_input_channels: int, num_classes: int,
-                 hidden_size: int, fire_rate: float, num_steps: int):
+                 hidden_size: int, fire_rate: float, num_steps: int, use_norm: bool):
         super(NCA2D, self).__init__()
 
 
@@ -14,8 +14,11 @@ class NCA2D(nn.Module):
 
         self.conv = nn.Conv2d(num_channels, num_channels, kernel_size=3, padding='same', 
                               padding_mode="reflect", groups=num_channels)
-        self.batch_norm = nn.BatchNorm2d(hidden_size, track_running_stats=False)
-
+        if use_norm:
+            self.batch_norm = nn.BatchNorm2d(hidden_size, track_running_stats=False)
+        else:
+            self.batch_norm = nn.Identity()
+            
         #with torch.no_grad():
         #    self.fc0.weight.zero_()
 

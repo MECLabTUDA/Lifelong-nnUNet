@@ -8,7 +8,7 @@ from nnunet.network_architecture.neural_network import SegmentationNetwork
 class OctreeNCA2D(SegmentationNetwork):
     def __init__(self, num_channels: int, num_input_channels: int, num_classes: int,
                  hidden_size: int, fire_rate: float, num_steps: list[int], num_levels: int,
-                 pool_op_kernel_sizes: list[list[int]]):
+                 pool_op_kernel_sizes: list[list[int]], use_norm: bool):
         super(OctreeNCA2D, self).__init__()
         self.do_ds = True
         self.num_input_channels = num_input_channels
@@ -20,7 +20,8 @@ class OctreeNCA2D(SegmentationNetwork):
                                                   num_classes, 
                                                   hidden_size, 
                                                   fire_rate, 
-                                                  num_steps[l]) for l in range(num_levels)])
+                                                  num_steps[l],
+                                                  use_norm) for l in range(num_levels)])
 
         current_pool_size = np.array([1,1])
         self.scale_factors = [current_pool_size.copy()]
