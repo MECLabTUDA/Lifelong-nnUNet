@@ -4,8 +4,15 @@ conda activate CLenv3
 
 #export nnUNet_raw_data_base="/local/scratch/clmn1/cardiacProstate/nnUnet_raw_data_base"
 
-#export nnUNet_preprocessed="/local/scratch/clmn1/cardiacProstate/nnUnet_preprocessed"
-export nnUNet_preprocessed="/home/nlemke/data/nnUNetData/nnUNet_preprocessed"
+if [ -d "/home/nlemke/data/nnUNetData/nnUNet_preprocessed" ]; then
+    export nnUNet_preprocessed="/home/nlemke/data/nnUNetData/nnUNet_preprocessed"
+    echo "Using nnUNet_preprocessed at home"
+else
+    export nnUNet_preprocessed="/local/scratch/clmn1/cardiacProstate/nnUnet_preprocessed"
+    echo "Using nnUNet_preprocessed at /local/scratch"
+fi
 
-export RESULTS_FOLDER="/local/scratch/clmn1/incremental-nca/amos/results"
-export EVALUATION_FOLDER="/local/scratch/clmn1/incremental-nca/amos/evaluation"
+OUT_FILES="/local/scratch/clmn1/incremental-nca/amos/sigmoid"
+
+export RESULTS_FOLDER="${OUT_FILES}/results"
+export EVALUATION_FOLDER="${OUT_FILES}/evaluation"
