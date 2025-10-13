@@ -97,6 +97,8 @@ def run_evaluation(evaluator: str):
                         help='Set this flag if the evaluation should also be done on the training data.')
     parser.add_argument('--not_overwrite_existing', action='store_true', default=False,
                         help='Set this flag if the evaluation should not overwrite existing predictions. (only works for evaluator2)')
+    parser.add_argument('--single_threaded', action='store_true', default=False,
+                        help='Set this flag if the evaluation should be run in a single thread. (only works for evaluator2)')
 
 
     #extra parameters used by evaluator2
@@ -237,7 +239,8 @@ def run_evaluation(evaluator: str):
         for f in fold:
             evaluator2.run_evaluation2(network, network_trainer, (tasks_for_folder, char_to_join_tasks), evaluate_on_tasks, model_name_joined, args.enable_tta, mixed_precision, args.chk, f,
                                     version, vit_type, plans_identifier, do_LSA, do_SPT, always_use_last_head, use_head, use_model, EXT_MAP[network_trainer], transfer_heads,
-                                    use_vit, ViT_task_specific_ln, do_pod, args.include_training_data, args.evaluate_initialization, args.no_delete, args.legacy_structure, not args.not_overwrite_existing)
+                                    use_vit, ViT_task_specific_ln, do_pod, args.include_training_data, args.evaluate_initialization, args.no_delete, args.legacy_structure, 
+                                    not args.not_overwrite_existing, args.single_threaded)
 
 # -- Main function for setup execution -- #
 def main():

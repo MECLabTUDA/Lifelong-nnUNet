@@ -18,6 +18,7 @@ from multiprocessing import Pool
 from nnunet.postprocessing.connected_components import load_remove_save, load_postprocessing
 from nnunet.training.network_training.nnUNetTrainer import nnUNetTrainer
 from nnunet.utilities.one_hot_encoding import to_one_hot
+from nnunet_ext.inference.predict_single import preprocess_single_threaded
 from nnunet_ext.training.model_restore_pred import load_model_and_checkpoint_files
 
 def preprocess_save_to_queue(preprocess_fn, q, list_of_lists, output_files, segs_from_prev_stage, classes,
@@ -119,7 +120,7 @@ def predict_cases(params_ext, model, list_of_lists, output_filenames, folds, sav
                   overwrite_existing=False,
                   all_in_gpu=False, step_size=0.5, checkpoint_name="model_final_checkpoint",
                   segmentation_export_kwargs: dict = None, disable_postprocessing: bool = False,
-                  no_load=False, trainer=None, params=None):
+                  no_load=False, trainer=None, params=None, single_threaded=False):
     """
     :param segmentation_export_kwargs:
     :param model: folder where the model is saved, must contain fold_x subfolders
@@ -139,7 +140,8 @@ def predict_cases(params_ext, model, list_of_lists, output_filenames, folds, sav
     assert len(list_of_lists) == len(output_filenames)
     if segs_from_prev_stage is not None: assert len(segs_from_prev_stage) == len(output_filenames)
 
-    pool = Pool(num_threads_nifti_save)
+    if not single_threaded:
+        pool = Pool(num_threads_nifti_save)
     results = []
 
     cleaned_output_files = []
@@ -189,8 +191,11 @@ def predict_cases(params_ext, model, list_of_lists, output_filenames, folds, sav
         interpolation_order_z = segmentation_export_kwargs['interpolation_order_z']
 
     print("starting preprocessing generator")
-    preprocessing = preprocess_multithreaded(trainer, list_of_lists, cleaned_output_files, num_threads_preprocessing,
-                                             segs_from_prev_stage)
+    if single_threaded:
+        preprocessing = preprocess_single_threaded(trainer, list_of_lists, cleaned_output_files, segs_from_prev_stage)
+    else:
+        preprocessing = preprocess_multithreaded(trainer, list_of_lists, cleaned_output_files, num_threads_preprocessing,
+                                                segs_from_prev_stage)
     print("starting prediction...")
     
     for preprocessed in preprocessing:
@@ -252,17 +257,25 @@ def predict_cases(params_ext, model, list_of_lists, output_filenames, folds, sav
         bytes_per_voxel = 4
         if all_in_gpu:
             bytes_per_voxel = 2  # if all_in_gpu then the return value is half (float16)
-        if np.prod(softmax.shape) > (2e9 / bytes_per_voxel * 0.85):  # * 0.85 just to be save
+        # if single_threaded we do not need this safeguard
+        if np.prod(softmax.shape) > (2e9 / bytes_per_voxel * 0.85) and not single_threaded:  # * 0.85 just to be save
             print(
                 "This output is too large for python process-process communication. Saving output temporarily to disk")
             np.save(output_filename[:-7] + ".npy", softmax)
             softmax = output_filename[:-7] + ".npy"
 
-        results.append(pool.starmap_async(save_segmentation_nifti_from_softmax,
-                                          ((softmax, output_filename, dct, interpolation_order, region_class_order,
-                                            None, None,
-                                            npz_file, None, force_separate_z, interpolation_order_z),)
-                                          ))
+        if single_threaded:
+            results.append(save_segmentation_nifti_from_softmax(
+                softmax, output_filename, dct, interpolation_order, region_class_order,
+                None, None,
+                npz_file, None, force_separate_z, interpolation_order_z
+            ))
+        else:
+            results.append(pool.starmap_async(save_segmentation_nifti_from_softmax,
+                                            ((softmax, output_filename, dct, interpolation_order, region_class_order,
+                                                None, None,
+                                                npz_file, None, force_separate_z, interpolation_order_z),)
+                                            ))
 
     print("inference done. Now waiting for the segmentation export to finish...")
     _ = [i.get() for i in results]
@@ -277,18 +290,22 @@ def predict_cases(params_ext, model, list_of_lists, output_filenames, folds, sav
             # for_which_classes stores for which of the classes everything but the largest connected component needs to be
             # removed
             for_which_classes, min_valid_obj_size = load_postprocessing(pp_file)
-            results.append(pool.starmap_async(load_remove_save,
-                                              zip(output_filenames, output_filenames,
-                                                  [for_which_classes] * len(output_filenames),
-                                                  [min_valid_obj_size] * len(output_filenames))))
+            if single_threaded:
+                raise NotImplementedError('Postprocessing in single_threaded mode is not implemented yet.')
+            else:
+                results.append(pool.starmap_async(load_remove_save,
+                                                zip(output_filenames, output_filenames,
+                                                    [for_which_classes] * len(output_filenames),
+                                                    [min_valid_obj_size] * len(output_filenames))))
             _ = [i.get() for i in results]
         else:
             print("WARNING! Cannot run postprocessing because the postprocessing file is missing. Make sure to run "
                   "consolidate_folds in the output folder of the model first!\nThe folder you need to run this in is "
                   "%s" % model)
 
-    pool.close()
-    pool.join()
+    if not single_threaded:
+        pool.close()
+        pool.join()
 
 
 def check_input_folder_and_return_caseIDs(input_folder, expected_num_modalities):
@@ -334,7 +351,7 @@ def predict_from_folder(params_ext, model: str, input_folder: str, output_folder
                         overwrite_existing: bool = True, mode: str = 'normal', overwrite_all_in_gpu: bool = None,
                         step_size: float = 0.5, checkpoint_name: str = "model_final_checkpoint",
                         segmentation_export_kwargs: dict = None, disable_postprocessing: bool = False, no_load=False,
-                        trainer=None, params=None, plans_path_=None, copy_plans=True):
+                        trainer=None, params=None, plans_path_=None, copy_plans=True, single_threaded=False):
     """
         here we use the standard naming scheme to generate list_of_lists and output_files needed by predict_cases
     :param model:
@@ -406,6 +423,6 @@ def predict_from_folder(params_ext, model: str, input_folder: str, output_folder
                              all_in_gpu=all_in_gpu,
                              step_size=step_size, checkpoint_name=checkpoint_name,
                              segmentation_export_kwargs=segmentation_export_kwargs,
-                             disable_postprocessing=disable_postprocessing, no_load=no_load, trainer=trainer, params=params)
+                             disable_postprocessing=disable_postprocessing, no_load=no_load, trainer=trainer, params=params, single_threaded=single_threaded)
     else:
         raise ValueError("unrecognized mode. Must be normal")

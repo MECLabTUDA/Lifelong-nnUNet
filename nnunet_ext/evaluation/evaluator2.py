@@ -115,7 +115,7 @@ def compute_scores_and_build_dict(evaluate_on: str, inference_folder:str, fold: 
 def run_evaluation2(network, network_trainer, tasks_list_with_char: tuple[list[str], str], evaluate_on_tasks: str, model_name_joined:str, enable_tta: bool, mixed_precision: bool, chk: str,
                     fold: int, version, vit_type, plans_identifier,do_LSA, do_SPT, always_use_last_head, use_head, use_model, extension,
                     transfer_heads, use_vit, ViT_task_specific_ln, do_pod, include_training_data, evaluate_initialization: bool,
-                    no_delete: bool, legacy_structure: bool, overwrite_existing: bool):
+                    no_delete: bool, legacy_structure: bool, overwrite_existing: bool, single_threaded: bool):
     #  run_inference
     ## fixed parameters from inference
     lowres_segmentations = None
@@ -172,7 +172,7 @@ def run_evaluation2(network, network_trainer, tasks_list_with_char: tuple[list[s
                             num_threads_nifti_save, lowres_segmentations, part_id, num_parts, enable_tta,
                             overwrite_existing=overwrite_existing, mode="normal", overwrite_all_in_gpu=None,
                             mixed_precision=mixed_precision,
-                            step_size=step_size, checkpoint_name=chk)
+                            step_size=step_size, checkpoint_name=chk, single_threaded=single_threaded)
 
         output_folders.append(output_folder)
 
