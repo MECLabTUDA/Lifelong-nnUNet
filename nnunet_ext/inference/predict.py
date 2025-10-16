@@ -278,7 +278,8 @@ def predict_cases(params_ext, model, list_of_lists, output_filenames, folds, sav
                                             ))
 
     print("inference done. Now waiting for the segmentation export to finish...")
-    _ = [i.get() for i in results]
+    if not single_threaded:
+        _ = [i.get() for i in results]
     # now apply postprocessing
     # first load the postprocessing properties if they are present. Else raise a well visible warning
     if not disable_postprocessing:

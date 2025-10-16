@@ -8,6 +8,9 @@ class NCA2D(nn.Module):
                  hidden_size: int, fire_rate: float, num_steps: int, use_norm: bool):
         super(NCA2D, self).__init__()
 
+        # conv should have bias=False
+        # fc0 should have bias=not use_norm
+        # fc1 should have bias=True
 
         self.fc0 = nn.Conv2d(2 * num_channels, hidden_size, kernel_size=1)
         self.fc1 = nn.Conv2d(hidden_size, num_channels - num_input_channels, kernel_size=1, bias=False)
