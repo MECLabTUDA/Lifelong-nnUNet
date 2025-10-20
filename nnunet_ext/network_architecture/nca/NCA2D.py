@@ -25,12 +25,18 @@ class NCA2D(nn.Module):
         #with torch.no_grad():
         #    self.fc0.weight.zero_()
 
+        if fire_rate == 1:
+            with torch.no_grad():
+                self.fc0.weight *= 0.5
+                self.fc1.weight.zero_()
+
         assert fire_rate > 0 and fire_rate <= 1
         self.fire_rate = fire_rate
         self.num_channels = num_channels
         self.num_input_channels = num_input_channels
         self.num_steps = num_steps
         self.num_classes = num_classes
+        self.hidden_size = hidden_size
 
     def update(self, state):
         delta_state = self.conv(state)
@@ -45,7 +51,6 @@ class NCA2D(nn.Module):
                 stochastic = torch.zeros((delta_state.shape[0], 1, delta_state.shape[2], delta_state.shape[3]), device=delta_state.device)
                 stochastic.bernoulli_(self.fire_rate).float()
             delta_state = delta_state * stochastic
-
 
         return state[:, self.num_input_channels:] + delta_state
         

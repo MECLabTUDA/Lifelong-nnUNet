@@ -12,7 +12,11 @@ else
     echo "Using nnUNet_preprocessed at /local/scratch"
 fi
 
-OUT_FILES="/local/scratch/clmn1/incremental-nca/amos/steps10_nonorm_sigmoid"
+export nnUNet_preprocessed="/local/scratch/clmn1/cardiacProstate/nnUnet_preprocessed"
+echo "Using nnUNet_preprocessed at /local/scratch"
+
+
+OUT_FILES="/local/scratch/clmn1/incremental-nca/amos/largeNCA" #largeNCA h128_sigmoid_steps10_nonorm_nca fr1_sigmoid_steps10_nonorm_nca
 
 export RESULTS_FOLDER="${OUT_FILES}/results"
 export EVALUATION_FOLDER="${OUT_FILES}/evaluation"

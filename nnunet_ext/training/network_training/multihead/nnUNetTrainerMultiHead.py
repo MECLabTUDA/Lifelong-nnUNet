@@ -319,7 +319,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         assert self.network is not None, "self.initialize_network must be called first"
 
         if self.nca:
-            self.optimizer = torch.optim.AdamW(self.network.parameters(), self.initial_lr, weight_decay=0)
+            self.optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad==True, self.network.parameters()), self.initial_lr, weight_decay=0)
             self.lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, self.max_num_epochs, eta_min=1e-6)
             return
 
@@ -363,57 +363,56 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
 
         self.create_segmentation_loss(net_num_pool=len(self.net_num_pool_op_kernel_sizes))
 
+    def _create_nca_model(self):
+        assert self.nca, "This function should only be called if NCA is used.."
+        num_levels = len(self.net_num_pool_op_kernel_sizes)
+        #base_num_steps = int(3 * max(self.patch_size / 2**num_levels))
+
+        num_classes = self.num_classes
+        if self.train_nca_with_sigmoid:
+            num_classes -= 1 # Background is not predicted
+            assert num_classes > 0, "If you want to train the NCA with sigmoid, then please ensure that there is at least one class to predict (without background)"
+
+        if self.threeD:
+            num_steps = [6,7,8,9,10,20]
+            assert len(num_steps) == num_levels
+            self.mh_network = Dummy_MultiHead_Module(OctreeNCA3D, self.split, self.tasks_list_with_char[0][0], prev_trainer=self.network,
+                                                num_channels=16, 
+                                num_input_channels=self.num_input_channels,
+                                num_classes=num_classes,
+                                hidden_size=64,
+                                fire_rate=0.5,
+                                num_steps=num_steps,
+                                num_levels=num_levels,
+                                pool_op_kernel_sizes=self.net_num_pool_op_kernel_sizes,
+                                use_norm=False)
+        else:
+            num_steps = [10] * (num_levels-1) + [20]
+            self.mh_network = Dummy_MultiHead_Module(OctreeNCA2D, self.split, self.tasks_list_with_char[0][0], prev_trainer=self.network,
+                                                num_channels=16, 
+                                num_input_channels=self.num_input_channels,
+                                num_classes=num_classes,
+                                hidden_size=64,
+                                fire_rate=0.5,
+                                num_steps=num_steps,
+                                num_levels=num_levels,
+                                pool_op_kernel_sizes=self.net_num_pool_op_kernel_sizes,
+                                use_norm=False)
+
+        self.network = self.mh_network.model
+
+        if torch.cuda.is_available():
+            self.network.cuda()
+
+        if self.nca and self.train_nca_with_sigmoid:
+            nd_softmax.softmax_helper = torch.nn.Sigmoid()
+        self.network.inference_apply_nonlin = nd_softmax.softmax_helper
+
     def initialize_network(self):
         r"""Extend Initialization of Network --> Load pre-trained model (specified to setup the network).
             Optimizer and lr initialization is still the same, since only the network is different.
         """
-        if self.nca:
-            num_levels = len(self.net_num_pool_op_kernel_sizes)
-            #base_num_steps = int(3 * max(self.patch_size / 2**num_levels))
-
-            num_classes = self.num_classes
-            if self.train_nca_with_sigmoid:
-                num_classes -= 1 # Background is not predicted
-                assert num_classes > 0, "If you want to train the NCA with sigmoid, then please ensure that there is at least one class to predict (without background)"
-
-            if self.threeD:
-                num_steps = [6,7,8,9,10,20]
-                assert len(num_steps) == num_levels
-                self.mh_network = Dummy_MultiHead_Module(OctreeNCA3D, self.split, self.tasks_list_with_char[0][0], prev_trainer=self.network,
-                                                    num_channels=16, 
-                                    num_input_channels=self.num_input_channels,
-                                    num_classes=num_classes,
-                                    hidden_size=64,
-                                    fire_rate=0.5,
-                                    num_steps=num_steps,
-                                    num_levels=num_levels,
-                                    pool_op_kernel_sizes=self.net_num_pool_op_kernel_sizes,
-                                    use_norm=False)
-            else:
-                num_steps = [10] * (num_levels-1) + [20]
-                self.mh_network = Dummy_MultiHead_Module(OctreeNCA2D, self.split, self.tasks_list_with_char[0][0], prev_trainer=self.network,
-                                                    num_channels=16, 
-                                    num_input_channels=self.num_input_channels,
-                                    num_classes=num_classes,
-                                    hidden_size=64,
-                                    fire_rate=0.5,
-                                    num_steps=num_steps,
-                                    num_levels=num_levels,
-                                    pool_op_kernel_sizes=self.net_num_pool_op_kernel_sizes,
-                                    use_norm=False)
-
-            self.network = self.mh_network.model
-
-            if torch.cuda.is_available():
-                self.network.cuda()
-
-            if self.nca and self.train_nca_with_sigmoid:
-                nd_softmax.softmax_helper = torch.nn.Sigmoid()
-            self.network.inference_apply_nonlin = nd_softmax.softmax_helper
-            return
-            ####################################
-
-
+        
         if self.trainer_path is None:
             # -- Specify if 2d or 3d plans is necessary -- #
             _2d_plans = "_plans_2D.pkl" in self.plans_file
@@ -427,7 +426,9 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             # -- Do not rely on self.task for initialization, since the user might provide the wrong task (unintended), -- #
             # -- however for self.plans, the user needs to extract the correct plans_file path by himself using always the -- #
             # -- first task from a list of tasks since the network is build using the plans_file and thus the structure might vary -- #
-            if self.use_vit:
+            if self.nca:
+                self._create_nca_model()
+            elif self.use_vit:
                 self.first_task_name = self.tasks_list_with_char[0][0]
                 # -- Initialize from beginning and start training, since no model is provided using ViT architecture -- #
                 nnViTUNetTrainer.initialize_network(self) # --> This updates the corresponding variables automatically since we inherit this class
@@ -501,7 +502,9 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         # -- Use the first task in tasks_joined_name, since this represents the corresponding task name, whereas self.task -- #
         # -- is the task to train on, which is not equal to the one that will be initialized now using a pre-trained network -- #
         # -- (prev_trainer). -- #
-        if self.trainer_model.__class__.__name__ == nnUNetTrainerV2.__name__:   # Important when doing evaluation, since nnUNetTrainerV2 has no mh_network
+        if self.nca:
+            self._create_nca_model()
+        elif self.trainer_model.__class__.__name__ == nnUNetTrainerV2.__name__:   # Important when doing evaluation, since nnUNetTrainerV2 has no mh_network
             self.mh_network = MultiHead_Module(Generic_UNet, self.split, self.tasks_list_with_char[0][0], prev_trainer=self.trainer_model.network,
                                                input_channels=self.num_input_channels, base_num_features=self.base_num_features,\
                                                num_classes=self.num_classes, num_pool=len(self.net_num_pool_op_kernel_sizes))
@@ -562,6 +565,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
 
         # -- Load the plans file -- #
         self.plans = load_pickle(plans_file)
+        self.process_plans(self.plans) #I (Nick) think it should be fine to process the plan
 
         # -- Extract the folder with the preprocessed data in it -- #
         self.folder_with_preprocessed_data = join(self.dataset_directory, self.plans['data_identifier'] +
@@ -704,7 +708,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
 
         target = self.maybe_transform_target(target)
 
-        self.optimizer.zero_grad()
+        self.optimizer.zero_grad(set_to_none=True)
 
         if self.fp16:
             with autocast():
@@ -802,6 +806,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             # -- Use the provided tasks -- #
             tasks = use_tasks[:]
         
+
         # -- NOTE: Since the head is an (ordered) ModuleDict, the current task is the last head, so there -- #
         # --       is nothing to restore at the end. -- #
         # -- For each previously trained task perform the validation on the full validation set -- #
@@ -826,9 +831,11 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
             plans_file, _, self.dataset_directory, _, stage, \
             _ = get_default_configuration(self.network_name, task, running_task, trained_on_folds['prev_trainer'][idx],\
                                           self.tasks_joined_name, self.identifier, extension_type=self.extension)
+            
 
             # -- Load the plans file -- #
             self.plans = load_pickle(plans_file)
+            self.process_plans(self.plans)
 
             # -- Extract the folder with the preprocessed data in it -- #
             self.folder_with_preprocessed_data = join(self.dataset_directory, self.plans['data_identifier'] +
@@ -1017,7 +1024,6 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         assert isinstance(output, (list, tuple)) and isinstance(target, (list, tuple)), "Due to deep supervision the output and target are lists of tensors. Please adapt your code accordingly."
         output = output[0]
         target = target[0]
-        num_classes = output.shape[1]
 
         if self.nca and self.train_nca_with_sigmoid:
             # output and target are onehot encoded without background
@@ -1043,10 +1049,10 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         #print(output_seg.shape) # B H W
 
         axes = tuple(range(1, len(target.shape)))
-        tp_hard = torch.zeros((target.shape[0], num_classes - 1)).to(output_seg.device)
-        fp_hard = torch.zeros((target.shape[0], num_classes - 1)).to(output_seg.device)
-        fn_hard = torch.zeros((target.shape[0], num_classes - 1)).to(output_seg.device)
-        for c in range(1, num_classes):
+        tp_hard = torch.zeros((target.shape[0], self.num_classes - 1)).to(output_seg.device)
+        fp_hard = torch.zeros((target.shape[0], self.num_classes - 1)).to(output_seg.device)
+        fn_hard = torch.zeros((target.shape[0], self.num_classes - 1)).to(output_seg.device)
+        for c in range(1, self.num_classes):
             tp_hard[:, c - 1] = sum_tensor((output_seg == c).float() * (target == c).float(), axes=axes)
             fp_hard[:, c - 1] = sum_tensor((output_seg == c).float() * (target != c).float(), axes=axes)
             fn_hard[:, c - 1] = sum_tensor((output_seg != c).float() * (target == c).float(), axes=axes)
@@ -1158,6 +1164,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
                  step_size: float = 0.5, save_softmax: bool = True, use_gaussian: bool = True, overwrite: bool = True,
                  validation_folder_name: str = 'validation_raw', debug: bool = False, all_in_gpu: bool = False,
                  segmentation_export_kwargs: dict = None, run_postprocessing_on_folds: bool = True):
+        raise NotImplementedError("Is this method ever used?")
         r"""The Multi Head Trainer needs its own validation, since data from the previous tasks needs to be included in the
             validation as well. The validation data from previous tasks will be fully used for the final validation.
             NOTE: This function is different from _perform_validation since it uses the parent validate function that perfomrs
@@ -1194,6 +1201,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
 
             # -- Load the plans file -- #
             self.plans = load_pickle(plans_file)
+            self.process_plans(self.plans)
             
             # -- Update self.gt_niftis_folder that will be used in validation function so the files can be found -- #
             self.gt_niftis_folder = join(self.dataset_directory, "gt_segmentations")

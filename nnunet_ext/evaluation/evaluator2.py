@@ -59,7 +59,7 @@ def build_trainer_and_output_path(network, network_trainer, tasks_joined_name, m
 
 def compute_scores_and_build_dict(evaluate_on: str, inference_folder:str, fold: int, include_training_data:bool):
     plan = load_pickle(join(inference_folder, "plans.pkl"))
-    num_classes = plan['num_classes']
+    #num_classes = plan['num_classes']
     
     dataset_directory = join(preprocessing_output_dir, evaluate_on)
     splits_final = load_pickle(join(dataset_directory, "splits_final.pkl"))
@@ -94,6 +94,9 @@ def compute_scores_and_build_dict(evaluate_on: str, inference_folder:str, fold: 
 
         output = output.astype(int)
         target = target.astype(int)
+
+        num_classes = int(max(np.max(target), np.max(output)))
+
 
         masks_dict = dict()
         for c in range(1, num_classes +1): #skip background class

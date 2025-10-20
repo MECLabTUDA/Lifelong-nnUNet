@@ -539,7 +539,8 @@ def run_training(extension='multihead'):
               'nnUNetTrainerOwnM1': ownm1_args, 'nnUNetTrainerOwnM2': ownm1_args,
               'nnUNetTrainerOwnM3': ownm3_args, 'nnUNetTrainerOwnM4': ownm4_args,
               'nnUNetTrainerFrozenBody': basic_exts,
-              'nnUNetTrainerNCA': basic_exts}
+              'nnUNetTrainerNCA': basic_exts, 
+              'nnUNetTrainerLargeNCA': basic_exts}
 
     
     # ---------------------------------------------
@@ -1016,3 +1017,8 @@ def main_nca():
     r"""Run training for NCA Trainer.
     """
     run_training(extension='nca')
+
+def main_large_nca():
+    r"""Run training for Large NCA Trainer.
+    """
+    run_training(extension='large_nca')

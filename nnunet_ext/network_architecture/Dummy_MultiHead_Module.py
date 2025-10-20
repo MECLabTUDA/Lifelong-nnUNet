@@ -55,6 +55,7 @@ class Dummy_MultiHead_Module(nn.Module):
         self.state_init = None
         self.heads[self.active_task] = None
         self.body_freezed = False
+        self.split = split_at
 
     def forward(self, x):
         r"""Forward pass during training --> task needs to be specified before calling forward.
