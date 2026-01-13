@@ -1266,7 +1266,7 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
         self.print_to_log_file("loading checkpoint", fname, "train=", train)
         if not self.was_initialized:
             self.initialize(train)
-        saved_model = torch.load(fname, map_location=torch.device('cpu'))
+        saved_model = torch.load(fname, map_location=torch.device('cpu'), weights_only=False)
         # -- Copied from original code -- #
 
         # -- Load the model with the old model if desired -- #

@@ -105,5 +105,5 @@ def load_model_and_checkpoint_files(params, folder, folds=None, mixed_precision=
     # Additional logic from the original function
     all_best_model_files = [join(i, "%s.model" % checkpoint_name) for i in folds]
     print("using the following model files: ", all_best_model_files)
-    all_params = [torch.load(i, map_location=torch.device('cpu')) for i in all_best_model_files]
+    all_params = [torch.load(i, map_location=torch.device('cpu'), weights_only=False) for i in all_best_model_files]
     return trainer, all_params, all_best_model_files
