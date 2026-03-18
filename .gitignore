@@ -2,6 +2,7 @@
 /nnunet_ext/ignored/*
 /storage/*
 /.vscode/*
+*.swp
 /.pytest_cache/*
 /additional/*
 

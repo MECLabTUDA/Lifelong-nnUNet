@@ -369,7 +369,8 @@ class nnUNetTrainerMultiHead(nnUNetTrainerV2): # Inherit default trainer class f
 
             if self.threeD:
                 num_steps = [6,7,8,9,10,20]
-                assert len(num_steps) == num_levels
+                num_steps = num_steps[-num_levels:]
+                assert len(num_steps) == num_levels, f"num_steps: {num_steps}, num_levels: {num_levels}"
                 self.mh_network = Dummy_MultiHead_Module(OctreeNCA3D, self.split, self.tasks_list_with_char[0][0], prev_trainer=self.network,
                                                     num_channels=16, 
                                     num_input_channels=self.num_input_channels,
