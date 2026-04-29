@@ -57,7 +57,7 @@ def build_trainer_and_output_path(network, network_trainer, tasks_joined_name, m
     return trainer_path, output_path
 
 
-def compute_scores_and_build_dict(evaluate_on: str, inference_folder:str, fold: int, include_training_data:bool):
+def compute_scores_and_build_dict(evaluate_on: str, inference_folder:str, fold: int, include_training_data:bool, calc_NQM: bool = False):
     plan = load_pickle(join(inference_folder, "plans.pkl"))
     num_classes = plan['num_classes']
     
@@ -83,9 +83,32 @@ def compute_scores_and_build_dict(evaluate_on: str, inference_folder:str, fold: 
     for case in cases_to_perform_evaluation_on:
         file_name = case + ".nii.gz"
         #there must be a corresponding entry in inference_folder
+        
+        if calc_NQM:
+            ensemble = []
+            for i in range(10):
+                assert isfile(join(inference_folder, f"nqm_it_{i}", file_name))
+                ensemble.append(sitk.GetArrayFromImage(sitk.ReadImage(join(inference_folder, f"nqm_it_{i}", file_name))))
+            ensemble = np.stack(ensemble, axis=0)
+            mean = np.sum(ensemble, axis=0) / ensemble.shape[0]
+            stdd = 0
+            for id in range(ensemble.shape[0]):
+                img = ensemble[id] - mean
+                img = np.power(img, 2)
+                stdd = stdd + img
+            stdd = stdd / ensemble.shape[0]
+            stdd = np.sqrt(stdd)
+            nqm_score = np.sum(stdd) / np.sum(mean)
+            print("NQM Score: ", nqm_score)
+
+
+
+                
+
         assert isfile(join(inference_folder, file_name))
         assert isfile(join(ground_truth_folder, file_name))
 
+        
         # read both (inference) ouput and (segmentation) target
         
         output: np.ndarray = sitk.GetArrayFromImage(sitk.ReadImage(join(inference_folder, file_name)))
@@ -108,6 +131,8 @@ def compute_scores_and_build_dict(evaluate_on: str, inference_folder:str, fold: 
                 iou = tp / (tp + fp + fn)
                 dice = 2 * tp / ( 2 * tp + fp + fn)
             score_dict = {"IoU": iou, "Dice": dice}
+            if calc_NQM:
+                score_dict["NQM"] = nqm_score
             masks_dict['mask_'+str(c)] = score_dict
         cases_dict[case] = masks_dict
     return cases_dict
@@ -115,7 +140,9 @@ def compute_scores_and_build_dict(evaluate_on: str, inference_folder:str, fold: 
 def run_evaluation2(network, network_trainer, tasks_list_with_char: tuple[list[str], str], evaluate_on_tasks: str, model_name_joined:str, enable_tta: bool, mixed_precision: bool, chk: str,
                     fold: int, version, vit_type, plans_identifier,do_LSA, do_SPT, always_use_last_head, use_head, use_model, extension,
                     transfer_heads, use_vit, ViT_task_specific_ln, do_pod, include_training_data, evaluate_initialization: bool,
-                    no_delete: bool, legacy_structure: bool):
+                    no_delete: bool, legacy_structure: bool, calc_NQM: bool):
+
+
     #  run_inference
     ## fixed parameters from inference
     lowres_segmentations = None
@@ -150,11 +177,13 @@ def run_evaluation2(network, network_trainer, tasks_list_with_char: tuple[list[s
     folder_n = get_ViT_LSA_SPT_folder_name(do_LSA, do_SPT)
 
     output_folders = []
+
+	# make temporary folder, run inference and save files to folder
     for evaluate_on in evaluate_on_tasks:
         trainer_path, output_folder = build_trainer_and_output_path(network, network_trainer, tasks_joined_name, model_name_joined, plans_identifier, transfer_heads,
                                                                     folder_n, use_vit, ViT_task_specific_ln, vit_type, version, do_pod, use_head, fold,
                                                                     evaluate_on)
-
+	# make folder and clean filenames
         if evaluate_initialization:
             arr = output_folder.split("/")
             print(output_folder)
@@ -168,6 +197,16 @@ def run_evaluation2(network, network_trainer, tasks_list_with_char: tuple[list[s
 
         input_folder = os.path.join(os.environ['nnUNet_raw_data_base'], 'nnUNet_raw_data', evaluate_on, 'imagesTr')
 
+		# run inference
+        if calc_NQM:
+            for i in range(10):
+                print(output_folder + f"/nqm_it_{i}")
+                out_folder = output_folder + f"/nqm_it_{i}"
+                predict_from_folder(params_ext, trainer_path, input_folder, out_folder, [fold], save_npz, num_threads_preprocessing,
+                            num_threads_nifti_save, lowres_segmentations, part_id, num_parts, enable_tta,
+                            overwrite_existing=True, mode="normal", overwrite_all_in_gpu=None,
+                            mixed_precision=mixed_precision,
+                            step_size=step_size, checkpoint_name=chk)
         predict_from_folder(params_ext, trainer_path, input_folder, output_folder, [fold], save_npz, num_threads_preprocessing,
                             num_threads_nifti_save, lowres_segmentations, part_id, num_parts, enable_tta,
                             overwrite_existing=True, mode="normal", overwrite_all_in_gpu=None,
@@ -177,12 +216,7 @@ def run_evaluation2(network, network_trainer, tasks_list_with_char: tuple[list[s
         output_folders.append(output_folder)
 
 
-
-
-
-    #inference_folder: str = "/local/scratch/clmn1/master_thesis/evaluation/nnUNet_ext/3d_fullres/Task011_Prostate-BIDMC_Task012_Prostate-I2CVB/Task011_Prostate-BIDMC/nnUNetTrainerFeatureRehearsal__nnUNetPlansv2.1/Generic_UNet/SEQ/head_None/fold_0/Preds_Task011_Prostate-BIDMC"
-    #task_id: int = 11
-    #fold: int = 0
+	# compute metrics from inference files and ground truth files
     for include_training_data in [True, False]:
         file_name = "val_metrics_all" if include_training_data else "val_metrics_eval"
 
@@ -211,7 +245,10 @@ def run_evaluation2(network, network_trainer, tasks_list_with_char: tuple[list[s
 
                 for evaluate_on in evaluate_on_tasks:
                     for c in tasks_dict[evaluate_on][list(tasks_dict[evaluate_on].keys())[0]].keys():
-                        for metric in ["IoU", "Dice"]:
+                        metrics = ["IoU", "Dice"]
+                        if calc_NQM:
+                            metrics.append("NQM")
+                        for metric in metrics:
                             t = val_res[val_res["Epoch"] == "epoch_XXX"]
                             t = t[t["Task"] == evaluate_on]
                             t = t[t["seg_mask"] == c]
@@ -225,7 +262,7 @@ def run_evaluation2(network, network_trainer, tasks_list_with_char: tuple[list[s
         else: #no legacy structure
             for i, evaluate_on in enumerate(evaluate_on_tasks):
                 tasks_dict = dict()
-                cases_dict = compute_scores_and_build_dict(evaluate_on, output_folders[i], fold, include_training_data)
+                cases_dict = compute_scores_and_build_dict(evaluate_on, output_folders[i], fold, include_training_data, calc_NQM=calc_NQM)
                 tasks_dict[evaluate_on] = cases_dict
 
                 validation_results = {"epoch_XXX": tasks_dict}
