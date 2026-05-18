@@ -31,6 +31,10 @@ for ext in extension_keys:
 #------------------------------------------- Inspired by original implementation -------------------------------------------#
 def run_training(extension='multihead'):
 
+    print("00000000000000000000000000000000000000000000000000000000000000000")
+    print(TRAINER_MAP)
+    print("0000000000000000000000000000000000000")
+
     # -----------------------
     # Build argument parser
     # -----------------------
@@ -536,7 +540,8 @@ def run_training(extension='multihead'):
               'nnUNetTrainerOwnM1': ownm1_args, 'nnUNetTrainerOwnM2': ownm1_args,
               'nnUNetTrainerOwnM3': ownm3_args, 'nnUNetTrainerOwnM4': ownm4_args,
               'nnUNetTrainerFrozenBody': basic_exts,
-              'nnUNetTrainerNCA': basic_exts}
+              'nnUNetTrainerNCA': basic_exts,
+              'nnUNetTrainerODExNCA': basic_exts}
 
     
     # ---------------------------------------------
@@ -1013,3 +1018,8 @@ def main_nca():
     r"""Run training for NCA Trainer.
     """
     run_training(extension='nca')
+
+def main_odex_nca():
+    r"""Run training for ODEx NCA Trainer
+    """
+    run_training(extension='odex_nca')

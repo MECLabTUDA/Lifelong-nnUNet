@@ -44,7 +44,7 @@ class nnUNetTrainerNCA(nnUNetTrainerMultiHead):
                          fp16, save_interval, already_trained_on, use_progress, identifier, extension, tasks_list_with_char,
                          mixed_precision, save_csv, del_log, use_vit, vit_type, version, split_gpu, transfer_heads,
                          ViT_task_specific_ln, do_LSA, do_SPT, nca, network, use_param_split)
-
+        print("??? ??? __init__ nca")
         self.initial_lr = 1e-3
 
 

@@ -55,6 +55,7 @@ setup(name='nnunet_ext',
               'nnUNet_train_frozen_vit = nnunet_ext.run.run_training:main_frozen_vit',         # Use for freezing all ViT layers
 
               'nnUNet_train_nca = nnunet_ext.run.run_training:main_nca',                       # Use for NCA training
+              'nnUNet_train_odex_nca = nnunet_ext.run.run_training:main_odex_nca',             # Use for Task Agnostic Continual Learning with ODEx and NCA
 
               'nnUNet_plan_and_preprocess_ext = nnunet_ext.experiment_planning.nnUNet_ext_plan_and_preprocess:main', # Use for planning and preprocessing
               'nnUNet_join_datasets = nnunet_ext.scripts.join_datasets:main',

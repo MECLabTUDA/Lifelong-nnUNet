@@ -24,16 +24,17 @@ class nnUNetTrainerODExNCA(nnUNetTrainerMultiHead):
         super().__init__(split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic,
                          fp16, save_interval, already_trained_on, use_progress, identifier, extension, tasks_list_with_char,
                          mixed_precision, save_csv, del_log, use_vit, vit_type, version, split_gpu, transfer_heads,
-                         ViT_task_specific_ln, do_LSA, do_SPT, network, use_param_split)
+                         ViT_task_specific_ln, do_LSA, do_SPT, nca, network, use_param_split)
     
         self.NQM_dict = dict()
 
     def run_training(self, task, output_folder):
         r"""Overwrite super class to adapt for ood detection
         """
+
         # -- Create a deepcopy of the previous, ie. currently set model if we do PLOP training -- #
         if task not in self.mh_network.heads:
-            print("new task")
+            print("???? new task")
 
         # -- Run training using parent class -- #
         ret = super().run_training(task, output_folder)
