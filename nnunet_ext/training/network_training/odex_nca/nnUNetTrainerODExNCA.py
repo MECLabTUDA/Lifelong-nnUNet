@@ -358,10 +358,10 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
         # -- Run training using parent class -- #
         ret = super().run_training()
 
-        nqm_list_of_current_task = compute_nqm_of_task(task, self)
+        nqm_list_of_current_task = self.compute_nqm_of_task(task, self)
         
         nqm_list_of_current_task.sort()
-        task_threshold = self.nqm_list_of_current_task[int(len(nqm_list_of_current_task)*0.9)]
+        task_threshold = nqm_list_of_current_task[int(len(nqm_list_of_current_task)*0.9)]
 
 
         # compute NQM for task and save it in 
