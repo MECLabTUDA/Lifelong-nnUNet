@@ -307,8 +307,6 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
             self.new_trainer = True
 
 
-
-
     def initialize_network(self):
         print("???? initialize network odex")
 
@@ -346,60 +344,6 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
             self.network.cuda()
         self.network.inference_apply_nonlin = softmax_helper
 
-
-    def run_training(self, task, output_folder):
-        r"""Overwrite super class to adapt for ood detection
-        """
-
-        if len(self.NQM_dict) != 1:
-            self.active_task = task
-
-        self.output_folder = join(self._build_output_path(output_folder, False), "fold_%s" % str(self.fold))
-        maybe_mkdir_p(self.output_folder)
-
-        # -- Run training using parent class -- #
-        ret = super().run_training()
-
-        nqm_list_of_current_task = compute_nqm_of_task(task, self)
-        
-        nqm_list_of_current_task.sort()
-        task_threshold = nqm_list_of_current_task[int(len(nqm_list_of_current_task)*0.9)]
-
-
-        # compute NQM for task and save it in 
-        self.NQM_dict[task] = task_threshold # TODO: use real NQM
-        print(f"-- NQM dict: {self.NQM_dict}")
-        print(f"-- current model pool: {self.model_pool.keys()}, active task: {self.active_task}")
-
-        ###### Copied from MultiHeadNetworkTrainer
-        # -- Reset the val_metrics_exist flag since the training is finished and restoring will fail otherwise -- #
-        self.already_trained_on[str(self.fold)]['val_metrics_should_exist'] = False
-
-        # -- Add task to finished_training -- #
-        self.update_save_trained_on_json(task, True)
-        # -- Resave the final model pkl file so the already trained on is updated there as well -- #
-        self.save_init_args(join(self.output_folder, "model_final_checkpoint.model"))
-
-        # -- When model trained on second task and the self.new_trainer is still not updated, then update it -- #
-        if self.new_trainer and len(self.already_trained_on) > 1:
-            self.new_trainer = False
-
-        # -- Before returning, reset the self.epoch variable, otherwise the following task will only be trained for the last epoch -- #
-        self.epoch = 0
-
-        # -- Empty the lists that are tracking losses etc., since this will lead to conflicts in additional tasks durig plotting -- #
-        # -- Do not worry about it, the right data is stored during checkpoints and will be restored as well, but after -- #
-        # -- a task is finished and before the next one starts, the data needs to be emptied otherwise its added to the lists. -- #
-        self.all_tr_losses = []
-        self.all_val_losses = []
-        self.all_val_losses_tr_mode = []
-        self.all_val_eval_metrics = []
-        self.validation_results = dict()
-
-
-        # -- Return the result -- #
-        return ret
-    
     def compute_nqm_of_task(evaluate_on, model, include_training_data=False):
         
         print(f"-----------   output folder: {self.output_folder}")
@@ -487,6 +431,60 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
             print("NQM Score: ", nqm_score)
         
         return nqm_list_of_current_task
+
+
+    def run_training(self, task, output_folder):
+        r"""Overwrite super class to adapt for ood detection
+        """
+
+        if len(self.NQM_dict) != 1:
+            self.active_task = task
+
+        self.output_folder = join(self._build_output_path(output_folder, False), "fold_%s" % str(self.fold))
+        maybe_mkdir_p(self.output_folder)
+
+        # -- Run training using parent class -- #
+        ret = super().run_training()
+
+        nqm_list_of_current_task = compute_nqm_of_task(task, self)
+        
+        nqm_list_of_current_task.sort()
+        task_threshold = nqm_list_of_current_task[int(len(nqm_list_of_current_task)*0.9)]
+
+
+        # compute NQM for task and save it in 
+        self.NQM_dict[task] = task_threshold # TODO: use real NQM
+        print(f"-- NQM dict: {self.NQM_dict}")
+        print(f"-- current model pool: {self.model_pool.keys()}, active task: {self.active_task}")
+
+        ###### Copied from MultiHeadNetworkTrainer
+        # -- Reset the val_metrics_exist flag since the training is finished and restoring will fail otherwise -- #
+        self.already_trained_on[str(self.fold)]['val_metrics_should_exist'] = False
+
+        # -- Add task to finished_training -- #
+        self.update_save_trained_on_json(task, True)
+        # -- Resave the final model pkl file so the already trained on is updated there as well -- #
+        self.save_init_args(join(self.output_folder, "model_final_checkpoint.model"))
+
+        # -- When model trained on second task and the self.new_trainer is still not updated, then update it -- #
+        if self.new_trainer and len(self.already_trained_on) > 1:
+            self.new_trainer = False
+
+        # -- Before returning, reset the self.epoch variable, otherwise the following task will only be trained for the last epoch -- #
+        self.epoch = 0
+
+        # -- Empty the lists that are tracking losses etc., since this will lead to conflicts in additional tasks durig plotting -- #
+        # -- Do not worry about it, the right data is stored during checkpoints and will be restored as well, but after -- #
+        # -- a task is finished and before the next one starts, the data needs to be emptied otherwise its added to the lists. -- #
+        self.all_tr_losses = []
+        self.all_val_losses = []
+        self.all_val_losses_tr_mode = []
+        self.all_val_eval_metrics = []
+        self.validation_results = dict()
+
+
+        # -- Return the result -- #
+        return ret
 
     def _build_output_path(self, output_folder, meta_data=False):
         r"""This function is used to build the output folder path during training when a new task is started.
