@@ -398,7 +398,7 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
         # -- Return the result -- #
         return ret
     
-    def compute_nqm_of_task(evaluate_on, model, include_training_data=False):
+    def compute_nqm_of_task(self, evaluate_on, model, include_training_data=False):
         
         print(f"-----------   output folder: {self.output_folder}")
 
