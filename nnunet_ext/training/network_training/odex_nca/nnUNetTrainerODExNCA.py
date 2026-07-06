@@ -310,7 +310,6 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
 
 
     def initialize_network(self):
-        # -- Create a deepcopy of the previous, ie. currently set model if we do PLOP training -- #
         print("???? initialize network odex")
 
         num_levels = len(self.net_num_pool_op_kernel_sizes)
@@ -361,13 +360,56 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
         # -- Run training using parent class -- #
         ret = super().run_training()
 
+        nqm_list_of_current_task = compute_nqm_of_task(task, self)
+        
+        nqm_list_of_current_task.sort()
+        task_threshold = nqm_list_of_current_task[int(len(nqm_list_of_current_task)*0.9)]
+
+
+        # compute NQM for task and save it in 
+        self.NQM_dict[task] = task_threshold # TODO: use real NQM
+        print(f"-- NQM dict: {self.NQM_dict}")
+        print(f"-- current model pool: {self.model_pool.keys()}, active task: {self.active_task}")
+
+        ###### Copied from MultiHeadNetworkTrainer
+        # -- Reset the val_metrics_exist flag since the training is finished and restoring will fail otherwise -- #
+        self.already_trained_on[str(self.fold)]['val_metrics_should_exist'] = False
+
+        # -- Add task to finished_training -- #
+        self.update_save_trained_on_json(task, True)
+        # -- Resave the final model pkl file so the already trained on is updated there as well -- #
+        self.save_init_args(join(self.output_folder, "model_final_checkpoint.model"))
+
+        # -- When model trained on second task and the self.new_trainer is still not updated, then update it -- #
+        if self.new_trainer and len(self.already_trained_on) > 1:
+            self.new_trainer = False
+
+        # -- Before returning, reset the self.epoch variable, otherwise the following task will only be trained for the last epoch -- #
+        self.epoch = 0
+
+        # -- Empty the lists that are tracking losses etc., since this will lead to conflicts in additional tasks durig plotting -- #
+        # -- Do not worry about it, the right data is stored during checkpoints and will be restored as well, but after -- #
+        # -- a task is finished and before the next one starts, the data needs to be emptied otherwise its added to the lists. -- #
+        self.all_tr_losses = []
+        self.all_val_losses = []
+        self.all_val_losses_tr_mode = []
+        self.all_val_eval_metrics = []
+        self.validation_results = dict()
+
+
+        # -- Return the result -- #
+        return ret
+    
+    def compute_nqm_of_task(evaluate_on, model, include_training_data=False):
+        
         print(f"-----------   output folder: {self.output_folder}")
 
-        input_folder = os.path.join(os.environ['nnUNet_raw_data_base'], 'nnUNet_raw_data', task, 'imagesTr')
+        input_folder = os.path.join(os.environ['nnUNet_raw_data_base'], 'nnUNet_raw_data', evaluate_on, 'imagesTr')
         
         print(f"-----------   input folder: {input_folder}")
 
         # setting parameters for predict_from_folder()
+        
         lowres_segmentations = None
         save_npz = False
         enable_tta = False
@@ -393,24 +435,21 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
         }
 
         evaluate_on = task
-
-        print(f"plans_file: {self.plans_file}")
+        
         for i in range(10):
             nqm_tmp_folder = self.output_folder + f"/nqm_it_{i}"
             predict_from_folder(params_ext, "None", input_folder, nqm_tmp_folder, [self.fold], save_npz, num_threads_preprocessing,
                     num_threads_nifti_save, lowres_segmentations, part_id, num_parts, enable_tta,
                     overwrite_existing=True, mode="normal", overwrite_all_in_gpu=None,
                     mixed_precision=mixed_precision,
-                    step_size=step_size, no_load=True, trainer=self, params=[None], plans_path_=self.plans_file)
+                    step_size=step_size, no_load=True, trainer=model, params=[None], plans_path_=self.plans_file)
 
-
-        #TODO: get all cases of task
         
         dataset_directory = join(preprocessing_output_dir, evaluate_on)
         splits_final = load_pickle(join(dataset_directory, "splits_final.pkl"))
 
         ground_truth_folder: str = os.path.join(os.environ['nnUNet_raw_data_base'], 'nnUNet_raw_data', evaluate_on, 'labelsTr')
-        include_training_data = False
+        
 
         if include_training_data:
             cases_to_perform_evaluation_on = []
@@ -446,44 +485,8 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
             nqm_score = np.sum(stdd) / np.sum(mean)
             nqm_list_of_current_task.append(nqm_score)
             print("NQM Score: ", nqm_score)
-        nqm_list_of_current_task.sort()
-        task_threshold = nqm_list_of_current_task[int(len(nqm_list_of_current_task)*0.9)]
-
-
-        # compute NQM for task and save it in 
-        self.NQM_dict[task] = task_threshold # TODO: use real NQM
-        print(f"-- NQM dict: {self.NQM_dict}")
-        print(f"-- current model pool: {self.model_pool.keys()}, active task: {self.active_task}")
         
-
-        ###### Copied from MultiHeadNetworkTrainer
-        # -- Reset the val_metrics_exist flag since the training is finished and restoring will fail otherwise -- #
-        self.already_trained_on[str(self.fold)]['val_metrics_should_exist'] = False
-
-        # -- Add task to finished_training -- #
-        self.update_save_trained_on_json(task, True)
-        # -- Resave the final model pkl file so the already trained on is updated there as well -- #
-        self.save_init_args(join(self.output_folder, "model_final_checkpoint.model"))
-
-        # -- When model trained on second task and the self.new_trainer is still not updated, then update it -- #
-        if self.new_trainer and len(self.already_trained_on) > 1:
-            self.new_trainer = False
-
-        # -- Before returning, reset the self.epoch variable, otherwise the following task will only be trained for the last epoch -- #
-        self.epoch = 0
-
-        # -- Empty the lists that are tracking losses etc., since this will lead to conflicts in additional tasks durig plotting -- #
-        # -- Do not worry about it, the right data is stored during checkpoints and will be restored as well, but after -- #
-        # -- a task is finished and before the next one starts, the data needs to be emptied otherwise its added to the lists. -- #
-        self.all_tr_losses = []
-        self.all_val_losses = []
-        self.all_val_losses_tr_mode = []
-        self.all_val_eval_metrics = []
-        self.validation_results = dict()
-
-
-        # -- Return the result -- #
-        return ret
+        return nqm_list_of_current_task
 
     def _build_output_path(self, output_folder, meta_data=False):
         r"""This function is used to build the output folder path during training when a new task is started.
