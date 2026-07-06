@@ -51,7 +51,7 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
         self.csv = save_csv             # flag if saving validation metrics every nth epoch
         self.del_log = del_log          # flag if the log should be removed or not
         self.extension = extension      # Set the extension for output file
-        self.active_task = task
+        self.active_model = task
 
         # -- Set trainer_class_name -- #
         self.trainer_class_name = self.__class__.__name__
@@ -148,7 +148,7 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
                           transfer_heads, ViT_task_specific_ln, do_LSA, do_SPT, nca)
 
 
-        self.NQM_dict = dict()
+        self.NQM_thresh_dict = dict()
         self.model_pool = nn.ModuleDict()
 
 
@@ -349,25 +349,46 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
         r"""Overwrite super class to adapt for ood detection
         """
 
-        if len(self.NQM_dict) != 1:
-            self.active_task = task
-
         self.output_folder = join(self._build_output_path(output_folder, False), "fold_%s" % str(self.fold))
         maybe_mkdir_p(self.output_folder)
+
+
+        if len(self.NQM_thresh_dict) != 1:
+            nqm_newtask_dict = dict()
+
+            # for every model in model pool compute nqm of model and new task
+            for key in self.model_pool:
+                print(f"compute nqm for model {key} on Task: {task}")
+                task_nqm_list = self.compute_nqm_of_task(task, key)
+                nqm_newtask_dict[key] = statistics.fmean(task_nqm_list)
+
+            # choose beste model for new task
+            assert len(nqm_newtask_dict) == len(self.NQM_thresh_dict), "NQMs of new task and threshold dict have different lengths"
+            for key in self.newtask_dict:
+                task_nqm_list[key] = task_nqm_list[key] / self.NQM_thresh_dict[key]
+            
+            best_model = min(task_nqm_list, key=task_nqm_list.get)
+            self.network.load_state_dict(self.model_pool[best_model].state_dict())
+
+            if task_nqm_list[best_model] > 1.0:
+                best_model = task
+
+            self.active_model = best_model
+
 
         # -- Run training using parent class -- #
         ret = super().run_training()
 
-        nqm_list_of_current_task = self.compute_nqm_of_task(task, self)
+        nqm_list_of_current_task = self.compute_nqm_of_task(task, self.active_model)
         
         nqm_list_of_current_task.sort()
         task_threshold = nqm_list_of_current_task[int(len(nqm_list_of_current_task)*0.9)]
 
 
         # compute NQM for task and save it in 
-        self.NQM_dict[task] = task_threshold # TODO: use real NQM
-        print(f"-- NQM dict: {self.NQM_dict}")
-        print(f"-- current model pool: {self.model_pool.keys()}, active task: {self.active_task}")
+        self.NQM_thresh_dict[self.active_model] = task_threshold
+        print(f"-- NQM thresh dict: {self.NQM_thresh_dict}")
+        print(f"-- current model pool: {self.model_pool.keys()}, active task: {self.active_model}")
 
         ###### Copied from MultiHeadNetworkTrainer
         # -- Reset the val_metrics_exist flag since the training is finished and restoring will fail otherwise -- #
@@ -425,23 +446,26 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
             'param_split': False,
             'network': "3d_fullres",
             'network_trainer': "nnUNetTrainerODExNCA",
-            'use_model': [f"{task}"],
+            'use_model': [f"{evaluate_on}"],
             'tasks_list_with_char': ["Task198_T1threesplit"],
             'plans_identifier': default_plans_identifier,
             'vit_type': "base",
             'version': 1
         }
 
-        evaluate_on = task
         
+        backup_active_task = self.active_model
+        self.active_model = model
+
         for i in range(10):
             nqm_tmp_folder = self.output_folder + f"/nqm_it_{i}"
             predict_from_folder(params_ext, "None", input_folder, nqm_tmp_folder, [self.fold], save_npz, num_threads_preprocessing,
                     num_threads_nifti_save, lowres_segmentations, part_id, num_parts, enable_tta,
                     overwrite_existing=True, mode="normal", overwrite_all_in_gpu=None,
                     mixed_precision=mixed_precision,
-                    step_size=step_size, no_load=True, trainer=model, params=[None], plans_path_=self.plans_file)
+                    step_size=step_size, no_load=True, trainer=self, params=[None], plans_path_=self.plans_file)
 
+        self.active_model = backup_active_task
         
         dataset_directory = join(preprocessing_output_dir, evaluate_on)
         splits_final = load_pickle(join(dataset_directory, "splits_final.pkl"))
@@ -561,9 +585,9 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
         del target
 
         ## update after iteration
-        if self.active_task not in self.model_pool:
-            self.model_pool[self.active_task] = copy.deepcopy(self.network)
-        self.model_pool[self.active_task].load_state_dict(self.network.state_dict())
+        if self.active_model not in self.model_pool:
+            self.model_pool[self.active_model] = copy.deepcopy(self.network)
+        self.model_pool[self.active_model].load_state_dict(self.network.state_dict())
         
         # -- Return the loss -- #
         if not no_loss:
@@ -612,9 +636,9 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
         # -- Set the flag to True -- #
         self.already_trained_on[str(self.fold)]['checkpoint_should_exist'] = True
         # -- Add the current head keys for restoring (is in correct order due to OrderedDict type of heads) -- #
-        self.already_trained_on[str(self.fold)]['tasks_at_time_of_checkpoint'] = list(self.NQM_dict.keys())
+        self.already_trained_on[str(self.fold)]['tasks_at_time_of_checkpoint'] = list(self.NQM_thresh_dict.keys())
         # -- Add the current active task for restoring -- #
-        self.already_trained_on[str(self.fold)]['active_task_at_time_of_checkpoint'] = len(self.NQM_dict)
+        self.already_trained_on[str(self.fold)]['active_task_at_time_of_checkpoint'] = len(self.NQM_thresh_dict)
         # -- Save the updated dictionary as a json file -- #
         write_pickle(self.already_trained_on, join(self.trained_on_path, self.extension+'_trained_on.pkl'))
         # -- Update self.init_tasks so the storing works properly -- #
