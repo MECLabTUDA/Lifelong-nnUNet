@@ -364,9 +364,14 @@ def predict_from_folder(params_ext, model: str, input_folder: str, output_folder
         splitted_path[-4] = f"Task{first_task}"
         plans_path = '/'+os.path.join(*splitted_path)
     
+    print(f"~~~~~~~~~ plans_path: {plans_path}")
 
     if copy_plans:
-        shutil.copy(join(plans_path, 'plans.pkl'), output_folder)
+        if (plans_path[-4:] == ".pkl"):
+            shutil.copy(plans_path, join(output_folder, "plans.pkl"))
+        else:
+            shutil.copy(join(plans_path, 'plans.pkl'), output_folder)
+        plans_path = output_folder
 
     assert isfile(join(plans_path, "plans.pkl")), "Folder with saved model weights must contain a plans.pkl file"
     expected_num_modalities = load_pickle(join(plans_path, "plans.pkl"))['num_modalities']

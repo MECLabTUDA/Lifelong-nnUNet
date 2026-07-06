@@ -86,17 +86,19 @@ def load_model_and_checkpoint_files(params, folder, folds=None, mixed_precision=
     # -- Set trainer output path -- #
     trainer.output_folder = trainer_path
     os.makedirs(trainer.output_folder, exist_ok=True)
-        
-    # -- Set the head based on the users input -- #
+
+
     use_head = params['use_head']
-    if params['use_head'] is None:
-        use_head = list(trainer.mh_network.heads.keys())[-1]
-    
-    trainer.network = trainer.mh_network.assemble_model(use_head)
+    # -- Set the head based on the users input -- #
+    if hasattr(trainer, "mh_network"):
+        if params['use_head'] is None:
+            use_head = list(trainer.mh_network.heads.keys())[-1]
+        
+        trainer.network = trainer.mh_network.assemble_model(use_head)
 
     # -- Set the correct task_name for training -- #
-    if trainer.use_vit and trainer.ViT_task_specific_ln:
-        trainer.network.ViT.use_task(use_head)
+        if trainer.use_vit and trainer.ViT_task_specific_ln:
+            trainer.network.ViT.use_task(use_head)
 
     # -- Create a new log_file in the evaluation folder based on changed output_folder -- #
     trainer.print_to_log_file("The {} model trained on {} will be used for this evaluation with the {} head.".format(params['network_trainer'], ', '.join(params['tasks_list_with_char'][0]), params['use_head']))
