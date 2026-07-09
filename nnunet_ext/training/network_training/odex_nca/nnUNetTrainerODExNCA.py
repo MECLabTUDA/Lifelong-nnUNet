@@ -25,6 +25,8 @@ from nnunet_ext.network_architecture.nca.OctreeNCA2D import OctreeNCA2D
 
 import traceback
 import inspect
+import statistics
+from tqdm import trange
 
 
 class nnUNetTrainerODExNCA(nnUNetTrainerV2):
@@ -39,7 +41,7 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
         
         # -- Create a backup of the original output folder that is provided -- #
         self.output_folder_orig = output_folder
-
+        self.model_pool_log = ""
         output_folder = self._build_output_path(output_folder, False)
 
         super().__init__(plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data, deterministic, fp16)
@@ -353,10 +355,10 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
         maybe_mkdir_p(self.output_folder)
 
 
-        if len(self.NQM_thresh_dict) != 1:
+        if len(self.NQM_thresh_dict) != 0:
             nqm_newtask_dict = dict()
 
-            # for every model in model pool compute nqm of model and new task
+            # for every model in model pool: compute nqm of model and new task
             for key in self.model_pool:
                 print(f"compute nqm for model {key} on Task: {task}")
                 task_nqm_list = self.compute_nqm_of_task(task, key)
@@ -364,14 +366,20 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
 
             # choose beste model for new task
             assert len(nqm_newtask_dict) == len(self.NQM_thresh_dict), "NQMs of new task and threshold dict have different lengths"
-            for key in self.newtask_dict:
-                task_nqm_list[key] = task_nqm_list[key] / self.NQM_thresh_dict[key]
+            for key in nqm_newtask_dict:
+                nqm_newtask_dict[key] = nqm_newtask_dict[key] / self.NQM_thresh_dict[key]
             
-            best_model = min(task_nqm_list, key=task_nqm_list.get)
+            best_model = min(nqm_newtask_dict, key=nqm_newtask_dict.get)
+
+            self.model_pool_log += "- - - - - - - - - - - - - - - - - - - - -\n"
+            self.model_pool_log += f"choosing new model for {task}: {best_model} with normalized nqm score: {nqm_newtask_dict[best_model]}\n"
             self.network.load_state_dict(self.model_pool[best_model].state_dict())
 
-            if task_nqm_list[best_model] > 1.0:
+            if nqm_newtask_dict[best_model] > 1.0:
                 best_model = task
+                self.model_pool_log += f"adding new model to pool: {best_model}\n"
+
+
 
             self.active_model = best_model
 
@@ -387,6 +395,9 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
 
         # compute NQM for task and save it in 
         self.NQM_thresh_dict[self.active_model] = task_threshold
+        print("model pool log:")
+        print(self.model_pool_log)
+        
         print(f"-- NQM thresh dict: {self.NQM_thresh_dict}")
         print(f"-- current model pool: {self.model_pool.keys()}, active task: {self.active_model}")
 
@@ -421,14 +432,13 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
     
     def compute_nqm_of_task(self, evaluate_on, model, include_training_data=False):
         
-        print(f"-----------   output folder: {self.output_folder}")
+        #print(f"-----------   output folder: {self.output_folder}")
 
         input_folder = os.path.join(os.environ['nnUNet_raw_data_base'], 'nnUNet_raw_data', evaluate_on, 'imagesTr')
         
-        print(f"-----------   input folder: {input_folder}")
+        #print(f"-----------   input folder: {input_folder}")
 
         # setting parameters for predict_from_folder()
-        
         lowres_segmentations = None
         save_npz = False
         enable_tta = False
@@ -457,13 +467,14 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
         backup_active_task = self.active_model
         self.active_model = model
 
-        for i in range(10):
+        for i in trange(10):
             nqm_tmp_folder = self.output_folder + f"/nqm_it_{i}"
-            predict_from_folder(params_ext, "None", input_folder, nqm_tmp_folder, [self.fold], save_npz, num_threads_preprocessing,
-                    num_threads_nifti_save, lowres_segmentations, part_id, num_parts, enable_tta,
-                    overwrite_existing=True, mode="normal", overwrite_all_in_gpu=None,
-                    mixed_precision=mixed_precision,
-                    step_size=step_size, no_load=True, trainer=self, params=[None], plans_path_=self.plans_file)
+            with suppress_stdout():
+                predict_from_folder(params_ext, "None", input_folder, nqm_tmp_folder, [self.fold], save_npz, num_threads_preprocessing,
+                        num_threads_nifti_save, lowres_segmentations, part_id, num_parts, enable_tta,
+                        overwrite_existing=True, mode="normal", overwrite_all_in_gpu=None,
+                        mixed_precision=mixed_precision,
+                        step_size=step_size, no_load=True, trainer=self, params=[None], plans_path_=self.plans_file)
 
         self.active_model = backup_active_task
         
@@ -483,9 +494,9 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
                 if s != 'train':
                     cases_to_perform_evaluation_on.extend(splits_final[self.fold][s])
 
-        print(f"splits_final: {splits_final[self.fold]}")
-        print("original training cases:", splits_final[self.fold]['train'])
-        print("performing validation on:", cases_to_perform_evaluation_on)
+        #print(f"splits_final: {splits_final[self.fold]}")
+        #print("original training cases:", splits_final[self.fold]['train'])
+        #print("performing validation on:", cases_to_perform_evaluation_on)
         nqm_list_of_current_task = []
         for case in cases_to_perform_evaluation_on:
             file_name = case + ".nii.gz"
@@ -506,7 +517,7 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
             stdd = np.sqrt(stdd)
             nqm_score = np.sum(stdd) / np.sum(mean)
             nqm_list_of_current_task.append(nqm_score)
-            print("NQM Score: ", nqm_score)
+            #print("NQM Score: ", nqm_score)
         
         return nqm_list_of_current_task
 
