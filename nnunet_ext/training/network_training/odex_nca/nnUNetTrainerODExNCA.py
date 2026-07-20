@@ -355,7 +355,10 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
         maybe_mkdir_p(self.output_folder)
 
 
-        if len(self.NQM_thresh_dict) != 0:
+        if len(self.NQM_thresh_dict) == 0:
+            self.active_model = task
+            self.model_pool[self.active_model] = copy.deepcopy(self.network)
+        else:
             nqm_newtask_dict = dict()
 
             # for every model in model pool: compute nqm of model and new task
@@ -373,19 +376,21 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
 
             self.model_pool_log += "- - - - - - - - - - - - - - - - - - - - -\n"
             self.model_pool_log += f"choosing new model for {task}: {best_model} with normalized nqm score: {nqm_newtask_dict[best_model]}\n"
-            self.network.load_state_dict(self.model_pool[best_model].state_dict())
+
+            self.activate_model(best_model)
 
             if nqm_newtask_dict[best_model] > 1.0:
-                best_model = task
+                self.active_model = task
+                self.model_pool[self.active_model] = copy.deepcopy(self.network)
                 self.model_pool_log += f"adding new model to pool: {best_model}\n"
 
 
-
-            self.active_model = best_model
-
+        
 
         # -- Run training using parent class -- #
         ret = super().run_training()
+
+        self.model_pool[self.active_model].load_state_dict(self.network.state_dict())
 
         nqm_list_of_current_task = self.compute_nqm_of_task(task, self.active_model)
         
@@ -429,6 +434,11 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
 
         # -- Return the result -- #
         return ret
+
+    def activate_model(self, model_key):
+        self.model_pool[self.active_model].load_state_dict(self.network.state_dict())
+        self.active_model = model_key
+        self.network.load_state_dict(self.model_pool[model_key].state_dict())
     
     def compute_nqm_of_task(self, evaluate_on, model, include_training_data=False):
         
@@ -465,7 +475,7 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
 
         
         backup_active_task = self.active_model
-        self.active_model = model
+        self.activate_model(model)
 
         for i in trange(10):
             nqm_tmp_folder = self.output_folder + f"/nqm_it_{i}"
@@ -476,7 +486,7 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
                         mixed_precision=mixed_precision,
                         step_size=step_size, no_load=True, trainer=self, params=[None], plans_path_=self.plans_file)
 
-        self.active_model = backup_active_task
+        self.activate_model(backup_active_task)
         
         dataset_directory = join(preprocessing_output_dir, evaluate_on)
         splits_final = load_pickle(join(dataset_directory, "splits_final.pkl"))
@@ -595,12 +605,7 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
 
         del target
 
-        ## update after iteration
-        if self.active_model not in self.model_pool:
-            self.model_pool[self.active_model] = copy.deepcopy(self.network)
-        self.model_pool[self.active_model].load_state_dict(self.network.state_dict())
-        
-        # -- Return the loss -- #
+                # -- Return the loss -- #
         if not no_loss:
             if detach:
                 l = l.detach().cpu().numpy()
