@@ -77,8 +77,6 @@ def compute_scores_and_build_dict(evaluate_on: str, inference_folder:str, fold: 
             if s != 'train':
                 cases_to_perform_evaluation_on.extend(splits_final[fold][s])
 
-    print("original training cases:", splits_final[fold]['train'])
-    print("performing validation on:", cases_to_perform_evaluation_on)
     cases_dict = dict()
     for case in cases_to_perform_evaluation_on:
         file_name = case + ".nii.gz"

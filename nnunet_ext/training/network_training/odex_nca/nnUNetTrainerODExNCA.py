@@ -19,6 +19,9 @@ from nnunet_ext.utilities.helpful_functions import *
 from nnunet.training.network_training.nnUNetTrainerV2 import nnUNetTrainerV2
 from nnunet_ext.inference.predict import predict_from_folder
 from nnunet_ext.paths import preprocessing_output_dir, default_plans_identifier
+from nnunet.training.data_augmentation.data_augmentation_moreDA import get_moreDA_augmentation
+from nnunet.training.dataloading.dataset_loading import load_dataset, DataLoader3D, DataLoader2D, unpack_dataset
+from nnunet_ext.run.default_configuration import get_default_configuration
 
 from nnunet_ext.network_architecture.nca.OctreeNCA3D import OctreeNCA3D
 from nnunet_ext.network_architecture.nca.OctreeNCA2D import OctreeNCA2D
@@ -34,7 +37,7 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
                  unpack_data=True, deterministic=True, fp16=False, save_interval=5, already_trained_on=None, use_progress=True,
                  identifier=default_plans_identifier, extension='odex_nca', tasks_list_with_char=None, mixed_precision=True,
                  save_csv=True, del_log=False, use_vit=False, vit_type='base', version=1, split_gpu=False, transfer_heads=True,
-                 ViT_task_specific_ln=False, do_LSA=False, do_SPT=False, nca=False, network=None, use_param_split=False):
+                 ViT_task_specific_ln=False, do_LSA=False, do_SPT=False, nca=True, network=None, use_param_split=False):
         r"""Constructor of Odex Trainer
         """
         # -- Initialize using parent class -- #
@@ -139,9 +142,9 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
         # -- Only set this to True if the parameter search method is used -- #
         self.param_split = use_param_split
 
-        self.nca = nca
-        if nca:
-            self.initial_lr = 1e-3
+        #this class can only handle nca
+        self.nca = True
+        self.initial_lr = 1e-3
 
         # -- Update self.init_tasks so the storing works properly -- #
         self.init_args = (split, task, plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
@@ -346,6 +349,68 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
             self.network.cuda()
         self.network.inference_apply_nonlin = softmax_helper
 
+    def reinitialize(self, task, print_loss_info=True):
+        r"""This function is used to reinitialize the Multi Head Trainer when a new task is trained.
+            Basically the dataloaders are created again with the new task data. This function will only
+            be used when training before running the actual training.
+        """
+        # -- Empty the GPU cache -- #
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+        # -- Add the prev_trainer to the list for the current run -- #
+        while len(self.already_trained_on[str(self.fold)]['prev_trainer']) < len(self.model_pool)+1:
+            self.already_trained_on[str(self.fold)]['prev_trainer'].append(self.trainer_class_name)
+
+        # -- Create a new log file --> NOTE: Update output_folder before calling this function! -- #
+        self.log_file = None
+        # -- Update the log file -- #
+        self.print_to_log_file("Updating the Dataloaders for new task \'{}\'.".format(task))
+
+        # -- Extract the running task list based on the currently trained on tasks + the current task -- #
+        running_task_list = self.already_trained_on[str(self.fold)]["finished_training_on"][:]
+        running_task_list.append(task)
+        running_task = join_texts_with_char(running_task_list, '_')
+
+        # -- Get default configuration for nnunet/nnunet_ext model -- #
+        plans_file, _, self.dataset_directory, _, stage, \
+        _ = get_default_configuration(self.network_name, task, running_task, self.trainer_class_name,\
+                                      self.tasks_joined_name, self.identifier, extension_type=self.extension,\
+                                      print_loss_info=print_loss_info)
+
+        # -- Load the plans file -- #
+        self.plans = load_pickle(plans_file)
+
+        # -- Extract the folder with the preprocessed data in it -- #
+        self.folder_with_preprocessed_data = join(self.dataset_directory, self.plans['data_identifier'] +
+                                                  "_stage%d" % stage)
+
+        # -- Create the corresponding dataloaders for train and val (dataset loading and split performed in function) -- #
+        # -- Since we do validation, there is no need to unpack the data -- #
+        del self.dl_tr, self.dl_val # --> Avoid memory leak
+        self.dl_tr, self.dl_val = self.get_basic_generators()
+
+        # -- Unpack the dataset if this is desired -- #
+        if self.unpack_data:
+            unpack_dataset(self.folder_with_preprocessed_data)
+
+        # -- Extract corresponding self.val_gen --> the used function is extern and does not change any values from self -- #
+        del self.tr_gen, self.val_gen # --> Avoid memory leak
+        self.tr_gen, self.val_gen = get_moreDA_augmentation(self.dl_tr, self.dl_val,
+                                                            #self.data_aug_params['patch_size_for_spatialtransform'],
+                                                            self.patch_size,
+                                                            self.data_aug_params,
+                                                            deep_supervision_scales=self.deep_supervision_scales,
+                                                            pin_memory=self.pin_memory,
+                                                            use_nondetMultiThreadedAugmenter=False)
+
+        #--------------------------------- Copied from original implementation ---------------------------------#
+        self.print_to_log_file("TRAINING KEYS:\n %s" % (str(self.dataset_tr.keys())),
+                                also_print_to_console=True)
+        self.print_to_log_file("VALIDATION KEYS:\n %s" % (str(self.dataset_val.keys())),
+                                also_print_to_console=True)
+        #--------------------------------- Copied from original implementation ---------------------------------#
+
 
     def run_training(self, task, output_folder):
         r"""Overwrite super class to adapt for ood detection
@@ -355,20 +420,31 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
         maybe_mkdir_p(self.output_folder)
 
 
+        # -- Create the dataloaders again, if they are still from the last task --> do this after building -- #
+        # -- The output folder, otherwise the log file will be generated in the folder from the previous task -- #
+        if self.task != task:
+            # -- Recreate the dataloaders for training and validation -- #
+            self.reinitialize(task)
+            # -- Now reset self.task to the current task -- #
+            self.task = task
+
+
+        # First task always gets a new model (obviously) and is then the active_model
         if len(self.NQM_thresh_dict) == 0:
             self.active_model = task
             self.model_pool[self.active_model] = copy.deepcopy(self.network)
-        else:
+        else: #for every other task we want to decide if we branch a new model or refine an existing one
             nqm_newtask_dict = dict()
 
             # for every model in model pool: compute nqm of model and new task
             for key in self.model_pool:
                 print(f"compute nqm for model {key} on Task: {task}")
                 task_nqm_list = self.compute_nqm_of_task(task, key)
-                nqm_newtask_dict[key] = statistics.fmean(task_nqm_list)
+                nqm_newtask_dict[key] = statistics.fmean(task_nqm_list) # TODO: maybe change to median or fixed percentage
 
             # choose beste model for new task
             assert len(nqm_newtask_dict) == len(self.NQM_thresh_dict), "NQMs of new task and threshold dict have different lengths"
+            #we normalize the NQMs by the existing thresholds to select the best (lowest) one
             for key in nqm_newtask_dict:
                 nqm_newtask_dict[key] = nqm_newtask_dict[key] / self.NQM_thresh_dict[key]
             
@@ -379,6 +455,7 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
 
             self.activate_model(best_model)
 
+            # if best NQM was still above threshold, we branch a new model from the chosen best one
             if nqm_newtask_dict[best_model] > 1.0:
                 self.active_model = task
                 self.model_pool[self.active_model] = copy.deepcopy(self.network)
@@ -390,16 +467,15 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
         # -- Run training using parent class -- #
         ret = super().run_training()
 
+        # copy trained changes of network to model pool for saving, as we always train on self.network
         self.model_pool[self.active_model].load_state_dict(self.network.state_dict())
 
+        # compute NQM on current task and save/update threshold being the 90% boundary of NQM values for this task after training
         nqm_list_of_current_task = self.compute_nqm_of_task(task, self.active_model)
-        
         nqm_list_of_current_task.sort()
         task_threshold = nqm_list_of_current_task[int(len(nqm_list_of_current_task)*0.9)]
-
-
-        # compute NQM for task and save it in 
         self.NQM_thresh_dict[self.active_model] = task_threshold
+
         print("model pool log:")
         print(self.model_pool_log)
         
@@ -688,3 +764,24 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
         # -- Dump the file -- #
         write_pickle(info, fname + ".pkl")
         #------------------------------------------ Copied from original implementation ------------------------------------------#
+
+    #------------------------------------------ Partially copied from original implementation ------------------------------------------#
+    def get_basic_generators(self, use_all_data=False):
+        self.load_dataset()
+        self.do_split()
+
+        if self.threeD:
+            dl_tr = DataLoader3D(self.dataset_tr, self.basic_generator_patch_size if not use_all_data else self.patch_size,
+                                 self.patch_size, self.batch_size, False, oversample_foreground_percent=self.oversample_foreground_percent,
+                                 pad_mode="constant", pad_sides=self.pad_all_sides, memmap_mode='r')
+            dl_val = DataLoader3D(self.dataset_val, self.patch_size, self.patch_size, self.batch_size, False,
+                                  oversample_foreground_percent=self.oversample_foreground_percent,
+                                  pad_mode="constant", pad_sides=self.pad_all_sides, memmap_mode='r')
+        else:
+            dl_tr = DataLoader2D(self.dataset_tr, self.basic_generator_patch_size if not use_all_data else self.patch_size,
+                                 self.patch_size, self.batch_size, oversample_foreground_percent=self.oversample_foreground_percent,
+                                 pad_mode="constant", pad_sides=self.pad_all_sides, memmap_mode='r')
+            dl_val = DataLoader2D(self.dataset_val, self.patch_size, self.patch_size, self.batch_size,
+                                  oversample_foreground_percent=self.oversample_foreground_percent,
+                                  pad_mode="constant", pad_sides=self.pad_all_sides, memmap_mode='r')
+        return dl_tr, dl_val
