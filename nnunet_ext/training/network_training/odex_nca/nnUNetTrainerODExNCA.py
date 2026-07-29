@@ -440,7 +440,7 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
             for key in self.model_pool:
                 print(f"compute nqm for model {key} on Task: {task}")
                 task_nqm_list = self.compute_nqm_of_task(task, key)
-                nqm_newtask_dict[key] = statistics.fmean(task_nqm_list) # TODO: maybe change to median or fixed percentage
+                nqm_newtask_dict[key] = task_nqm_list[int(len(task_nqm_list)/2)] #statistics.fmean(task_nqm_list) # TODO: maybe change to median or fixed percentage
 
             # choose beste model for new task
             assert len(nqm_newtask_dict) == len(self.NQM_thresh_dict), "NQMs of new task and threshold dict have different lengths"
@@ -459,7 +459,7 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
             if nqm_newtask_dict[best_model] > 1.0:
                 self.active_model = task
                 self.model_pool[self.active_model] = copy.deepcopy(self.network)
-                self.model_pool_log += f"adding new model to pool: {best_model}\n"
+                self.model_pool_log += f"adding new model to pool: {task} based on {best_model}\n"
 
 
         
