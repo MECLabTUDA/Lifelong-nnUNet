@@ -15,6 +15,7 @@ from nnunet_ext.paths import default_plans_identifier
 from nnunet.utilities.to_torch import maybe_to_torch, to_cuda
 from nnunet.utilities.nd_softmax import softmax_helper
 from batchgenerators.utilities.file_and_folder_operations import *
+from nnunet.inference.segmentation_export import save_segmentation_nifti_from_softmax
 from nnunet_ext.utilities.helpful_functions import *
 from nnunet.training.network_training.nnUNetTrainerV2 import nnUNetTrainerV2
 from nnunet_ext.inference.predict import predict_from_folder
@@ -155,6 +156,7 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
 
         self.NQM_thresh_dict = dict()
         self.model_pool = nn.ModuleDict()
+        self.fix_model_for_inference = False
 
 
     def do_split(self):
@@ -552,7 +554,7 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
         
         backup_active_task = self.active_model
         self.activate_model(model)
-
+        self.fix_model_for_inference = True
         for i in trange(10):
             nqm_tmp_folder = self.output_folder + f"/nqm_it_{i}"
             with suppress_stdout():
@@ -561,9 +563,9 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
                         overwrite_existing=True, mode="normal", overwrite_all_in_gpu=None,
                         mixed_precision=mixed_precision,
                         step_size=step_size, no_load=True, trainer=self, params=[None], plans_path_=self.plans_file)
-
+        self.fix_model_for_inference = False
         self.activate_model(backup_active_task)
-        
+
         dataset_directory = join(preprocessing_output_dir, evaluate_on)
         splits_final = load_pickle(join(dataset_directory, "splits_final.pkl"))
 
@@ -720,8 +722,6 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
             The old model should be stored in self.network_old, always!
         """
         # -- Set the network to the full MultiHead_Module network to save everything in the class not only the current model -- #
-        #self.network = self.mh_network
-
         print(f"saving checkpoint under {fname}")
         #traceback.print_stack()
 
@@ -737,7 +737,113 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
         self.update_init_args()
 
         # -- Use parent class to save checkpoint for MultiHead_Module model consisting of self.model, self.body and self.heads -- #
-        super().save_checkpoint(fname, save_optimizer) 
+        start_time = time()
+        state_dict = self.model_pool.state_dict()
+        for key in state_dict.keys():
+            state_dict[key] = state_dict[key].cpu()
+        lr_sched_state_dct = None
+        if self.lr_scheduler is not None and hasattr(self.lr_scheduler,
+                                                     'state_dict'):
+            lr_sched_state_dct = self.lr_scheduler.state_dict()
+        if save_optimizer:
+            optimizer_state_dict = self.optimizer.state_dict()
+        else:
+            optimizer_state_dict = None
+
+        self.print_to_log_file("saving checkpoint...")
+        save_this = {
+            'nqm_thresh_dict': self.NQM_thresh_dict,
+            'epoch': self.epoch + 1,
+            'state_dict': state_dict,
+            'optimizer_state_dict': optimizer_state_dict,
+            'lr_scheduler_state_dict': lr_sched_state_dct,
+            'plot_stuff': (self.all_tr_losses, self.all_val_losses, self.all_val_losses_tr_mode,
+                           self.all_val_eval_metrics),
+            'best_stuff' : (self.best_epoch_based_on_MA_tr_loss, self.best_MA_tr_loss_for_patience, self.best_val_eval_criterion_MA)}
+        if self.amp_grad_scaler is not None:
+            save_this['amp_grad_scaler'] = self.amp_grad_scaler.state_dict()
+
+        torch.save(save_this, fname)
+        info = OrderedDict()
+        info['init'] = self.init_args
+        info['name'] = self.__class__.__name__
+        info['class'] = str(self.__class__)
+        info['plans'] = self.plans
+
+        write_pickle(info, fname + ".pkl")
+        self.print_to_log_file("done, saving took %.2f seconds" % (time() - start_time))
+
+    def load_checkpoint_ram(self, checkpoint, train=True, network_old=False, checkpoint_old=None):
+        r"""Overwrite the parent function since the stored state_dict is for a Multi Head Trainer, however the
+            load_checkpoint_ram funtion loads the state_dict into self.network which is the assembled model of 
+            the  Multi Head Trainer and this would lead to an error because the expected state_dict structure
+            and the saved one do not match. Set old network if the class uses the previous network during training.
+            The old network is in self.network_old (always).
+        """
+
+        # -- Use parent class to save checkpoint for MultiHead_Module model consisting of self.model, self.body and self.heads -- #
+        if not self.was_initialized:
+            self.initialize(train)
+
+        new_state_dict = OrderedDict()
+        curr_state_dict_keys = list(self.model_pool.state_dict().keys())
+        # if state dict comes from nn.DataParallel but we use non-parallel model here then the state dict keys do not
+        # match. Use heuristic to make it match
+        for k, value in checkpoint['state_dict'].items():
+            key = k
+            if key not in curr_state_dict_keys and key.startswith('module.'):
+                key = key[7:]
+            new_state_dict[key] = value
+
+        if self.fp16:
+            self._maybe_init_amp()
+            if train:
+                if 'amp_grad_scaler' in checkpoint.keys():
+                    self.amp_grad_scaler.load_state_dict(checkpoint['amp_grad_scaler'])
+
+        self.model_pool.load_state_dict(new_state_dict)
+        self.epoch = checkpoint['epoch']
+        if train:
+            optimizer_state_dict = checkpoint['optimizer_state_dict']
+            if optimizer_state_dict is not None:
+                self.optimizer.load_state_dict(optimizer_state_dict)
+
+            if self.lr_scheduler is not None and hasattr(self.lr_scheduler, 'load_state_dict') and checkpoint[
+                'lr_scheduler_state_dict'] is not None:
+                self.lr_scheduler.load_state_dict(checkpoint['lr_scheduler_state_dict'])
+
+            if issubclass(self.lr_scheduler.__class__, _LRScheduler):
+                self.lr_scheduler.step(self.epoch)
+
+        self.all_tr_losses, self.all_val_losses, self.all_val_losses_tr_mode, self.all_val_eval_metrics = checkpoint[
+            'plot_stuff']
+
+        # load best loss (if present)
+        if 'best_stuff' in checkpoint.keys():
+            self.best_epoch_based_on_MA_tr_loss, self.best_MA_tr_loss_for_patience, self.best_val_eval_criterion_MA = checkpoint[
+                'best_stuff']
+
+        # after the training is done, the epoch is incremented one more time in my old code. This results in
+        # self.epoch = 1001 for old trained models when the epoch is actually 1000. This causes issues because
+        # len(self.all_tr_losses) = 1000 and the plot function will fail. We can easily detect and correct that here
+        if self.epoch != len(self.all_tr_losses):
+            self.print_to_log_file("WARNING in loading checkpoint: self.epoch != len(self.all_tr_losses). This is "
+                                   "due to an old bug and should only appear when you are loading old models. New "
+                                   "models should have this fixed! self.epoch is now set to len(self.all_tr_losses)")
+            self.epoch = len(self.all_tr_losses)
+            self.all_tr_losses = self.all_tr_losses[:self.epoch]
+            self.all_val_losses = self.all_val_losses[:self.epoch]
+            self.all_val_losses_tr_mode = self.all_val_losses_tr_mode[:self.epoch]
+            self.all_val_eval_metrics = self.all_val_eval_metrics[:self.epoch]
+
+        self._maybe_init_amp()
+
+        self.NQM_thresh_dict = checkpoint['nqm_thresh_dict']
+
+        self.active_model = next(iter(mydict.values()))
+        self.network = copy.deepcopy(self.model_pool[self.active_model])
+        self.network.load_state_dict(self.model_pool[self.active_model].state_dict())
+
 
     def update_init_args(self):
         r"""This function is used to update the init_args variable that is saved during checkpoint storing.
@@ -785,3 +891,65 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
                                   oversample_foreground_percent=self.oversample_foreground_percent,
                                   pad_mode="constant", pad_sides=self.pad_all_sides, memmap_mode='r')
         return dl_tr, dl_val
+
+    def predict_preprocessed_data_return_seg_and_softmax(self, data: np.ndarray, do_mirroring: bool = True,
+                                                         mirror_axes: Tuple[int] = None,
+                                                         use_sliding_window: bool = True, step_size: float = 0.5,
+                                                         use_gaussian: bool = True, pad_border_mode: str = 'constant',
+                                                         pad_kwargs: dict = None, all_in_gpu: bool = False,
+                                                         verbose: bool = True, mixed_precision: bool = True) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        :param data:
+        :param do_mirroring:
+        :param mirror_axes:
+        :param use_sliding_window:
+        :param step_size:
+        :param use_gaussian:
+        :param pad_border_mode:
+        :param pad_kwargs:
+        :param all_in_gpu:
+        :param verbose:
+        :return:
+        """
+        
+        """ modified to choose best model from model pool for prediction"""
+        backup_model = self.active_model
+        if not self.fix_model_for_inference:
+            nqm_newtask_dict = dict()
+            for key in self.model_pool:
+                print(f"compute nqm for model {key} for inference")
+                ensemble = []
+                for i in range(10):
+                    # predict sample
+                    ensemble.append(super().predict_preprocessed_data_return_seg_and_softmax(data, do_mirroring=do_mirroring, mirror_axes=mirror_axes)[1])
+                    pass
+                # compute NQM from 10 predictions
+                ensemble = np.stack(ensemble, axis=0)
+                mean = np.sum(ensemble, axis=0) / ensemble.shape[0]
+                stdd = 0
+                for id in range(ensemble.shape[0]):
+                    img = ensemble[id] - mean
+                    img = np.power(img, 2)
+                    stdd = stdd + img
+                stdd = stdd / ensemble.shape[0]
+                stdd = np.sqrt(stdd)
+                nqm_score = np.sum(stdd) / np.sum(mean)
+                nqm_newtask_dict[key] = nqm_score
+            
+            for key in nqm_newtask_dict:
+                nqm_newtask_dict[key] = nqm_newtask_dict[key] / self.NQM_thresh_dict[key]
+            
+            best_model = min(nqm_newtask_dict, key=nqm_newtask_dict.get)
+            #choose best model from pool
+            self.activate_model(best_model)
+
+        ret = super().predict_preprocessed_data_return_seg_and_softmax(data, do_mirroring=do_mirroring,
+                                                         mirror_axes=mirror_axes,
+                                                         use_sliding_window=use_sliding_window, step_size=step_size,
+                                                         use_gaussian=use_gaussian, pad_border_mode=pad_border_mode,
+                                                         pad_kwargs=pad_kwargs, all_in_gpu=all_in_gpu,
+                                                         verbose=verbose, mixed_precision=mixed_precision)
+
+        self.activate_model(backup_model)
+
+        return ret
