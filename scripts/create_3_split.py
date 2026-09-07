@@ -8,7 +8,7 @@ import os, random, shutil
 def do_split(old_task_name: str, new_task_name:str, NUM_TEST_DATA: float): 
 
     
-    shutil.copytree(join(nnUNet_raw_data, old_task_name), join(nnUNet_raw_data, new_task_name))    
+    #shutil.copytree(join(nnUNet_raw_data, old_task_name), join(nnUNet_raw_data, new_task_name))    
 
     random.seed(123454321)
     maybe_mkdir_p(join(preprocessing_output_dir, new_task_name))
@@ -41,8 +41,4 @@ def do_split(old_task_name: str, new_task_name:str, NUM_TEST_DATA: float):
 
 
 if __name__ == '__main__':
-    do_split("Task011_Prostate-BIDMC", "Task111_Prostate-BIDMC", 0.3)
-    do_split("Task012_Prostate-I2CVB", "Task112_Prostate-I2CVB", 0.3)
-    do_split("Task013_Prostate-HK", "Task113_Prostate-HK", 0.3)
-    do_split("Task015_Prostate-UCL", "Task115_Prostate-UCL", 0.3)
-    do_split("Task016_Prostate-RUNMC", "Task116_Prostate-RUNMC", 0.3)
+    do_split("Task197_T1", "Task198_T1threesplit", 0.3)

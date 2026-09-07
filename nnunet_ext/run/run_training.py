@@ -31,10 +31,6 @@ for ext in extension_keys:
 #------------------------------------------- Inspired by original implementation -------------------------------------------#
 def run_training(extension='multihead'):
 
-    print("00000000000000000000000000000000000000000000000000000000000000000")
-    print(TRAINER_MAP)
-    print("0000000000000000000000000000000000000")
-
     # -----------------------
     # Build argument parser
     # -----------------------

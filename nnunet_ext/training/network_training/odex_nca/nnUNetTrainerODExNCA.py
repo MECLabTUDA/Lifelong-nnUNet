@@ -31,6 +31,8 @@ import traceback
 import inspect
 import statistics
 from tqdm import trange
+from typing import Tuple
+from time import time, sleep
 
 
 class nnUNetTrainerODExNCA(nnUNetTrainerV2):
@@ -154,6 +156,9 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
                           transfer_heads, ViT_task_specific_ln, do_LSA, do_SPT, nca)
 
 
+        self.odexNis = True # consider distribution match per individual sample, in contrast to normal ODExNCA that is task-wise
+
+        self.global_NQM_thresh = 1.0
         self.NQM_thresh_dict = dict()
         self.model_pool = nn.ModuleDict()
         self.fix_model_for_inference = False
@@ -188,6 +193,7 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
                     splits[-1]['train'] = train_keys
                     splits[-1]['val'] = test_keys
                 save_pickle(splits, splits_file)
+                print("     -- splits_file does not exist")
 
             else:
                 self.print_to_log_file("Using splits from existing split file:", splits_file)
@@ -210,6 +216,7 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
                     new_splits[-1]['test'] = split['val']   # --> Only for storing, should be never used
                 # -- Save the new splits file -- #
                 save_pickle(new_splits, p_splits_file)
+                print("     ----- p_splits_file does not exist")
 
             if self.param_split:
                 splits = load_pickle(p_splits_file)
@@ -408,10 +415,39 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
 
         #--------------------------------- Copied from original implementation ---------------------------------#
         self.print_to_log_file("TRAINING KEYS:\n %s" % (str(self.dataset_tr.keys())),
-                                also_print_to_console=True)
+                                also_print_to_console=False)
         self.print_to_log_file("VALIDATION KEYS:\n %s" % (str(self.dataset_val.keys())),
-                                also_print_to_console=True)
+                                also_print_to_console=False)
         #--------------------------------- Copied from original implementation ---------------------------------#
+
+    def build_list_dataloader(self, caselist, use_all_data=False):
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+        caseDict = OrderedDict()
+        for key in caselist:
+            caseDict[key] = self.dataset[key]
+        
+        del self.dl_tr # --> Avoid memory leak
+        if self.threeD:
+            self.dl_tr = DataLoader3D(caseDict, self.basic_generator_patch_size if not use_all_data else self.patch_size,
+                                 self.patch_size, self.batch_size, False, oversample_foreground_percent=self.oversample_foreground_percent,
+                                 pad_mode="constant", pad_sides=self.pad_all_sides, memmap_mode='r')
+        else:
+            self.dl_tr = DataLoader2D(caseDict, self.basic_generator_patch_size if not use_all_data else self.patch_size,
+                                 self.patch_size, self.batch_size, oversample_foreground_percent=self.oversample_foreground_percent,
+                                 pad_mode="constant", pad_sides=self.pad_all_sides, memmap_mode='r')
+            
+        del self.tr_gen, self.val_gen # --> Avoid memory leak
+        self.tr_gen, self.val_gen = get_moreDA_augmentation(self.dl_tr, self.dl_val,
+                                                            #self.data_aug_params['patch_size_for_spatialtransform'],
+                                                            self.patch_size,
+                                                            self.data_aug_params,
+                                                            deep_supervision_scales=self.deep_supervision_scales,
+                                                            pin_memory=self.pin_memory,
+                                                            use_nondetMultiThreadedAugmenter=False)
+        #self.print_to_log_file(f"TRAINING batch Keys:\n {caselist}",
+        #                        also_print_to_console=True)
 
 
     def run_training(self, task, output_folder):
@@ -422,6 +458,7 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
         maybe_mkdir_p(self.output_folder)
 
 
+        ret = None
         # -- Create the dataloaders again, if they are still from the last task --> do this after building -- #
         # -- The output folder, otherwise the log file will be generated in the folder from the previous task -- #
         if self.task != task:
@@ -429,58 +466,114 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
             self.reinitialize(task)
             # -- Now reset self.task to the current task -- #
             self.task = task
+            
+               
+            if self.odexNis: # consider indivdual samples
+                model_case_nqm_dict = {}
+                model_case_list = {}
+                # compute NQM for every model for every case
+                for key in self.model_pool.keys():
+                    model_case_nqm_dict[key] = self.compute_nqm_of_task(task, key, split_key="train")
+                    model_case_list[key] = []
+                # sort cases into lists per model, where NQM fits best
+                # or into a new model list, if NQM is always over the threshold
+                new_model_list = []
+                for case, nqm in model_case_nqm_dict[self.active_model].items():
+                    best_model = ""
+                    best_nqm = 100.0
+                    for model in self.model_pool.keys():
+                        if model_case_nqm_dict[model][case] < best_nqm:
+                            best_model = model
+                            best_nqm = model_case_nqm_dict[best_model][case]
+                    if best_nqm < self.global_NQM_thresh:
+                        model_case_list[best_model].append(case)
+                    else:
+                        new_model_list.append(case)
+                
+                if True:
+                    for model in self.model_pool.keys():
+                        print(f"   caselist for refining {model}: {model_case_list[model]}")
+                        self.model_pool_log += f"regining model: {task} based on {len(new_model_list)} tasks: \n"
+                        self.model_pool_log += f"{new_model_list}\n"
+                        if len(model_case_list[model]) > 5:
+                            self.build_list_dataloader(model_case_list[model])
+                            self.activate_model(model)
+                            ret = super().run_training()
+                            self.empty_metrics_lists()
+                            self.model_pool[self.active_model].load_state_dict(self.network.state_dict())
+
+                if len(new_model_list) > 5:
+                    print(f"   caselist for new model ({task}): {new_model_list}")
+                    self.active_model = task
+                    self.model_pool[self.active_model] = copy.deepcopy(self.network)
+                    self.NQM_thresh_dict[self.active_model] = 1
+                    self.model_pool_log += f"adding new model to pool: {task} based on {len(new_model_list)} tasks: \n"
+                    self.model_pool_log += f"{new_model_list}\n"
+                    
+
+                    self.build_list_dataloader(new_model_list)
+                    ret = super().run_training()
+                    self.empty_metrics_lists()
+                    self.model_pool[self.active_model].load_state_dict(self.network.state_dict())
+                    
+            else: # ODExNCA (task-wise distribution detection)
+                nqm_newtask_dict = dict()
+                #for every model in model pool: compute nqm of model and new task
+                for key in self.model_pool:
+                    print(f"compute nqm for model {key} on Task: {task}")
+                    task_nqm_list = list(self.compute_nqm_of_task(task, key, split_key="train").values())
+                    nqm_newtask_dict[key] = task_nqm_list[int(len(task_nqm_list)/2)] #statistics.fmean(task_nqm_list) # TODO: maybe change to median or fixed percentage
+
+                #choose beste model for new task
+                #assert len(nqm_newtask_dict) == len(self.NQM_thresh_dict), "NQMs of new task and threshold dict have different lengths"
+                #we normalize the NQMs by the existing thresholds to select the best (lowest) one
+                #for key in nqm_newtask_dict:
+                #    nqm_newtask_dict[key] = nqm_newtask_dict[key] / self.NQM_thresh_dict[key]
+               
+                best_model = min(nqm_newtask_dict, key=nqm_newtask_dict.get)
+
+                self.model_pool_log += "- - - - - - - - - - - - - - - - - - - - -\n"
+                self.model_pool_log += f"choosing new model for {task}: {best_model} with nqm score: {nqm_newtask_dict[best_model]}\n"
+
+                self.activate_model(best_model)
+
+                # if best NQM was still above threshold, we branch a new model from the chosen best one
+                if nqm_newtask_dict[best_model] > self.global_NQM_thresh:
+                    self.active_model = task
+                    self.NQM_thresh_dict[self.active_model] = 1
+                    self.model_pool[self.active_model] = copy.deepcopy(self.network)
+                    self.model_pool_log += f"adding new model to pool: {task} based on \n"
 
 
-        # First task always gets a new model (obviously) and is then the active_model
-        if len(self.NQM_thresh_dict) == 0:
+            ret = super().run_training()
+            self.model_pool[self.active_model].load_state_dict(self.network.state_dict())
+
+        else:  # First task always gets a new model (obviously) and is then the active_model
+
             self.active_model = task
             self.model_pool[self.active_model] = copy.deepcopy(self.network)
-        else: #for every other task we want to decide if we branch a new model or refine an existing one
-            nqm_newtask_dict = dict()
-
-            # for every model in model pool: compute nqm of model and new task
-            for key in self.model_pool:
-                print(f"compute nqm for model {key} on Task: {task}")
-                task_nqm_list = self.compute_nqm_of_task(task, key)
-                nqm_newtask_dict[key] = task_nqm_list[int(len(task_nqm_list)/2)] #statistics.fmean(task_nqm_list) # TODO: maybe change to median or fixed percentage
-
-            # choose beste model for new task
-            assert len(nqm_newtask_dict) == len(self.NQM_thresh_dict), "NQMs of new task and threshold dict have different lengths"
-            #we normalize the NQMs by the existing thresholds to select the best (lowest) one
-            for key in nqm_newtask_dict:
-                nqm_newtask_dict[key] = nqm_newtask_dict[key] / self.NQM_thresh_dict[key]
             
-            best_model = min(nqm_newtask_dict, key=nqm_newtask_dict.get)
+            # -- Run training using parent class -- #
+            ret = super().run_training()
+            ## copy trained changes of network to model pool for saving, as we always train on self.network
+            self.model_pool[self.active_model].load_state_dict(self.network.state_dict())
 
-            self.model_pool_log += "- - - - - - - - - - - - - - - - - - - - -\n"
-            self.model_pool_log += f"choosing new model for {task}: {best_model} with normalized nqm score: {nqm_newtask_dict[best_model]}\n"
-
-            self.activate_model(best_model)
-
-            # if best NQM was still above threshold, we branch a new model from the chosen best one
-            if nqm_newtask_dict[best_model] > 1.0:
-                self.active_model = task
-                self.model_pool[self.active_model] = copy.deepcopy(self.network)
-                self.model_pool_log += f"adding new model to pool: {task} based on {best_model}\n"
+            # compute NQM on current task and save/update threshold being the 90% boundary of NQM values for this task after training
+            nqm_list_of_current_task = list(self.compute_nqm_of_task(task, self.active_model).values())
+            nqm_list_of_current_task.sort()
+            task_threshold = nqm_list_of_current_task[int(len(nqm_list_of_current_task)*0.9)]
+            self.global_NQM_thresh = task_threshold
+            self.NQM_thresh_dict[self.active_model] = task_threshold
 
 
+
+        # save again with newest NQM threshold
+        if self.save_final_checkpoint:
+            self.save_checkpoint(join(self.output_folder, "model_final_checkpoint.model"))
         
-
-        # -- Run training using parent class -- #
-        ret = super().run_training()
-
-        # copy trained changes of network to model pool for saving, as we always train on self.network
-        self.model_pool[self.active_model].load_state_dict(self.network.state_dict())
-
-        # compute NQM on current task and save/update threshold being the 90% boundary of NQM values for this task after training
-        nqm_list_of_current_task = self.compute_nqm_of_task(task, self.active_model)
-        nqm_list_of_current_task.sort()
-        task_threshold = nqm_list_of_current_task[int(len(nqm_list_of_current_task)*0.9)]
-        self.NQM_thresh_dict[self.active_model] = task_threshold
-
-        print("model pool log:")
+        print("model pool log from before training:")
         print(self.model_pool_log)
-        
+
         print(f"-- NQM thresh dict: {self.NQM_thresh_dict}")
         print(f"-- current model pool: {self.model_pool.keys()}, active task: {self.active_model}")
 
@@ -500,6 +593,24 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
         # -- Before returning, reset the self.epoch variable, otherwise the following task will only be trained for the last epoch -- #
         self.epoch = 0
 
+        self.empty_metrics_lists()
+
+        # -- Return the result -- #
+        return ret
+
+
+    def print_model_pool_log(self):
+        maybe_mkdir_p(self.output_folder)
+        timestamp = datetime.now()
+        log_file_name = join(self.output_folder, "model_pool_log_%d_%d_%d_%02.0d_%02.0d_%02.0d.txt" %
+                             (timestamp.year, timestamp.month, timestamp.day, timestamp.hour, timestamp.minute,
+                              timestamp.second))
+        with open(log_file_name, 'w') as f:
+            f.write(self.model_pool_log)
+
+
+    def empty_metrics_lists(self):
+        self.epoch = 0
         # -- Empty the lists that are tracking losses etc., since this will lead to conflicts in additional tasks durig plotting -- #
         # -- Do not worry about it, the right data is stored during checkpoints and will be restored as well, but after -- #
         # -- a task is finished and before the next one starts, the data needs to be emptied otherwise its added to the lists. -- #
@@ -509,16 +620,12 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
         self.all_val_eval_metrics = []
         self.validation_results = dict()
 
-
-        # -- Return the result -- #
-        return ret
-
     def activate_model(self, model_key):
         self.model_pool[self.active_model].load_state_dict(self.network.state_dict())
         self.active_model = model_key
         self.network.load_state_dict(self.model_pool[model_key].state_dict())
     
-    def compute_nqm_of_task(self, evaluate_on, model, include_training_data=False):
+    def compute_nqm_of_task(self, evaluate_on, model, split_key="val"):
         
         #print(f"-----------   output folder: {self.output_folder}")
 
@@ -572,20 +679,12 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
         ground_truth_folder: str = os.path.join(os.environ['nnUNet_raw_data_base'], 'nnUNet_raw_data', evaluate_on, 'labelsTr')
         
 
-        if include_training_data:
-            cases_to_perform_evaluation_on = []
-            for s in splits_final[self.fold].keys():
-                cases_to_perform_evaluation_on.extend(splits_final[self.fold][s])
-        else:
-            cases_to_perform_evaluation_on = []
-            for s in splits_final[self.fold].keys():
-                if s != 'train':
-                    cases_to_perform_evaluation_on.extend(splits_final[self.fold][s])
+        cases_to_perform_evaluation_on = splits_final[self.fold][split_key]
 
         #print(f"splits_final: {splits_final[self.fold]}")
         #print("original training cases:", splits_final[self.fold]['train'])
         #print("performing validation on:", cases_to_perform_evaluation_on)
-        nqm_list_of_current_task = []
+        nqm_dict_of_current_task = {}
         for case in cases_to_perform_evaluation_on:
             file_name = case + ".nii.gz"
             #there must be a corresponding entry in inference_folder
@@ -604,10 +703,10 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
             stdd = stdd / ensemble.shape[0]
             stdd = np.sqrt(stdd)
             nqm_score = np.sum(stdd) / np.sum(mean)
-            nqm_list_of_current_task.append(nqm_score)
+            nqm_dict_of_current_task[case] = nqm_score
             #print("NQM Score: ", nqm_score)
         
-        return nqm_list_of_current_task
+        return nqm_dict_of_current_task
 
     def _build_output_path(self, output_folder, meta_data=False):
         r"""This function is used to build the output folder path during training when a new task is started.
@@ -801,7 +900,17 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
                 if 'amp_grad_scaler' in checkpoint.keys():
                     self.amp_grad_scaler.load_state_dict(checkpoint['amp_grad_scaler'])
 
+        self.NQM_thresh_dict = checkpoint['nqm_thresh_dict']
+        print(f"nqm dict: {self.NQM_thresh_dict}")
+        
+        #for key in ["Task198_T1threesplit", "Task298_T2threesplit", "Task398_T3threesplit", "Task498_T4threesplit", "Task598_T5threesplit"]:
+        for key in self.NQM_thresh_dict.keys():
+            print(f"added {key} to model_pool")
+            self.model_pool[key] = copy.deepcopy(self.network)
+
         self.model_pool.load_state_dict(new_state_dict)
+        print(f"model pool keys: {self.model_pool.keys()}")
+        
         self.epoch = checkpoint['epoch']
         if train:
             optimizer_state_dict = checkpoint['optimizer_state_dict']
@@ -838,9 +947,8 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
 
         self._maybe_init_amp()
 
-        self.NQM_thresh_dict = checkpoint['nqm_thresh_dict']
 
-        self.active_model = next(iter(mydict.values()))
+        self.active_model = next(iter(self.NQM_thresh_dict.keys()))
         self.network = copy.deepcopy(self.model_pool[self.active_model])
         self.network.load_state_dict(self.model_pool[self.active_model].state_dict())
 
@@ -913,16 +1021,20 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
         """
         
         """ modified to choose best model from model pool for prediction"""
+
         backup_model = self.active_model
+        #self.activate_model("Task598_T5threesplit")
+        #print(f"   fixed model for inference: Task198_T1threesplit")
         if not self.fix_model_for_inference:
             nqm_newtask_dict = dict()
             for key in self.model_pool:
                 print(f"compute nqm for model {key} for inference")
                 ensemble = []
-                for i in range(10):
-                    # predict sample
-                    ensemble.append(super().predict_preprocessed_data_return_seg_and_softmax(data, do_mirroring=do_mirroring, mirror_axes=mirror_axes)[1])
-                    pass
+                with suppress_stdout():
+                    for i in range(10):
+                        tmp_softmax = super().predict_preprocessed_data_return_seg_and_softmax(data, do_mirroring=do_mirroring, mirror_axes=mirror_axes)[1]
+                        ensemble.append(tmp_softmax.argmax(0))
+
                 # compute NQM from 10 predictions
                 ensemble = np.stack(ensemble, axis=0)
                 mean = np.sum(ensemble, axis=0) / ensemble.shape[0]
@@ -935,12 +1047,14 @@ class nnUNetTrainerODExNCA(nnUNetTrainerV2):
                 stdd = np.sqrt(stdd)
                 nqm_score = np.sum(stdd) / np.sum(mean)
                 nqm_newtask_dict[key] = nqm_score
-            
-            for key in nqm_newtask_dict:
-                nqm_newtask_dict[key] = nqm_newtask_dict[key] / self.NQM_thresh_dict[key]
+
+            print(f"nqm_newtask_dict: {nqm_newtask_dict}")           
+            #for key in nqm_newtask_dict:
+            #    nqm_newtask_dict[key] = nqm_newtask_dict[key] / self.NQM_thresh_dict[key]
             
             best_model = min(nqm_newtask_dict, key=nqm_newtask_dict.get)
             #choose best model from pool
+            print(f"-- choosing model for inference: {best_model}, nqm_newtask_dict: {nqm_newtask_dict}")
             self.activate_model(best_model)
 
         ret = super().predict_preprocessed_data_return_seg_and_softmax(data, do_mirroring=do_mirroring,
